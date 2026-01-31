@@ -8,7 +8,8 @@ export declare enum Direction {
 }
 export declare enum CellType {
 	None = 0,
-	Square = 1
+	Square = 1,// 色分けが必要なブロック
+	Star = 2
 }
 export declare enum EdgeType {
 	Normal = 0,

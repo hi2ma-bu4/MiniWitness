@@ -48,9 +48,9 @@ export class PuzzleValidator {
 			return { isValid: false, errorReason: "Missed hexagon constraint" };
 		}
 
-		// 4. ルール検証: Squares (色分け)
-		if (!this.checkSquareConstraint(grid, path)) {
-			return { isValid: false, errorReason: "Color segregation failed" };
+		// 4. ルール検証: セル制約 (Squares & Stars)
+		if (!this.checkCellConstraints(grid, path)) {
+			return { isValid: false, errorReason: "Cell constraints failed" };
 		}
 
 		return { isValid: true };
@@ -98,24 +98,34 @@ export class PuzzleValidator {
 		return true;
 	}
 
-	private checkSquareConstraint(grid: Grid, path: Point[]): boolean {
-		// Generatorと同じロジックで領域分割を行う
-		// ※GeneratorクラスのcalculateRegionsと共通化すべきだが、ここではValidator内に自己完結させる
+	private checkCellConstraints(grid: Grid, path: Point[]): boolean {
 		const regions = this.calculateRegions(grid, path);
 
 		for (const region of regions) {
-			let firstColor: number | null = null;
+			const colorCounts = new Map<number, number>();
+			const starColors = new Set<number>();
+			const squareColors = new Set<number>();
 
 			for (const cell of region) {
 				const constraint = grid.cells[cell.y][cell.x];
+				if (constraint.type === CellType.None) continue;
+
+				const color = constraint.color;
+				colorCounts.set(color, (colorCounts.get(color) || 0) + 1);
+
 				if (constraint.type === CellType.Square) {
-					if (firstColor === null) {
-						firstColor = constraint.color;
-					} else if (firstColor !== constraint.color) {
-						// 同じ領域内に異なる色が混ざっている -> 違反
-						return false;
-					}
+					squareColors.add(color);
+				} else if (constraint.type === CellType.Star) {
+					starColors.add(color);
 				}
+			}
+
+			// Squares: All squares in a region must be the same color
+			if (squareColors.size > 1) return false;
+
+			// Stars: For each color that has a star, there must be exactly 2 marks of that color
+			for (const color of starColors) {
+				if (colorCounts.get(color) !== 2) return false;
 			}
 		}
 		return true;

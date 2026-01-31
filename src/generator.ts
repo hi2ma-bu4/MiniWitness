@@ -117,15 +117,22 @@ export class PuzzleGenerator {
 		// このパスが唯一の解（あるいは正当な解の一つ）になるように強制する。
 
 		const regions = this.calculateRegions(grid, path);
-		if (regions.length >= 2) {
-			// 単純化のため、隣接する2つの主要な領域を選んで、それぞれ別の色にする
-			const colorA = Color.Black;
-			const colorB = Color.White;
+		const availableColors = [Color.Black, Color.White, Color.Red, Color.Blue];
 
-			// Region 0 には黒、Region 1 には白をランダムに配置
-			// 全てのセルに置くとうるさいので、complexityに応じて間引く
-			this.fillRegionWithColor(grid, regions[0], colorA, complexity);
-			this.fillRegionWithColor(grid, regions[1], colorB, complexity);
+		for (let i = 0; i < regions.length; i++) {
+			const region = regions[i];
+			const color = availableColors[i % availableColors.length];
+
+			// 複雑度に応じて制約を配置
+			if (Math.random() < 0.3 + complexity * 0.4) {
+				if (Math.random() < 0.3) {
+					// トゲ (Star) をペアで配置
+					this.fillRegionWithStarPairs(grid, region, color);
+				} else {
+					// 四角 (Square) を配置
+					this.fillRegionWithColor(grid, region, color, complexity);
+				}
+			}
 		}
 	}
 
@@ -203,10 +210,23 @@ export class PuzzleGenerator {
 
 	private fillRegionWithColor(grid: Grid, cells: Point[], color: Color, density: number) {
 		for (const cell of cells) {
-			if (Math.random() < density) {
+			if (Math.random() < density * 0.7) {
 				grid.cells[cell.y][cell.x].type = CellType.Square;
 				grid.cells[cell.y][cell.x].color = color;
 			}
+		}
+	}
+
+	private fillRegionWithStarPairs(grid: Grid, cells: Point[], color: Color) {
+		if (cells.length < 2) return;
+
+		// ランダムに2箇所選んでペアにする
+		const shuffled = [...cells];
+		this.shuffleArray(shuffled);
+
+		for (let i = 0; i < 2; i++) {
+			grid.cells[shuffled[i].y][shuffled[i].x].type = CellType.Star;
+			grid.cells[shuffled[i].y][shuffled[i].x].color = color;
 		}
 	}
 

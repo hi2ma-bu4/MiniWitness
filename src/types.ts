@@ -10,7 +10,7 @@ export enum Direction {
 export enum CellType {
 	None = 0,
 	Square = 1, // 色分けが必要なブロック
-	// 必要に応じてStar, Tetris型などを追加可能
+	Star = 2, // 同じ色のペア作成 (トゲ)
 }
 
 export enum EdgeType {
