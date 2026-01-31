@@ -9,6 +9,7 @@ var Direction = /* @__PURE__ */ ((Direction2) => {
 var CellType = /* @__PURE__ */ ((CellType2) => {
   CellType2[CellType2["None"] = 0] = "None";
   CellType2[CellType2["Square"] = 1] = "Square";
+  CellType2[CellType2["Star"] = 2] = "Star";
   return CellType2;
 })(CellType || {});
 var EdgeType = /* @__PURE__ */ ((EdgeType2) => {
@@ -154,11 +155,17 @@ var PuzzleGenerator = class {
       }
     }
     const regions = this.calculateRegions(grid, path);
-    if (regions.length >= 2) {
-      const colorA = 1 /* Black */;
-      const colorB = 2 /* White */;
-      this.fillRegionWithColor(grid, regions[0], colorA, complexity);
-      this.fillRegionWithColor(grid, regions[1], colorB, complexity);
+    const availableColors = [1 /* Black */, 2 /* White */, 3 /* Red */, 4 /* Blue */];
+    for (let i = 0; i < regions.length; i++) {
+      const region = regions[i];
+      const color = availableColors[i % availableColors.length];
+      if (Math.random() < 0.3 + complexity * 0.4) {
+        if (Math.random() < 0.3) {
+          this.fillRegionWithStarPairs(grid, region, color);
+        } else {
+          this.fillRegionWithColor(grid, region, color, complexity);
+        }
+      }
     }
   }
   /**
@@ -217,10 +224,19 @@ var PuzzleGenerator = class {
   }
   fillRegionWithColor(grid, cells, color, density) {
     for (const cell of cells) {
-      if (Math.random() < density) {
+      if (Math.random() < density * 0.7) {
         grid.cells[cell.y][cell.x].type = 1 /* Square */;
         grid.cells[cell.y][cell.x].color = color;
       }
+    }
+  }
+  fillRegionWithStarPairs(grid, cells, color) {
+    if (cells.length < 2) return;
+    const shuffled = [...cells];
+    this.shuffleArray(shuffled);
+    for (let i = 0; i < 2; i++) {
+      grid.cells[shuffled[i].y][shuffled[i].x].type = 2 /* Star */;
+      grid.cells[shuffled[i].y][shuffled[i].x].color = color;
     }
   }
   setEdgeHexagon(grid, p1, p2) {
@@ -270,8 +286,8 @@ var PuzzleValidator = class {
     if (!this.checkHexagonConstraint(grid, path)) {
       return { isValid: false, errorReason: "Missed hexagon constraint" };
     }
-    if (!this.checkSquareConstraint(grid, path)) {
-      return { isValid: false, errorReason: "Color segregation failed" };
+    if (!this.checkCellConstraints(grid, path)) {
+      return { isValid: false, errorReason: "Cell constraints failed" };
     }
     return { isValid: true };
   }
@@ -309,18 +325,25 @@ var PuzzleValidator = class {
     }
     return true;
   }
-  checkSquareConstraint(grid, path) {
+  checkCellConstraints(grid, path) {
     const regions = this.calculateRegions(grid, path);
     for (const region of regions) {
-      let firstColor = null;
+      const colorCounts = /* @__PURE__ */ new Map();
+      const starColors = /* @__PURE__ */ new Set();
+      const squareColors = /* @__PURE__ */ new Set();
       for (const cell of region) {
         const constraint = grid.cells[cell.y][cell.x];
+        if (constraint.type === 0 /* None */) continue;
+        const color = constraint.color;
+        colorCounts.set(color, (colorCounts.get(color) || 0) + 1);
         if (constraint.type === 1 /* Square */) {
-          if (firstColor === null) {
-            firstColor = constraint.color;
-          } else if (firstColor !== constraint.color) {
-            return false;
-          }
+          squareColors.add(color);
+        } else if (constraint.type === 2 /* Star */) {
+          starColors.add(color);
+        }
+        if (squareColors.size > 1) return false;
+        for (const color2 of starColors) {
+          if (colorCounts.get(color2) !== 2) return false;
         }
       }
     }
@@ -356,7 +379,8 @@ var PuzzleValidator = class {
             if (n.nx >= 0 && n.nx < grid.cols && n.ny >= 0 && n.ny < grid.rows) {
               if (!visitedCells.has(`${n.nx},${n.ny}`)) {
                 const edgeKey = this.getEdgeKey(n.p1, n.p2);
-                if (!pathEdges.has(edgeKey)) {
+                const isBroken = this.isBrokenEdge(grid, n.p1, n.p2);
+                if (!pathEdges.has(edgeKey) && !isBroken) {
                   visitedCells.add(`${n.nx},${n.ny}`);
                   queue.push({ x: n.nx, y: n.ny });
                 }

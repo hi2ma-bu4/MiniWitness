@@ -348,11 +348,15 @@ class WitnessGame {
 		for (let r = 0; r < this.puzzle.rows; r++) {
 			for (let c = 0; c < this.puzzle.cols; c++) {
 				const cell = this.puzzle.cells[r][c];
+				const pos = this.getCanvasCoords(c + 0.5, r + 0.5);
 				if (cell.type === 1) {
-					const pos = this.getCanvasCoords(c + 0.5, r + 0.5);
+					// Square
 					const size = 20;
 					ctx.fillStyle = this.getColorCode(cell.color);
 					ctx.fillRect(pos.x - size / 2, pos.y - size / 2, size, size);
+				} else if (cell.type === 2) {
+					// Star (8-pointed sunburst)
+					this.drawStar(ctx, pos.x, pos.y, 7, 14, 8, cell.color);
 				}
 			}
 		}
@@ -466,6 +470,21 @@ class WitnessGame {
 		ctx.fill();
 	}
 
+	drawStar(ctx, x, y, innerRadius, outerRadius, points, colorEnum) {
+		ctx.fillStyle = this.getColorCode(colorEnum);
+		ctx.beginPath();
+		for (let i = 0; i < points * 2; i++) {
+			const radius = i % 2 === 0 ? outerRadius : innerRadius;
+			const angle = (Math.PI / points) * i;
+			const px = x + radius * Math.cos(angle);
+			const py = y + radius * Math.sin(angle);
+			if (i === 0) ctx.moveTo(px, py);
+			else ctx.lineTo(px, py);
+		}
+		ctx.closePath();
+		ctx.fill();
+	}
+
 	getColorCode(colorEnum) {
 		switch (colorEnum) {
 			case 1:
@@ -482,4 +501,4 @@ class WitnessGame {
 	}
 }
 
-new WitnessGame();
+window.witnessGame = new WitnessGame();
