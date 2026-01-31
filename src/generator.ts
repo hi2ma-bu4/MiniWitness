@@ -151,16 +151,6 @@ export class PuzzleGenerator {
 			pathEdges.add(k);
 		}
 
-		const isPathEdge = (c1: Point, c2: Point): boolean => {
-			// セル座標からグリッド頂点座標へ変換してチェックが必要
-			// セル (cx, cy) の周囲のエッジ:
-			// Top: (cx, cy) - (cx+1, cy)
-			// Bottom: (cx, cy+1) - (cx+1, cy+1)
-			// Left: (cx, cy) - (cx, cy+1)
-			// Right: (cx+1, cy) - (cx+1, cy+1)
-			return false; // 下記のfloodFill内で直接実装するためここではダミー
-		};
-
 		for (let r = 0; r < grid.rows; r++) {
 			for (let c = 0; c < grid.cols; c++) {
 				if (visitedCells.has(`${c},${r}`)) continue;

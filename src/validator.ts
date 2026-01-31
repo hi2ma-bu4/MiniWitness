@@ -121,11 +121,10 @@ export class PuzzleValidator {
 				}
 				// Squares: All squares in a region must be the same color
 				if (squareColors.size > 1) return false;
-
-				// Stars: For each color that has a star, there must be exactly 2 marks of that color
-				for (const color of starColors) {
-					if (colorCounts.get(color) !== 2) return false;
-				}
+			}
+			// Stars: For each color that has a star, there must be exactly 2 marks of that color
+			for (const color of starColors) {
+				if (colorCounts.get(color) !== 2) return false;
 			}
 		}
 		return true;

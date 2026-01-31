@@ -181,9 +181,6 @@ var PuzzleGenerator = class {
       const k = p1.x < p2.x || p1.y < p2.y ? `${p1.x},${p1.y}-${p2.x},${p2.y}` : `${p2.x},${p2.y}-${p1.x},${p1.y}`;
       pathEdges.add(k);
     }
-    const isPathEdge = (c1, c2) => {
-      return false;
-    };
     for (let r = 0; r < grid.rows; r++) {
       for (let c = 0; c < grid.cols; c++) {
         if (visitedCells.has(`${c},${r}`)) continue;
@@ -342,9 +339,9 @@ var PuzzleValidator = class {
           starColors.add(color);
         }
         if (squareColors.size > 1) return false;
-        for (const color2 of starColors) {
-          if (colorCounts.get(color2) !== 2) return false;
-        }
+      }
+      for (const color of starColors) {
+        if (colorCounts.get(color) !== 2) return false;
       }
     }
     return true;
