@@ -2,18 +2,42 @@
 <html lang="ja">
 <head>
 	<meta charset="UTF-8">
-	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 	<title>Mini Witness</title>
 
 	<link rel="stylesheet" href="./style.css">
 	<script type="module" src="./main.js"></script>
 </head>
 <body>
-	<div id="game-container"></div>
+	<div id="ui-overlay">
+		<h1>Mini Witness</h1>
+		<div class="controls">
+			<label for="size-select">Grid Size:</label>
+			<select id="size-select">
+				<option value="2">2x2</option>
+				<option value="3">3x3</option>
+				<option value="4" selected>4x4</option>
+				<option value="5">5x5</option>
+				<option value="6">6x6</option>
+				<option value="7">7x7</option>
+				<option value="8">8x8</option>
+			</select>
+			<button id="new-puzzle-btn">New Puzzle</button>
+		</div>
+		<div id="status-message">Draw a path from the large circle to the exit!</div>
+	</div>
+
+	<div id="game-container">
+		<canvas id="game-canvas"></canvas>
+	</div>
 
 	<div class="instructions">
-		<p><strong>操作方法:</strong> 丸い「始点」をクリックしてドラッグ、またはクリック後にマウスを動かして線を引きます。</p>
-		<p><small>※全てのライブラリファイルがこのHTMLと同じフォルダにある必要があります。</small></p>
+		<p><strong>操作方法:</strong> 始点（大きな丸）からドラッグして線を引き、出口まで繋げてください。</p>
+		<p>ルール:</p>
+		<ul style="text-align: left; display: inline-block;">
+			<li>同じ色の四角形は同じ領域に、違う色は別の領域に分ける必要があります。</li>
+			<li>辺にある六角形は必ず通らなければなりません。</li>
+		</ul>
 	</div>
 </body>
 </html>

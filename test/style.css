@@ -1,21 +1,85 @@
 body {
-    background-color: #222;
-    color: white;
+    background-color: #1a1a1a;
+    color: #e0e0e0;
     display: flex;
     flex-direction: column;
     align-items: center;
-    font-family: sans-serif;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    margin: 0;
+    padding: 20px;
+    touch-action: none;
+}
+
+#ui-overlay {
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+h1 {
+    margin: 10px 0;
+    font-weight: 300;
+    letter-spacing: 2px;
+}
+
+.controls {
+    margin-bottom: 15px;
+}
+
+select,
+button {
+    background: #333;
+    color: white;
+    border: 1px solid #555;
+    padding: 8px 15px;
+    border-radius: 4px;
+    font-size: 16px;
+    cursor: pointer;
+}
+
+button:hover {
+    background: #444;
+}
+
+#status-message {
+    font-size: 18px;
+    height: 1.5em;
+    color: #aaa;
 }
 
 #game-container {
-    position: relative;
-    margin-top: 50px;
+    background-color: #222;
+    border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    padding: 20px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+#game-canvas {
+    cursor: crosshair;
+    display: block;
 }
 
 .instructions {
-    margin-top: 20px;
+    margin-top: 30px;
+    max-width: 600px;
     text-align: center;
-    background: #333;
-    padding: 15px;
+    background: #2a2a2a;
+    padding: 20px;
     border-radius: 8px;
+    border: 1px solid #333;
+    line-height: 1.6;
+}
+
+.instructions strong {
+    color: #4db8ff;
+}
+
+ul {
+    padding-left: 20px;
+}
+
+li {
+    margin-bottom: 5px;
 }
