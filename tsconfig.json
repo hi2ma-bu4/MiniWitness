@@ -1,0 +1,17 @@
+{
+    "compilerOptions": {
+        "declaration": true,
+        "target": "ES2024",
+        "module": "ESNext",
+        "moduleResolution": "bundler",
+        "skipDefaultLibCheck": true,
+        "strict": true
+    },
+    "files": [
+        "src/index.ts"
+    ],
+    "include": [
+        "src/**/*.ts",
+        "pkg/**/*.js"
+    ]
+}
