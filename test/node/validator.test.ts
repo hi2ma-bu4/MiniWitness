@@ -1,6 +1,6 @@
 import assert from "node:assert";
 import { test } from "node:test";
-import { CellType, Color, NodeType, PuzzleData, SolutionPath, WitnessCore } from "../../dist/MiniWitness.js";
+import { CellType, Color, Grid, NodeType, PuzzleData, PuzzleValidator, SolutionPath, WitnessCore } from "../../dist/MiniWitness.js";
 
 const core = new WitnessCore();
 
@@ -71,6 +71,95 @@ test("Star validation - stars of different colors in same region", () => {
 	puzzle.cells[0][3] = { type: CellType.Star, color: Color.White };
 	const result = core.validateSolution(puzzle, getPath(4));
 	assert.strictEqual(result.isValid, true, `Should be valid: ${result.errorReason}`);
+});
+
+test("Solution counter - simple unique solution", () => {
+	const validator = new PuzzleValidator();
+	const puzzle = createBasicGrid(1, 1);
+	// 1x1 grid, start at (0,1), end at (1,0)
+	// Paths:
+	// 1. (0,1) -> (0,0) -> (1,0)
+	// 2. (0,1) -> (1,1) -> (1,0)
+
+	// Add hexagon to (0,1)-(0,0)
+	puzzle.vEdges[0][0].type = 1; // Hexagon
+
+	const grid = Grid.fromData(puzzle);
+	const count = validator.countSolutions(grid);
+	assert.strictEqual(count, 1, "Should have exactly 1 solution");
+});
+
+test("Solution counter - multiple solutions", () => {
+	const validator = new PuzzleValidator();
+	const puzzle = createBasicGrid(1, 1);
+	// No constraints, 1x1 grid has 2 paths
+	const grid = Grid.fromData(puzzle);
+	const count = validator.countSolutions(grid);
+	assert.strictEqual(count, 2, "Should have exactly 2 solutions");
+});
+
+test("Solution counter - 2x2 grid with no constraints", () => {
+	const validator = new PuzzleValidator();
+	const puzzle = createBasicGrid(2, 2);
+	const grid = Grid.fromData(puzzle);
+	const count = validator.countSolutions(grid);
+	// 2x2 grid (3x3 nodes), start (0,2), end (2,0)
+	// There should be 6 paths of length 4 (Manhattan distance), but more paths possible with meandering.
+	// Actually, Witness paths can be long.
+	assert.ok(count > 6, `Should have many solutions, found: ${count}`);
+});
+
+test("Star validation - multiple regions with same color stars", () => {
+	// 2x2 grid, path splits it in half horizontally
+	const puzzle = createBasicGrid(2, 2);
+	// Path: (0,1) -> (1,1) -> (2,1)
+	const path: SolutionPath = {
+		points: [
+			{ x: 0, y: 2 },
+			{ x: 0, y: 1 },
+			{ x: 1, y: 1 },
+			{ x: 2, y: 1 },
+			{ x: 2, y: 0 },
+		],
+	};
+	// Region Top: (0,0), (1,0)
+	// Region Bottom: (0,1), (1,1)
+
+	// Add 2 black stars to Top region
+	puzzle.cells[0][0] = { type: CellType.Star, color: Color.Black };
+	puzzle.cells[0][1] = { type: CellType.Star, color: Color.Black };
+
+	// Add 2 black stars to Bottom region
+	puzzle.cells[1][0] = { type: CellType.Star, color: Color.Black };
+	puzzle.cells[1][1] = { type: CellType.Star, color: Color.Black };
+
+	const result = core.validateSolution(puzzle, path);
+	// Total 4 black stars in puzzle, but 2 in each region. Should be VALID.
+	assert.strictEqual(result.isValid, true, `Should be valid: 4 stars total split in 2 regions`);
+});
+
+test("Star validation - 7 stars and 1 square total in puzzle", () => {
+	const puzzle = createBasicGrid(1, 8);
+	// Split into 4 regions of 2 cells each using broken edges
+	puzzle.vEdges[0][2].type = 2;
+	puzzle.vEdges[0][4].type = 2;
+	puzzle.vEdges[0][6].type = 2;
+
+	// Region 0: 2 stars
+	puzzle.cells[0][0] = { type: CellType.Star, color: Color.Black };
+	puzzle.cells[0][1] = { type: CellType.Star, color: Color.Black };
+	// Region 1: 2 stars
+	puzzle.cells[0][2] = { type: CellType.Star, color: Color.Black };
+	puzzle.cells[0][3] = { type: CellType.Star, color: Color.Black };
+	// Region 2: 2 stars
+	puzzle.cells[0][4] = { type: CellType.Star, color: Color.Black };
+	puzzle.cells[0][5] = { type: CellType.Star, color: Color.Black };
+	// Region 3: 1 star + 1 square
+	puzzle.cells[0][6] = { type: CellType.Star, color: Color.Black };
+	puzzle.cells[0][7] = { type: CellType.Square, color: Color.Black };
+
+	const result = core.validateSolution(puzzle, getPath(8));
+	assert.strictEqual(result.isValid, true, `Should be valid: 7 stars and 1 square split in 4 regions`);
 });
 
 test("Square validation - different colors in same region", () => {

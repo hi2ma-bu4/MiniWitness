@@ -180,4 +180,64 @@ export class PuzzleValidator {
 	private getEdgeKey(p1: Point, p2: Point): string {
 		return p1.x < p2.x || (p1.x === p2.x && p1.y < p2.y) ? `${p1.x},${p1.y}-${p2.x},${p2.y}` : `${p2.x},${p2.y}-${p1.x},${p1.y}`;
 	}
+
+	/**
+	 * 全ての有効な解答パスの個数をカウントする
+	 */
+	public countSolutions(grid: Grid): number {
+		const startNodes: Point[] = [];
+		for (let r = 0; r <= grid.rows; r++) {
+			for (let c = 0; c <= grid.cols; c++) {
+				if (grid.nodes[r][c].type === NodeType.Start) {
+					startNodes.push({ x: c, y: r });
+				}
+			}
+		}
+
+		let totalSolutions = 0;
+		for (const start of startNodes) {
+			totalSolutions += this.findPathsRecursively(grid, start, new Set<string>(), []);
+		}
+		return totalSolutions;
+	}
+
+	private findPathsRecursively(grid: Grid, curr: Point, visited: Set<string>, path: Point[]): number {
+		const key = `${curr.x},${curr.y}`;
+		visited.add(key);
+		path.push(curr);
+
+		let count = 0;
+
+		// 終点ノードに到達した場合
+		if (grid.nodes[curr.y][curr.x].type === NodeType.End) {
+			const result = this.validate(grid, { points: path });
+			if (result.isValid) {
+				count = 1;
+			}
+			// Note: 終点に到達しても、そこからさらに移動して別の終点を目指すことは The Witness では稀なので、
+			// ここで探索を打ち切る（実際にはエッジの先が出口なので戻れない）
+		} else {
+			const directions = [
+				{ dx: 0, dy: -1 },
+				{ dx: 1, dy: 0 },
+				{ dx: 0, dy: 1 },
+				{ dx: -1, dy: 0 },
+			];
+
+			for (const d of directions) {
+				const next = { x: curr.x + d.dx, y: curr.y + d.dy };
+				if (next.x >= 0 && next.x <= grid.cols && next.y >= 0 && next.y <= grid.rows) {
+					if (!visited.has(`${next.x},${next.y}`)) {
+						if (!this.isBrokenEdge(grid, curr, next)) {
+							count += this.findPathsRecursively(grid, next, visited, path);
+						}
+					}
+				}
+			}
+		}
+
+		path.pop();
+		visited.delete(key);
+		return count;
+	}
 }

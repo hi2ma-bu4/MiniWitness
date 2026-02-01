@@ -76,3 +76,14 @@ export interface ValidationResult {
 	isValid: boolean;
 	errorReason?: string;
 }
+
+/**
+ * パズル生成のオプション
+ */
+export interface GenerationOptions {
+	useHexagons?: boolean;
+	useSquares?: boolean;
+	useStars?: boolean;
+	complexity?: number; // 0.0 - 1.0 (制約の密度)
+	difficulty?: number; // 0.0 (Easy) - 1.0 (Hard) (解パターンの数に基づく)
+}

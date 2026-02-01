@@ -66,13 +66,25 @@ class WitnessGame {
 	startNewGame() {
 		this.cancelFade();
 		const size = parseInt(this.sizeSelect.value);
-		this.puzzle = this.core.createPuzzle(size, size, 0.6);
-		this.path = [];
-		this.isDrawing = false;
+		const options = {
+			useHexagons: document.getElementById("use-hexagons").checked,
+			useSquares: document.getElementById("use-squares").checked,
+			useStars: document.getElementById("use-stars").checked,
+			complexity: parseFloat(document.getElementById("complexity-slider").value),
+			difficulty: parseFloat(document.getElementById("difficulty-slider").value),
+		};
 
-		this.resizeCanvas();
-		this.updateStatus("New puzzle generated!");
-		this.draw();
+		this.updateStatus("Generating puzzle... (Searching for optimal difficulty)");
+		// Use setTimeout to allow UI to update before heavy generation
+		setTimeout(() => {
+			this.puzzle = this.core.createPuzzle(size, size, options);
+			this.path = [];
+			this.isDrawing = false;
+
+			this.resizeCanvas();
+			this.updateStatus("New puzzle generated!");
+			this.draw();
+		}, 10);
 	}
 
 	resizeCanvas() {
@@ -356,7 +368,7 @@ class WitnessGame {
 					ctx.fillRect(pos.x - size / 2, pos.y - size / 2, size, size);
 				} else if (cell.type === 2) {
 					// Star (8-pointed sunburst)
-					this.drawStar(ctx, pos.x, pos.y, 7, 14, 8, cell.color);
+					this.drawStar(ctx, pos.x, pos.y, 10, 14, 8, cell.color);
 				}
 			}
 		}

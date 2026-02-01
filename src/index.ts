@@ -1,10 +1,14 @@
 // index.ts
 import { PuzzleGenerator } from "./generator";
 import { Grid } from "./grid";
-import { PuzzleData, SolutionPath, ValidationResult } from "./types";
+import type { GenerationOptions, PuzzleData, SolutionPath, ValidationResult } from "./types";
 import { PuzzleValidator } from "./validator";
 
 // ライブラリのファサードクラス
+export { PuzzleGenerator } from "./generator";
+export { Grid } from "./grid";
+export { PuzzleValidator } from "./validator";
+
 export class WitnessCore {
 	private generator: PuzzleGenerator;
 	private validator: PuzzleValidator;
@@ -17,8 +21,8 @@ export class WitnessCore {
 	/**
 	 * 新しいパズルを生成してデータを返す
 	 */
-	public createPuzzle(rows: number, cols: number, complexity: number = 0.5): PuzzleData {
-		const grid = this.generator.generate(rows, cols, complexity);
+	public createPuzzle(rows: number, cols: number, options: GenerationOptions = {}): PuzzleData {
+		const grid = this.generator.generate(rows, cols, options);
 		return grid.export();
 	}
 

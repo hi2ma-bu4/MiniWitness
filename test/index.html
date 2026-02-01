@@ -12,16 +12,31 @@
 	<div id="ui-overlay">
 		<h1>Mini Witness</h1>
 		<div class="controls">
-			<label for="size-select">Grid Size:</label>
-			<select id="size-select">
-				<option value="2">2x2</option>
-				<option value="3">3x3</option>
-				<option value="4" selected>4x4</option>
-				<option value="5">5x5</option>
-				<option value="6">6x6</option>
-				<option value="7">7x7</option>
-				<option value="8">8x8</option>
-			</select>
+			<div class="control-group">
+				<label for="size-select">Grid Size:</label>
+				<select id="size-select">
+					<option value="2">2x2</option>
+					<option value="3">3x3</option>
+					<option value="4" selected>4x4</option>
+					<option value="5">5x5</option>
+					<option value="6">6x6</option>
+					<option value="7">7x7</option>
+					<option value="8">8x8</option>
+				</select>
+			</div>
+			<div class="control-group">
+				<label><input type="checkbox" id="use-hexagons" checked> Hexagons</label>
+				<label><input type="checkbox" id="use-squares" checked> Squares</label>
+				<label><input type="checkbox" id="use-stars" checked> Stars</label>
+			</div>
+			<div class="control-group">
+				<label for="complexity-slider">Complexity (Constraint Density):</label>
+				<input type="range" id="complexity-slider" min="0" max="1" step="0.1" value="0.6">
+			</div>
+			<div class="control-group">
+				<label for="difficulty-slider">Difficulty (Hardest at 1.0):</label>
+				<input type="range" id="difficulty-slider" min="0" max="1" step="0.1" value="0.8">
+			</div>
 			<button id="new-puzzle-btn">New Puzzle</button>
 		</div>
 		<div id="status-message">Draw a path from the large circle to the exit!</div>
@@ -35,8 +50,9 @@
 		<p><strong>操作方法:</strong> 始点（大きな丸）からドラッグして線を引き、出口まで繋げてください。</p>
 		<p>ルール:</p>
 		<ul style="text-align: left; display: inline-block;">
-			<li>同じ色の四角形は同じ領域に、違う色は別の領域に分ける必要があります。</li>
 			<li>辺にある六角形は必ず通らなければなりません。</li>
+			<li>同じ色の四角形は同じ領域に、違う色は別の領域に分ける必要があります。</li>
+			<li>トゲ(星)がある色は、その領域内に同じ色のマーク(四角や星)が合計でちょうど2個なければなりません。</li>
 		</ul>
 	</div>
 </body>

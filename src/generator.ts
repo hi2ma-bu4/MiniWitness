@@ -1,15 +1,55 @@
 // generator.ts
 import { Grid } from "./grid";
-import { CellType, Color, EdgeType, NodeType, Point } from "./types";
+import { CellType, Color, EdgeType, type GenerationOptions, NodeType, type Point } from "./types";
+import { PuzzleValidator } from "./validator";
 
 export class PuzzleGenerator {
 	/**
 	 * パズルを生成する
 	 * @param rows 行数
 	 * @param cols 列数
-	 * @param complexity 複雑度 (0.0 - 1.0)
+	 * @param options 生成オプション
 	 */
-	public generate(rows: number, cols: number, complexity: number = 0.5): Grid {
+	public generate(rows: number, cols: number, options: GenerationOptions = {}): Grid {
+		const difficulty = options.difficulty ?? 0.5;
+		const validator = new PuzzleValidator();
+
+		let bestGrid: Grid | null = null;
+		let bestScore = Infinity;
+
+		// グリッドサイズに応じて試行回数を調整
+		const maxAttempts = rows * cols > 30 ? 3 : 10;
+
+		for (let attempt = 0; attempt < maxAttempts; attempt++) {
+			const grid = this.generateOnce(rows, cols, options);
+			const solutionCount = validator.countSolutions(grid);
+
+			// ユーザーの指定: 回答パターンが2に近いほど高難度。1パターンや多数パターンは低難度。
+			let score: number;
+			if (difficulty > 0.5) {
+				// 高難度を目指す場合: 2に近いほどスコアが良い(0に近い)
+				score = Math.abs(solutionCount - 2);
+			} else {
+				// 低難度を目指す場合: 1に近いか、または数が多いほど良い
+				if (solutionCount === 1) {
+					score = 0;
+				} else {
+					// 2から離れるほど(多いほど)スコアが良いとする
+					score = Math.max(0, 10 - solutionCount) / 10;
+				}
+			}
+
+			if (solutionCount > 0 && score < bestScore) {
+				bestScore = score;
+				bestGrid = grid;
+			}
+			if (bestScore === 0) break;
+		}
+
+		return bestGrid || this.generateOnce(rows, cols, options);
+	}
+
+	private generateOnce(rows: number, cols: number, options: GenerationOptions): Grid {
 		const grid = new Grid(rows, cols);
 
 		// 1. スタートとゴールの設定 (通常は左下スタート、右上ゴールなど)
@@ -24,7 +64,7 @@ export class PuzzleGenerator {
 
 		// 3. パスに基づいて制約（ルール）を配置
 		// パスが通過するエッジにヘキサゴンを置いたり、分割された領域に色を塗る
-		this.applyConstraintsBasedOnPath(grid, solutionPath, complexity);
+		this.applyConstraintsBasedOnPath(grid, solutionPath, options);
 
 		return grid;
 	}
@@ -98,37 +138,84 @@ export class PuzzleGenerator {
 		return candidates;
 	}
 
-	private applyConstraintsBasedOnPath(grid: Grid, path: Point[], complexity: number) {
-		// A. パス上のヘキサゴン (Hexagon) 配置
-		// パス上のエッジのいくつかを「通過必須」にする
-		for (let i = 0; i < path.length - 1; i++) {
-			const p1 = path[i];
-			const p2 = path[i + 1];
+	private applyConstraintsBasedOnPath(grid: Grid, path: Point[], options: GenerationOptions) {
+		const complexity = options.complexity ?? 0.5;
+		const useHexagons = options.useHexagons ?? true;
+		const useSquares = options.useSquares ?? true;
+		const useStars = options.useStars ?? true;
 
-			// 確率でヘキサゴンを配置
-			if (Math.random() < complexity * 0.4) {
-				this.setEdgeHexagon(grid, p1, p2);
+		// A. パス上のヘキサゴン (Hexagon) 配置
+		if (useHexagons) {
+			for (let i = 0; i < path.length - 1; i++) {
+				const p1 = path[i];
+				const p2 = path[i + 1];
+
+				if (Math.random() < complexity * 0.4) {
+					this.setEdgeHexagon(grid, p1, p2);
+				}
 			}
 		}
 
-		// B. 領域分離 (Squares)
-		// パスによって盤面は2つ以上の領域に分割されているはずである。
-		// パスを「境界線」と見なし、領域ごとに異なる色を割り当てることで、
-		// このパスが唯一の解（あるいは正当な解の一つ）になるように強制する。
+		// B. 領域ごとの制約配置 (Squares & Stars)
 
-		const regions = this.calculateRegions(grid, path);
-		const availableColors = [Color.Black, Color.White, Color.Red, Color.Blue];
-		for (let i = 0; i < regions.length; i++) {
-			const region = regions[i];
-			const color = availableColors[i % availableColors.length];
-			// 複雑度に応じて制約を配置
-			if (Math.random() < 0.3 + complexity * 0.4) {
-				if (Math.random() < 0.3) {
-					// トゲ (Star) をペアで配置
-					this.fillRegionWithStarPairs(grid, region, color);
-				} else {
-					// 四角 (Square) を配置
-					this.fillRegionWithColor(grid, region, color, complexity);
+		if (useSquares || useStars) {
+			const regions = this.calculateRegions(grid, path);
+			const availableColors = [Color.Black, Color.White, Color.Red, Color.Blue];
+			for (const region of regions) {
+				if (Math.random() > 0.4 + complexity * 0.5) continue;
+
+				const potentialCells = [...region];
+				this.shuffleArray(potentialCells);
+
+				// 1. この領域の四角形(Square)の色を決定 (1色のみ)
+				const squareColor = availableColors[Math.floor(Math.random() * availableColors.length)];
+				let numSquares = 0;
+
+				// 四角形を配置するか決定
+				if (useSquares && Math.random() < 0.5 + complexity * 0.3) {
+					const maxSquares = Math.min(potentialCells.length, 4);
+					numSquares = Math.floor(Math.random() * maxSquares);
+					for (let i = 0; i < numSquares; i++) {
+						const cell = potentialCells.pop()!;
+						grid.cells[cell.y][cell.x].type = CellType.Square;
+						grid.cells[cell.y][cell.x].color = squareColor;
+					}
+				}
+
+				// 2. 各色についてトゲ(Star)を配置するか決定
+				if (useStars) {
+					for (const color of availableColors) {
+						// 既に他の制約で埋まっているか、確率でスキップ
+						if (potentialCells.length < 1) break;
+						if (Math.random() > 0.2 + complexity * 0.3) continue;
+
+						if (color === squareColor) {
+							// 四角形と同じ色の場合：合計が2個になるようにする
+							if (numSquares === 1 && potentialCells.length >= 1) {
+								// 1個の四角 + 1個のトゲ
+								const cell = potentialCells.pop()!;
+								grid.cells[cell.y][cell.x].type = CellType.Star;
+								grid.cells[cell.y][cell.x].color = color;
+							} else if (numSquares === 0 && potentialCells.length >= 2) {
+								// 0個の四角 + 2個のトゲ
+								for (let i = 0; i < 2; i++) {
+									const cell = potentialCells.pop()!;
+									grid.cells[cell.y][cell.x].type = CellType.Star;
+									grid.cells[cell.y][cell.x].color = color;
+								}
+							}
+							// numSquares >= 2 の場合は、トゲを置くと合計が3以上になりNG
+						} else {
+							// 四角形と違う色の場合：2個のトゲを配置
+							if (potentialCells.length >= 2) {
+								for (let i = 0; i < 2; i++) {
+									const cell = potentialCells.pop()!;
+									grid.cells[cell.y][cell.x].type = CellType.Star;
+									grid.cells[cell.y][cell.x].color = color;
+								}
+							}
+						}
+					}
 				}
 			}
 		}
@@ -194,28 +281,6 @@ export class PuzzleGenerator {
 		}
 
 		return regions;
-	}
-
-	private fillRegionWithColor(grid: Grid, cells: Point[], color: Color, density: number) {
-		for (const cell of cells) {
-			if (Math.random() < density * 0.7) {
-				grid.cells[cell.y][cell.x].type = CellType.Square;
-				grid.cells[cell.y][cell.x].color = color;
-			}
-		}
-	}
-
-	private fillRegionWithStarPairs(grid: Grid, cells: Point[], color: Color) {
-		if (cells.length < 2) return;
-
-		// ランダムに2箇所選んでペアにする
-		const shuffled = [...cells];
-		this.shuffleArray(shuffled);
-
-		for (let i = 0; i < 2; i++) {
-			grid.cells[shuffled[i].y][shuffled[i].x].type = CellType.Star;
-			grid.cells[shuffled[i].y][shuffled[i].x].color = color;
-		}
 	}
 
 	private setEdgeHexagon(grid: Grid, p1: Point, p2: Point) {

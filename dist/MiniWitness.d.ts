@@ -63,6 +63,63 @@ export interface ValidationResult {
 	isValid: boolean;
 	errorReason?: string;
 }
+/**
+ * パズル生成のオプション
+ */
+export interface GenerationOptions {
+	useHexagons?: boolean;
+	useSquares?: boolean;
+	useStars?: boolean;
+	complexity?: number;
+	difficulty?: number;
+}
+export declare class Grid {
+	readonly rows: number;
+	readonly cols: number;
+	cells: CellConstraint[][];
+	hEdges: EdgeConstraint[][];
+	vEdges: EdgeConstraint[][];
+	nodes: NodeConstraint[][];
+	constructor(rows: number, cols: number);
+	private initializeGrid;
+	export(): PuzzleData;
+	static fromData(data: PuzzleData): Grid;
+}
+export declare class PuzzleGenerator {
+	/**
+	 * パズルを生成する
+	 * @param rows 行数
+	 * @param cols 列数
+	 * @param options 生成オプション
+	 */
+	generate(rows: number, cols: number, options?: GenerationOptions): Grid;
+	private generateOnce;
+	/**
+	 * Randomized DFSを用いてStartからEndへの一本道を生成する
+	 */
+	private generateRandomPath;
+	private getValidNeighbors;
+	private applyConstraintsBasedOnPath;
+	/**
+	 * パスを壁と見なして、セル（Block）の領域分割を行う (Flood Fill)
+	 */
+	private calculateRegions;
+	private setEdgeHexagon;
+	private shuffleArray;
+}
+export declare class PuzzleValidator {
+	validate(grid: Grid, solution: SolutionPath): ValidationResult;
+	private isBrokenEdge;
+	private checkHexagonConstraint;
+	private checkCellConstraints;
+	private calculateRegions;
+	private getEdgeKey;
+	/**
+	 * 全ての有効な解答パスの個数をカウントする
+	 */
+	countSolutions(grid: Grid): number;
+	private findPathsRecursively;
+}
 export declare class WitnessCore {
 	private generator;
 	private validator;
@@ -70,7 +127,7 @@ export declare class WitnessCore {
 	/**
 	 * 新しいパズルを生成してデータを返す
 	 */
-	createPuzzle(rows: number, cols: number, complexity?: number): PuzzleData;
+	createPuzzle(rows: number, cols: number, options?: GenerationOptions): PuzzleData;
 	/**
 	 * 解答を検証する
 	 */

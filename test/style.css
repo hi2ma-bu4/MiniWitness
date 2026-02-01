@@ -23,6 +23,16 @@ h1 {
 
 .controls {
     margin-bottom: 15px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    align-items: center;
+}
+
+.control-group {
+    display: flex;
+    gap: 15px;
+    align-items: center;
 }
 
 select,

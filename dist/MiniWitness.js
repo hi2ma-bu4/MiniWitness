@@ -77,182 +77,6 @@ var Grid = class _Grid {
   }
 };
 
-// src/generator.ts
-var PuzzleGenerator = class {
-  /**
-   * パズルを生成する
-   * @param rows 行数
-   * @param cols 列数
-   * @param complexity 複雑度 (0.0 - 1.0)
-   */
-  generate(rows, cols, complexity = 0.5) {
-    const grid = new Grid(rows, cols);
-    const startPoint = { x: 0, y: rows };
-    const endPoint = { x: cols, y: 0 };
-    grid.nodes[startPoint.y][startPoint.x].type = 1 /* Start */;
-    grid.nodes[endPoint.y][endPoint.x].type = 2 /* End */;
-    const solutionPath = this.generateRandomPath(grid, startPoint, endPoint);
-    this.applyConstraintsBasedOnPath(grid, solutionPath, complexity);
-    return grid;
-  }
-  /**
-   * Randomized DFSを用いてStartからEndへの一本道を生成する
-   */
-  generateRandomPath(grid, start, end) {
-    const visited = /* @__PURE__ */ new Set();
-    const path = [];
-    const stack = [start];
-    const parentMap = /* @__PURE__ */ new Map();
-    parentMap.set(`${start.x},${start.y}`, null);
-    const findPath = (current) => {
-      visited.add(`${current.x},${current.y}`);
-      path.push(current);
-      if (current.x === end.x && current.y === end.y) {
-        return true;
-      }
-      const neighbors = this.getValidNeighbors(grid, current, visited);
-      this.shuffleArray(neighbors);
-      for (const next of neighbors) {
-        if (findPath(next)) {
-          return true;
-        }
-      }
-      path.pop();
-      return false;
-    };
-    findPath(start);
-    return path;
-  }
-  getValidNeighbors(grid, p, visited) {
-    const candidates = [];
-    const directions = [
-      { x: 0, y: -1 },
-      // Up
-      { x: 1, y: 0 },
-      // Right
-      { x: 0, y: 1 },
-      // Down
-      { x: -1, y: 0 }
-      // Left
-    ];
-    for (const d of directions) {
-      const nx = p.x + d.x;
-      const ny = p.y + d.y;
-      if (nx >= 0 && nx <= grid.cols && ny >= 0 && ny <= grid.rows) {
-        if (!visited.has(`${nx},${ny}`)) {
-          candidates.push({ x: nx, y: ny });
-        }
-      }
-    }
-    return candidates;
-  }
-  applyConstraintsBasedOnPath(grid, path, complexity) {
-    for (let i = 0; i < path.length - 1; i++) {
-      const p1 = path[i];
-      const p2 = path[i + 1];
-      if (Math.random() < complexity * 0.4) {
-        this.setEdgeHexagon(grid, p1, p2);
-      }
-    }
-    const regions = this.calculateRegions(grid, path);
-    const availableColors = [1 /* Black */, 2 /* White */, 3 /* Red */, 4 /* Blue */];
-    for (let i = 0; i < regions.length; i++) {
-      const region = regions[i];
-      const color = availableColors[i % availableColors.length];
-      if (Math.random() < 0.3 + complexity * 0.4) {
-        if (Math.random() < 0.3) {
-          this.fillRegionWithStarPairs(grid, region, color);
-        } else {
-          this.fillRegionWithColor(grid, region, color, complexity);
-        }
-      }
-    }
-  }
-  /**
-   * パスを壁と見なして、セル（Block）の領域分割を行う (Flood Fill)
-   */
-  calculateRegions(grid, path) {
-    const regions = [];
-    const visitedCells = /* @__PURE__ */ new Set();
-    const pathEdges = /* @__PURE__ */ new Set();
-    for (let i = 0; i < path.length - 1; i++) {
-      const p1 = path[i];
-      const p2 = path[i + 1];
-      const k = p1.x < p2.x || p1.y < p2.y ? `${p1.x},${p1.y}-${p2.x},${p2.y}` : `${p2.x},${p2.y}-${p1.x},${p1.y}`;
-      pathEdges.add(k);
-    }
-    for (let r = 0; r < grid.rows; r++) {
-      for (let c = 0; c < grid.cols; c++) {
-        if (visitedCells.has(`${c},${r}`)) continue;
-        const currentRegion = [];
-        const queue = [{ x: c, y: r }];
-        visitedCells.add(`${c},${r}`);
-        while (queue.length > 0) {
-          const cell = queue.shift();
-          currentRegion.push(cell);
-          const neighbors = [
-            { dx: 0, dy: -1, boundary: { p1: { x: cell.x, y: cell.y }, p2: { x: cell.x + 1, y: cell.y } } },
-            // Up (Boundary is Top edge)
-            { dx: 0, dy: 1, boundary: { p1: { x: cell.x, y: cell.y + 1 }, p2: { x: cell.x + 1, y: cell.y + 1 } } },
-            // Down (Boundary is Bottom edge)
-            { dx: -1, dy: 0, boundary: { p1: { x: cell.x, y: cell.y }, p2: { x: cell.x, y: cell.y + 1 } } },
-            // Left (Boundary is Left edge)
-            { dx: 1, dy: 0, boundary: { p1: { x: cell.x + 1, y: cell.y }, p2: { x: cell.x + 1, y: cell.y + 1 } } }
-            // Right (Boundary is Right edge)
-          ];
-          for (const n of neighbors) {
-            const nx = cell.x + n.dx;
-            const ny = cell.y + n.dy;
-            if (nx >= 0 && nx < grid.cols && ny >= 0 && ny < grid.rows) {
-              if (!visitedCells.has(`${nx},${ny}`)) {
-                const key = n.boundary.p1.x < n.boundary.p2.x || n.boundary.p1.y < n.boundary.p2.y ? `${n.boundary.p1.x},${n.boundary.p1.y}-${n.boundary.p2.x},${n.boundary.p2.y}` : `${n.boundary.p2.x},${n.boundary.p2.y}-${n.boundary.p1.x},${n.boundary.p1.y}`;
-                if (!pathEdges.has(key)) {
-                  visitedCells.add(`${nx},${ny}`);
-                  queue.push({ x: nx, y: ny });
-                }
-              }
-            }
-          }
-        }
-        regions.push(currentRegion);
-      }
-    }
-    return regions;
-  }
-  fillRegionWithColor(grid, cells, color, density) {
-    for (const cell of cells) {
-      if (Math.random() < density * 0.7) {
-        grid.cells[cell.y][cell.x].type = 1 /* Square */;
-        grid.cells[cell.y][cell.x].color = color;
-      }
-    }
-  }
-  fillRegionWithStarPairs(grid, cells, color) {
-    if (cells.length < 2) return;
-    const shuffled = [...cells];
-    this.shuffleArray(shuffled);
-    for (let i = 0; i < 2; i++) {
-      grid.cells[shuffled[i].y][shuffled[i].x].type = 2 /* Star */;
-      grid.cells[shuffled[i].y][shuffled[i].x].color = color;
-    }
-  }
-  setEdgeHexagon(grid, p1, p2) {
-    if (p1.x === p2.x) {
-      const y = Math.min(p1.y, p2.y);
-      grid.vEdges[y][p1.x].type = 1 /* Hexagon */;
-    } else {
-      const x = Math.min(p1.x, p2.x);
-      grid.hEdges[p1.y][x].type = 1 /* Hexagon */;
-    }
-  }
-  shuffleArray(array) {
-    for (let i = array.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [array[i], array[j]] = [array[j], array[i]];
-    }
-  }
-};
-
 // src/validator.ts
 var PuzzleValidator = class {
   validate(grid, solution) {
@@ -393,6 +217,282 @@ var PuzzleValidator = class {
   getEdgeKey(p1, p2) {
     return p1.x < p2.x || p1.x === p2.x && p1.y < p2.y ? `${p1.x},${p1.y}-${p2.x},${p2.y}` : `${p2.x},${p2.y}-${p1.x},${p1.y}`;
   }
+  /**
+   * 全ての有効な解答パスの個数をカウントする
+   */
+  countSolutions(grid) {
+    const startNodes = [];
+    for (let r = 0; r <= grid.rows; r++) {
+      for (let c = 0; c <= grid.cols; c++) {
+        if (grid.nodes[r][c].type === 1 /* Start */) {
+          startNodes.push({ x: c, y: r });
+        }
+      }
+    }
+    let totalSolutions = 0;
+    for (const start of startNodes) {
+      totalSolutions += this.findPathsRecursively(grid, start, /* @__PURE__ */ new Set(), []);
+    }
+    return totalSolutions;
+  }
+  findPathsRecursively(grid, curr, visited, path) {
+    const key = `${curr.x},${curr.y}`;
+    visited.add(key);
+    path.push(curr);
+    let count = 0;
+    if (grid.nodes[curr.y][curr.x].type === 2 /* End */) {
+      const result = this.validate(grid, { points: path });
+      if (result.isValid) {
+        count = 1;
+      }
+    } else {
+      const directions = [
+        { dx: 0, dy: -1 },
+        { dx: 1, dy: 0 },
+        { dx: 0, dy: 1 },
+        { dx: -1, dy: 0 }
+      ];
+      for (const d of directions) {
+        const next = { x: curr.x + d.dx, y: curr.y + d.dy };
+        if (next.x >= 0 && next.x <= grid.cols && next.y >= 0 && next.y <= grid.rows) {
+          if (!visited.has(`${next.x},${next.y}`)) {
+            if (!this.isBrokenEdge(grid, curr, next)) {
+              count += this.findPathsRecursively(grid, next, visited, path);
+            }
+          }
+        }
+      }
+    }
+    path.pop();
+    visited.delete(key);
+    return count;
+  }
+};
+
+// src/generator.ts
+var PuzzleGenerator = class {
+  /**
+   * パズルを生成する
+   * @param rows 行数
+   * @param cols 列数
+   * @param options 生成オプション
+   */
+  generate(rows, cols, options = {}) {
+    const difficulty = options.difficulty ?? 0.5;
+    const validator = new PuzzleValidator();
+    let bestGrid = null;
+    let bestScore = Infinity;
+    const maxAttempts = rows * cols > 30 ? 3 : 10;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const grid = this.generateOnce(rows, cols, options);
+      const solutionCount = validator.countSolutions(grid);
+      let score;
+      if (difficulty > 0.5) {
+        score = Math.abs(solutionCount - 2);
+      } else {
+        if (solutionCount === 1) {
+          score = 0;
+        } else {
+          score = Math.max(0, 10 - solutionCount) / 10;
+        }
+      }
+      if (solutionCount > 0 && score < bestScore) {
+        bestScore = score;
+        bestGrid = grid;
+      }
+      if (bestScore === 0) break;
+    }
+    return bestGrid || this.generateOnce(rows, cols, options);
+  }
+  generateOnce(rows, cols, options) {
+    const grid = new Grid(rows, cols);
+    const startPoint = { x: 0, y: rows };
+    const endPoint = { x: cols, y: 0 };
+    grid.nodes[startPoint.y][startPoint.x].type = 1 /* Start */;
+    grid.nodes[endPoint.y][endPoint.x].type = 2 /* End */;
+    const solutionPath = this.generateRandomPath(grid, startPoint, endPoint);
+    this.applyConstraintsBasedOnPath(grid, solutionPath, options);
+    return grid;
+  }
+  /**
+   * Randomized DFSを用いてStartからEndへの一本道を生成する
+   */
+  generateRandomPath(grid, start, end) {
+    const visited = /* @__PURE__ */ new Set();
+    const path = [];
+    const stack = [start];
+    const parentMap = /* @__PURE__ */ new Map();
+    parentMap.set(`${start.x},${start.y}`, null);
+    const findPath = (current) => {
+      visited.add(`${current.x},${current.y}`);
+      path.push(current);
+      if (current.x === end.x && current.y === end.y) {
+        return true;
+      }
+      const neighbors = this.getValidNeighbors(grid, current, visited);
+      this.shuffleArray(neighbors);
+      for (const next of neighbors) {
+        if (findPath(next)) {
+          return true;
+        }
+      }
+      path.pop();
+      return false;
+    };
+    findPath(start);
+    return path;
+  }
+  getValidNeighbors(grid, p, visited) {
+    const candidates = [];
+    const directions = [
+      { x: 0, y: -1 },
+      // Up
+      { x: 1, y: 0 },
+      // Right
+      { x: 0, y: 1 },
+      // Down
+      { x: -1, y: 0 }
+      // Left
+    ];
+    for (const d of directions) {
+      const nx = p.x + d.x;
+      const ny = p.y + d.y;
+      if (nx >= 0 && nx <= grid.cols && ny >= 0 && ny <= grid.rows) {
+        if (!visited.has(`${nx},${ny}`)) {
+          candidates.push({ x: nx, y: ny });
+        }
+      }
+    }
+    return candidates;
+  }
+  applyConstraintsBasedOnPath(grid, path, options) {
+    const complexity = options.complexity ?? 0.5;
+    const useHexagons = options.useHexagons ?? true;
+    const useSquares = options.useSquares ?? true;
+    const useStars = options.useStars ?? true;
+    if (useHexagons) {
+      for (let i = 0; i < path.length - 1; i++) {
+        const p1 = path[i];
+        const p2 = path[i + 1];
+        if (Math.random() < complexity * 0.4) {
+          this.setEdgeHexagon(grid, p1, p2);
+        }
+      }
+    }
+    if (useSquares || useStars) {
+      const regions = this.calculateRegions(grid, path);
+      const availableColors = [1 /* Black */, 2 /* White */, 3 /* Red */, 4 /* Blue */];
+      for (const region of regions) {
+        if (Math.random() > 0.4 + complexity * 0.5) continue;
+        const potentialCells = [...region];
+        this.shuffleArray(potentialCells);
+        const squareColor = availableColors[Math.floor(Math.random() * availableColors.length)];
+        let numSquares = 0;
+        if (useSquares && Math.random() < 0.5 + complexity * 0.3) {
+          const maxSquares = Math.min(potentialCells.length, 4);
+          numSquares = Math.floor(Math.random() * maxSquares);
+          for (let i = 0; i < numSquares; i++) {
+            const cell = potentialCells.pop();
+            grid.cells[cell.y][cell.x].type = 1 /* Square */;
+            grid.cells[cell.y][cell.x].color = squareColor;
+          }
+        }
+        if (useStars) {
+          for (const color of availableColors) {
+            if (potentialCells.length < 1) break;
+            if (Math.random() > 0.2 + complexity * 0.3) continue;
+            if (color === squareColor) {
+              if (numSquares === 1 && potentialCells.length >= 1) {
+                const cell = potentialCells.pop();
+                grid.cells[cell.y][cell.x].type = 2 /* Star */;
+                grid.cells[cell.y][cell.x].color = color;
+              } else if (numSquares === 0 && potentialCells.length >= 2) {
+                for (let i = 0; i < 2; i++) {
+                  const cell = potentialCells.pop();
+                  grid.cells[cell.y][cell.x].type = 2 /* Star */;
+                  grid.cells[cell.y][cell.x].color = color;
+                }
+              }
+            } else {
+              if (potentialCells.length >= 2) {
+                for (let i = 0; i < 2; i++) {
+                  const cell = potentialCells.pop();
+                  grid.cells[cell.y][cell.x].type = 2 /* Star */;
+                  grid.cells[cell.y][cell.x].color = color;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  /**
+   * パスを壁と見なして、セル（Block）の領域分割を行う (Flood Fill)
+   */
+  calculateRegions(grid, path) {
+    const regions = [];
+    const visitedCells = /* @__PURE__ */ new Set();
+    const pathEdges = /* @__PURE__ */ new Set();
+    for (let i = 0; i < path.length - 1; i++) {
+      const p1 = path[i];
+      const p2 = path[i + 1];
+      const k = p1.x < p2.x || p1.y < p2.y ? `${p1.x},${p1.y}-${p2.x},${p2.y}` : `${p2.x},${p2.y}-${p1.x},${p1.y}`;
+      pathEdges.add(k);
+    }
+    for (let r = 0; r < grid.rows; r++) {
+      for (let c = 0; c < grid.cols; c++) {
+        if (visitedCells.has(`${c},${r}`)) continue;
+        const currentRegion = [];
+        const queue = [{ x: c, y: r }];
+        visitedCells.add(`${c},${r}`);
+        while (queue.length > 0) {
+          const cell = queue.shift();
+          currentRegion.push(cell);
+          const neighbors = [
+            { dx: 0, dy: -1, boundary: { p1: { x: cell.x, y: cell.y }, p2: { x: cell.x + 1, y: cell.y } } },
+            // Up (Boundary is Top edge)
+            { dx: 0, dy: 1, boundary: { p1: { x: cell.x, y: cell.y + 1 }, p2: { x: cell.x + 1, y: cell.y + 1 } } },
+            // Down (Boundary is Bottom edge)
+            { dx: -1, dy: 0, boundary: { p1: { x: cell.x, y: cell.y }, p2: { x: cell.x, y: cell.y + 1 } } },
+            // Left (Boundary is Left edge)
+            { dx: 1, dy: 0, boundary: { p1: { x: cell.x + 1, y: cell.y }, p2: { x: cell.x + 1, y: cell.y + 1 } } }
+            // Right (Boundary is Right edge)
+          ];
+          for (const n of neighbors) {
+            const nx = cell.x + n.dx;
+            const ny = cell.y + n.dy;
+            if (nx >= 0 && nx < grid.cols && ny >= 0 && ny < grid.rows) {
+              if (!visitedCells.has(`${nx},${ny}`)) {
+                const key = n.boundary.p1.x < n.boundary.p2.x || n.boundary.p1.y < n.boundary.p2.y ? `${n.boundary.p1.x},${n.boundary.p1.y}-${n.boundary.p2.x},${n.boundary.p2.y}` : `${n.boundary.p2.x},${n.boundary.p2.y}-${n.boundary.p1.x},${n.boundary.p1.y}`;
+                if (!pathEdges.has(key)) {
+                  visitedCells.add(`${nx},${ny}`);
+                  queue.push({ x: nx, y: ny });
+                }
+              }
+            }
+          }
+        }
+        regions.push(currentRegion);
+      }
+    }
+    return regions;
+  }
+  setEdgeHexagon(grid, p1, p2) {
+    if (p1.x === p2.x) {
+      const y = Math.min(p1.y, p2.y);
+      grid.vEdges[y][p1.x].type = 1 /* Hexagon */;
+    } else {
+      const x = Math.min(p1.x, p2.x);
+      grid.hEdges[p1.y][x].type = 1 /* Hexagon */;
+    }
+  }
+  shuffleArray(array) {
+    for (let i = array.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [array[i], array[j]] = [array[j], array[i]];
+    }
+  }
 };
 
 // src/index.ts
@@ -406,8 +506,8 @@ var WitnessCore = class {
   /**
    * 新しいパズルを生成してデータを返す
    */
-  createPuzzle(rows, cols, complexity = 0.5) {
-    const grid = this.generator.generate(rows, cols, complexity);
+  createPuzzle(rows, cols, options = {}) {
+    const grid = this.generator.generate(rows, cols, options);
     return grid.export();
   }
   /**
@@ -423,7 +523,10 @@ export {
   Color,
   Direction,
   EdgeType,
+  Grid,
   NodeType,
+  PuzzleGenerator,
+  PuzzleValidator,
   WitnessCore
 };
 //# sourceMappingURL=MiniWitness.js.map
