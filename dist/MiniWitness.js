@@ -12,6 +12,7 @@ var CellType = /* @__PURE__ */ ((CellType2) => {
   CellType2[CellType2["Star"] = 2] = "Star";
   CellType2[CellType2["Tetris"] = 3] = "Tetris";
   CellType2[CellType2["TetrisRotated"] = 4] = "TetrisRotated";
+  CellType2[CellType2["Eraser"] = 5] = "Eraser";
   return CellType2;
 })(CellType || {});
 var EdgeType = /* @__PURE__ */ ((EdgeType2) => {
@@ -82,17 +83,19 @@ var Grid = class _Grid {
 
 // src/validator.ts
 var PuzzleValidator = class {
+  /**
+   * 与えられたグリッドと回答パスが正当かどうかを検証する
+   * @param grid パズルのグリッドデータ
+   * @param solution 回答パス
+   * @returns 検証結果（正誤、エラー理由、無効化された記号など）
+   */
   validate(grid, solution) {
     const path = solution.points;
     if (path.length < 2) return { isValid: false, errorReason: "Path too short" };
     const start = path[0];
     const end = path[path.length - 1];
-    if (grid.nodes[start.y][start.x].type !== 1 /* Start */) {
-      return { isValid: false, errorReason: "Must start at Start Node" };
-    }
-    if (grid.nodes[end.y][end.x].type !== 2 /* End */) {
-      return { isValid: false, errorReason: "Must end at End Node" };
-    }
+    if (grid.nodes[start.y][start.x].type !== 1 /* Start */) return { isValid: false, errorReason: "Must start at Start Node" };
+    if (grid.nodes[end.y][end.x].type !== 2 /* End */) return { isValid: false, errorReason: "Must end at End Node" };
     const visitedNodes = /* @__PURE__ */ new Set();
     visitedNodes.add(`${start.x},${start.y}`);
     for (let i = 0; i < path.length - 1; i++) {
@@ -103,18 +106,15 @@ var PuzzleValidator = class {
       const key = `${p2.x},${p2.y}`;
       if (visitedNodes.has(key)) return { isValid: false, errorReason: "Self-intersecting path" };
       visitedNodes.add(key);
-      if (this.isBrokenEdge(grid, p1, p2)) {
-        return { isValid: false, errorReason: "Passed through broken edge" };
-      }
+      if (this.isBrokenEdge(grid, p1, p2)) return { isValid: false, errorReason: "Passed through broken edge" };
     }
-    if (!this.checkHexagonConstraint(grid, path)) {
-      return { isValid: false, errorReason: "Missed hexagon constraint" };
-    }
-    if (!this.checkCellConstraints(grid, path)) {
-      return { isValid: false, errorReason: "Cell constraints failed" };
-    }
-    return { isValid: true };
+    const regions = this.calculateRegions(grid, path);
+    const missedHexagons = this.getMissedHexagons(grid, path);
+    return this.validateWithErasers(grid, regions, missedHexagons);
   }
+  /**
+   * 二点間が断線（Broken or Absent）しているか確認する
+   */
   isBrokenEdge(grid, p1, p2) {
     let type;
     if (p1.x === p2.x) {
@@ -126,6 +126,9 @@ var PuzzleValidator = class {
     }
     return type === 1 /* Broken */ || type === 2 /* Absent */;
   }
+  /**
+   * 二点間が Absent（存在しない）エッジか確認する
+   */
   isAbsentEdge(grid, p1, p2) {
     if (p1.x === p2.x) {
       const y = Math.min(p1.y, p2.y);
@@ -135,16 +138,20 @@ var PuzzleValidator = class {
       return grid.hEdges[p1.y][x].type === 2 /* Absent */;
     }
   }
-  checkHexagonConstraint(grid, path) {
+  /**
+   * 回答パスが通過しなかった六角形エッジをリストアップする
+   */
+  getMissedHexagons(grid, path) {
     const pathEdges = /* @__PURE__ */ new Set();
     for (let i = 0; i < path.length - 1; i++) {
       pathEdges.add(this.getEdgeKey(path[i], path[i + 1]));
     }
+    const missed = [];
     for (let r = 0; r <= grid.rows; r++) {
       for (let c = 0; c < grid.cols; c++) {
         if (grid.hEdges[r][c].type === 3 /* Hexagon */) {
           const key = this.getEdgeKey({ x: c, y: r }, { x: c + 1, y: r });
-          if (!pathEdges.has(key)) return false;
+          if (!pathEdges.has(key)) missed.push({ type: "h", r, c });
         }
       }
     }
@@ -152,49 +159,204 @@ var PuzzleValidator = class {
       for (let c = 0; c <= grid.cols; c++) {
         if (grid.vEdges[r][c].type === 3 /* Hexagon */) {
           const key = this.getEdgeKey({ x: c, y: r }, { x: c, y: r + 1 });
-          if (!pathEdges.has(key)) return false;
+          if (!pathEdges.has(key)) missed.push({ type: "v", r, c });
         }
       }
     }
-    return true;
+    return missed;
   }
-  checkCellConstraints(grid, path) {
-    const regions = this.calculateRegions(grid, path);
-    for (const region of regions) {
-      const colorCounts = /* @__PURE__ */ new Map();
-      const starColors = /* @__PURE__ */ new Set();
-      const squareColors = /* @__PURE__ */ new Set();
-      const tetrisPieces = [];
-      for (const cell of region) {
-        const constraint = grid.cells[cell.y][cell.x];
-        if (constraint.type === 0 /* None */) continue;
-        const color = constraint.color;
-        colorCounts.set(color, (colorCounts.get(color) || 0) + 1);
-        if (constraint.type === 1 /* Square */) {
-          squareColors.add(color);
-        } else if (constraint.type === 2 /* Star */) {
-          starColors.add(color);
-        } else if (constraint.type === 3 /* Tetris */ || constraint.type === 4 /* TetrisRotated */) {
-          if (constraint.shape) {
-            tetrisPieces.push({
-              shape: constraint.shape,
-              rotatable: constraint.type === 4 /* TetrisRotated */
-            });
+  /**
+   * テトラポッド（エラー削除）を考慮してパズルの各制約を検証する
+   */
+  validateWithErasers(grid, regions, missedHexagons) {
+    const regionResults = [];
+    for (let i = 0; i < regions.length; i++) {
+      const region = regions[i];
+      const erasers = region.filter((p) => grid.cells[p.y][p.x].type === 5 /* Eraser */);
+      const otherMarks = region.filter((p) => grid.cells[p.y][p.x].type !== 0 /* None */ && grid.cells[p.y][p.x].type !== 5 /* Eraser */);
+      const adjacentMissedHexagons = [];
+      for (let j = 0; j < missedHexagons.length; j++) {
+        if (this.isHexagonAdjacentToRegion(grid, missedHexagons[j], region)) adjacentMissedHexagons.push(j);
+      }
+      const possible = this.getPossibleErasures(grid, region, erasers, otherMarks, adjacentMissedHexagons);
+      if (possible.length === 0) return { isValid: false, errorReason: `Constraints failed in region ${i}` };
+      regionResults.push(possible);
+    }
+    const assignment = this.findGlobalAssignment(regionResults, missedHexagons.length);
+    if (!assignment) return { isValid: false, errorReason: "Could not satisfy all constraints with available erasers" };
+    return {
+      isValid: true,
+      invalidatedCells: assignment.invalidatedCells,
+      invalidatedEdges: assignment.invalidatedHexIndices.map((idx) => missedHexagons[idx])
+    };
+  }
+  /**
+   * 指定されたエッジが特定の区画に隣接しているか確認する
+   */
+  isHexagonAdjacentToRegion(grid, hex, region) {
+    const regionCells = new Set(region.map((p) => `${p.x},${p.y}`));
+    if (hex.type === "h") {
+      if (hex.r > 0 && regionCells.has(`${hex.c},${hex.r - 1}`)) return true;
+      if (hex.r < grid.rows && regionCells.has(`${hex.c},${hex.r}`)) return true;
+    } else {
+      if (hex.c > 0 && regionCells.has(`${hex.c - 1},${hex.r}`)) return true;
+      if (hex.c < grid.cols && regionCells.has(`${hex.c},${hex.r}`)) return true;
+    }
+    return false;
+  }
+  /**
+   * 区画内のエラー削除可能な全パターンを取得する
+   */
+  getPossibleErasures(grid, region, erasers, otherMarks, adjacentMissedHexagons) {
+    const results = [];
+    const numErasers = erasers.length;
+    if (numErasers === 0) {
+      if (this.checkRegionValid(grid, region, [], [])) {
+        results.push({ invalidatedCells: [], invalidatedHexagons: [], isValid: true });
+      }
+      return results;
+    }
+    const itemsToNegate = [...otherMarks.map((p) => ({ type: "cell", pos: p })), ...adjacentMissedHexagons.map((idx) => ({ type: "hex", index: idx }))];
+    for (let L = 0; L <= numErasers; L++) {
+      const eraserCombinations = this.getNCombinations(erasers, L);
+      for (const erasersAsMarks of eraserCombinations) {
+        const erasersAsMarksSet = new Set(erasersAsMarks.map((e) => `${e.x},${e.y}`));
+        const remainingErasers = erasers.filter((e) => !erasersAsMarksSet.has(`${e.x},${e.y}`));
+        const numRemaining = remainingErasers.length;
+        for (let K = 0; K <= numRemaining; K++) {
+          if ((numRemaining - K) % 2 !== 0) continue;
+          const itemCombinations = this.getNCombinations(itemsToNegate, K);
+          for (const negatedItems of itemCombinations) {
+            const negatedCells = negatedItems.filter((it) => it.type === "cell").map((it) => it.pos);
+            const negatedHexIndices = negatedItems.filter((it) => it.type === "hex").map((it) => it.index);
+            if (this.checkRegionValid(grid, region, negatedCells, erasersAsMarks)) {
+              let isUseful = true;
+              if (this.checkRegionValid(grid, region, [], []) && adjacentMissedHexagons.length === 0) {
+                if (L > 0 || K > 0) isUseful = false;
+                else if (numRemaining === 0) isUseful = false;
+              } else {
+                for (let i = 0; i < negatedItems.length; i++) {
+                  const subset = [...negatedItems.slice(0, i), ...negatedItems.slice(i + 1)];
+                  const subsetCells = subset.filter((it) => it.type === "cell").map((it) => it.pos);
+                  const subsetHexCount = subset.filter((it) => it.type === "hex").length;
+                  if (subsetHexCount === negatedHexIndices.length && this.checkRegionValid(grid, region, subsetCells, erasersAsMarks)) {
+                    isUseful = false;
+                    break;
+                  }
+                }
+                if (!isUseful) continue;
+                for (let i = 0; i < erasersAsMarks.length; i++) {
+                  const subset = [...erasersAsMarks.slice(0, i), ...erasersAsMarks.slice(i + 1)];
+                  if (this.checkRegionValid(grid, region, negatedCells, subset)) {
+                    isUseful = false;
+                    break;
+                  }
+                }
+              }
+              if (isUseful) {
+                results.push({
+                  invalidatedCells: [...negatedCells, ...remainingErasers],
+                  invalidatedHexagons: negatedHexIndices,
+                  isValid: true
+                });
+              }
+            }
           }
         }
-        if (squareColors.size > 1) return false;
       }
-      for (const color of starColors) {
-        if (colorCounts.get(color) !== 2) return false;
+    }
+    return results;
+  }
+  /**
+   * 配列からN個選ぶ組み合わせを取得する
+   */
+  getNCombinations(items, n) {
+    const results = [];
+    const backtrack = (start, current) => {
+      if (current.length === n) {
+        results.push([...current]);
+        return;
       }
-      if (tetrisPieces.length > 0) {
-        if (!this.checkTetrisConstraint(region, tetrisPieces)) {
-          return false;
-        }
+      for (let i = start; i < items.length; i++) {
+        current.push(items[i]);
+        backtrack(i + 1, current);
+        current.pop();
       }
+    };
+    backtrack(0, []);
+    return results;
+  }
+  /**
+   * 特定の削除・無効化を適用した状態で、区画内の制約が満たされているか検証する
+   */
+  checkRegionValid(grid, region, erasedCells, erasersAsMarks) {
+    const erasedSet = new Set(erasedCells.map((p) => `${p.x},${p.y}`));
+    const erasersAsMarksSet = new Set(erasersAsMarks.map((p) => `${p.x},${p.y}`));
+    const colorCounts = /* @__PURE__ */ new Map();
+    const starColors = /* @__PURE__ */ new Set();
+    const squareColors = /* @__PURE__ */ new Set();
+    const tetrisPieces = [];
+    for (const cell of region) {
+      if (erasedSet.has(`${cell.x},${cell.y}`)) continue;
+      const constraint = grid.cells[cell.y][cell.x];
+      if (constraint.type === 0 /* None */) continue;
+      const isEraserAsMark = constraint.type === 5 /* Eraser */ && erasersAsMarksSet.has(`${cell.x},${cell.y}`);
+      const isOtherMark = constraint.type !== 5 /* Eraser */;
+      if (!isEraserAsMark && !isOtherMark) continue;
+      const color = constraint.color;
+      if (color !== 0 /* None */) colorCounts.set(color, (colorCounts.get(color) || 0) + 1);
+      if (constraint.type === 1 /* Square */) squareColors.add(color);
+      else if (constraint.type === 2 /* Star */) starColors.add(color);
+      else if (constraint.type === 3 /* Tetris */ || constraint.type === 4 /* TetrisRotated */) {
+        if (constraint.shape) tetrisPieces.push({ shape: constraint.shape, rotatable: constraint.type === 4 /* TetrisRotated */ });
+      }
+    }
+    if (squareColors.size > 1) return false;
+    for (const color of starColors) if (colorCounts.get(color) !== 2) return false;
+    if (tetrisPieces.length > 0) {
+      if (!this.checkTetrisConstraint(region, tetrisPieces)) return false;
     }
     return true;
   }
+  /**
+   * グローバルな制約（六角形）の割り当てをバックトラッキングで探索する
+   */
+  findGlobalAssignment(regionResults, totalMissedHexagons) {
+    const numRegions = regionResults.length;
+    const currentHexErasures = new Array(totalMissedHexagons).fill(0);
+    const allInvalidatedCells = [];
+    const allInvalidatedHexIndices = [];
+    const backtrack = (regionIdx) => {
+      if (regionIdx === numRegions) return currentHexErasures.every((count) => count === 1);
+      for (const option of regionResults[regionIdx]) {
+        let possible = true;
+        for (const hexIdx of option.invalidatedHexagons)
+          if (currentHexErasures[hexIdx] > 0) {
+            possible = false;
+            break;
+          }
+        if (possible) {
+          for (const hexIdx of option.invalidatedHexagons) {
+            currentHexErasures[hexIdx]++;
+            allInvalidatedHexIndices.push(hexIdx);
+          }
+          allInvalidatedCells.push(...option.invalidatedCells);
+          if (backtrack(regionIdx + 1)) return true;
+          for (const hexIdx of option.invalidatedHexagons) {
+            currentHexErasures[hexIdx]--;
+            allInvalidatedHexIndices.pop();
+          }
+          for (let i = 0; i < option.invalidatedCells.length; i++) allInvalidatedCells.pop();
+        }
+      }
+      return false;
+    };
+    if (backtrack(0)) return { invalidatedCells: allInvalidatedCells, invalidatedHexIndices: allInvalidatedHexIndices };
+    return null;
+  }
+  /**
+   * テトリス制約の検証（指定された領域をピースで埋め尽くせるか）
+   */
   checkTetrisConstraint(region, pieces) {
     const totalTetrisArea = pieces.reduce((sum, p) => sum + this.getShapeArea(p.shape), 0);
     if (totalTetrisArea !== region.length) return false;
@@ -205,20 +367,17 @@ var PuzzleValidator = class {
     const width = maxX - minX + 1;
     const height = maxY - minY + 1;
     const regionGrid = Array.from({ length: height }, () => Array(width).fill(false));
-    for (const p of region) {
-      regionGrid[p.y - minY][p.x - minX] = true;
-    }
+    for (const p of region) regionGrid[p.y - minY][p.x - minX] = true;
     return this.canTile(regionGrid, pieces);
   }
   getShapeArea(shape) {
     let area = 0;
-    for (const row of shape) {
-      for (const cell of row) {
-        if (cell) area++;
-      }
-    }
+    for (const row of shape) for (const cell of row) if (cell) area++;
     return area;
   }
+  /**
+   * 再帰的にタイリングを試みる
+   */
   canTile(regionGrid, pieces) {
     let r0 = -1;
     let c0 = -1;
@@ -232,9 +391,7 @@ var PuzzleValidator = class {
       }
       if (r0 !== -1) break;
     }
-    if (r0 === -1) {
-      return pieces.length === 0;
-    }
+    if (r0 === -1) return pieces.length === 0;
     if (pieces.length === 0) return false;
     for (let i = 0; i < pieces.length; i++) {
       const piece = pieces[i];
@@ -266,22 +423,14 @@ var PuzzleValidator = class {
         if (shape[i][j]) {
           const nr = r + i;
           const nc = c + j;
-          if (nr < 0 || nr >= regionGrid.length || nc < 0 || nc >= regionGrid[0].length || !regionGrid[nr][nc]) {
-            return false;
-          }
+          if (nr < 0 || nr >= regionGrid.length || nc < 0 || nc >= regionGrid[0].length || !regionGrid[nr][nc]) return false;
         }
       }
     }
     return true;
   }
   placePiece(regionGrid, shape, r, c, value) {
-    for (let i = 0; i < shape.length; i++) {
-      for (let j = 0; j < shape[0].length; j++) {
-        if (shape[i][j]) {
-          regionGrid[r + i][c + j] = value;
-        }
-      }
-    }
+    for (let i = 0; i < shape.length; i++) for (let j = 0; j < shape[0].length; j++) if (shape[i][j]) regionGrid[r + i][c + j] = value;
   }
   getAllRotations(shape) {
     const results = [];
@@ -301,20 +450,17 @@ var PuzzleValidator = class {
     const rows = shape.length;
     const cols = shape[0].length;
     const newShape = Array.from({ length: cols }, () => Array(rows).fill(0));
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        newShape[c][rows - 1 - r] = shape[r][c];
-      }
-    }
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) newShape[c][rows - 1 - r] = shape[r][c];
     return newShape;
   }
+  /**
+   * 回答パスによって分割された各区画のセルリストを取得する
+   */
   calculateRegions(grid, path) {
     const regions = [];
     const visitedCells = /* @__PURE__ */ new Set();
     const pathEdges = /* @__PURE__ */ new Set();
-    for (let i = 0; i < path.length - 1; i++) {
-      pathEdges.add(this.getEdgeKey(path[i], path[i + 1]));
-    }
+    for (let i = 0; i < path.length - 1; i++) pathEdges.add(this.getEdgeKey(path[i], path[i + 1]));
     const externalCells = this.getExternalCells(grid);
     for (let r = 0; r < grid.rows; r++) {
       for (let c = 0; c < grid.cols; c++) {
@@ -327,21 +473,16 @@ var PuzzleValidator = class {
           region.push(curr);
           const neighbors = [
             { nx: curr.x, ny: curr.y - 1, p1: { x: curr.x, y: curr.y }, p2: { x: curr.x + 1, y: curr.y } },
-            // Up
             { nx: curr.x, ny: curr.y + 1, p1: { x: curr.x, y: curr.y + 1 }, p2: { x: curr.x + 1, y: curr.y + 1 } },
-            // Down
             { nx: curr.x - 1, ny: curr.y, p1: { x: curr.x, y: curr.y }, p2: { x: curr.x, y: curr.y + 1 } },
-            // Left
             { nx: curr.x + 1, ny: curr.y, p1: { x: curr.x + 1, y: curr.y }, p2: { x: curr.x + 1, y: curr.y + 1 } }
-            // Right
           ];
           for (const n of neighbors) {
             if (n.nx >= 0 && n.nx < grid.cols && n.ny >= 0 && n.ny < grid.rows) {
               const neighborKey = `${n.nx},${n.ny}`;
               if (!visitedCells.has(neighborKey) && !externalCells.has(neighborKey)) {
                 const edgeKey = this.getEdgeKey(n.p1, n.p2);
-                const isAbsent = this.isAbsentEdge(grid, n.p1, n.p2);
-                if (!pathEdges.has(edgeKey) && !isAbsent) {
+                if (!pathEdges.has(edgeKey) && !this.isAbsentEdge(grid, n.p1, n.p2)) {
                   visitedCells.add(neighborKey);
                   queue.push({ x: n.nx, y: n.ny });
                 }
@@ -354,6 +495,9 @@ var PuzzleValidator = class {
     }
     return regions;
   }
+  /**
+   * エッジ（Absent）によって外部に繋がっているセルを特定する
+   */
   getExternalCells(grid) {
     const external = /* @__PURE__ */ new Set();
     const queue = [];
@@ -389,13 +533,9 @@ var PuzzleValidator = class {
       const curr = queue.shift();
       const neighbors = [
         { nx: curr.x, ny: curr.y - 1, edge: grid.hEdges[curr.y][curr.x] },
-        // Up
         { nx: curr.x, ny: curr.y + 1, edge: grid.hEdges[curr.y + 1][curr.x] },
-        // Down
         { nx: curr.x - 1, ny: curr.y, edge: grid.vEdges[curr.y][curr.x] },
-        // Left
         { nx: curr.x + 1, ny: curr.y, edge: grid.vEdges[curr.y][curr.x + 1] }
-        // Right
       ];
       for (const n of neighbors) {
         if (n.nx >= 0 && n.nx < grid.cols && n.ny >= 0 && n.ny < grid.rows) {
@@ -412,8 +552,7 @@ var PuzzleValidator = class {
     return p1.x < p2.x || p1.x === p2.x && p1.y < p2.y ? `${p1.x},${p1.y}-${p2.x},${p2.y}` : `${p2.x},${p2.y}-${p1.x},${p1.y}`;
   }
   /**
-   * パズルの難易度を計算する（0.0 - 1.0）
-   * 知的なアルゴリズム：探索空間の広さ、分岐数、強制手、解の数などを分析
+   * パズルの難易度スコア(0.0-1.0)を算出する
    */
   calculateDifficulty(grid) {
     const rows = grid.rows;
@@ -433,29 +572,23 @@ var PuzzleValidator = class {
           const v = u + 1;
           const type = grid.hEdges[r][c].type;
           const isHexagon = type === 3 /* Hexagon */;
-          const isBlocked = type === 1 /* Broken */ || type === 2 /* Absent */;
-          adj[u].push({ next: v, isHexagon, isBroken: isBlocked });
-          adj[v].push({ next: u, isHexagon, isBroken: isBlocked });
+          const isBroken = type === 1 /* Broken */ || type === 2 /* Absent */;
+          adj[u].push({ next: v, isHexagon, isBroken });
+          adj[v].push({ next: u, isHexagon, isBroken });
           if (isHexagon) hexagonEdges.add(this.getEdgeKey({ x: c, y: r }, { x: c + 1, y: r }));
         }
         if (r < rows) {
           const v = u + nodeCols;
           const type = grid.vEdges[r][c].type;
           const isHexagon = type === 3 /* Hexagon */;
-          const isBlocked = type === 1 /* Broken */ || type === 2 /* Absent */;
-          adj[u].push({ next: v, isHexagon, isBroken: isBlocked });
-          adj[v].push({ next: u, isHexagon, isBroken: isBlocked });
+          const isBroken = type === 1 /* Broken */ || type === 2 /* Absent */;
+          adj[u].push({ next: v, isHexagon, isBroken });
+          adj[v].push({ next: u, isHexagon, isBroken });
           if (isHexagon) hexagonEdges.add(this.getEdgeKey({ x: c, y: r }, { x: c, y: r + 1 }));
         }
       }
     }
-    const stats = {
-      totalNodesVisited: 0,
-      branchingPoints: 0,
-      solutions: 0,
-      maxDepth: 0,
-      backtracks: 0
-    };
+    const stats = { totalNodesVisited: 0, branchingPoints: 0, solutions: 0, maxDepth: 0, backtracks: 0 };
     const totalHexagons = hexagonEdges.size;
     const fingerprints = /* @__PURE__ */ new Set();
     for (const startIdx of startNodes) {
@@ -473,9 +606,8 @@ var PuzzleValidator = class {
         if (cell.type !== 0 /* None */) {
           constraintCount++;
           constraintTypes.add(cell.type);
-          if (cell.type === 3 /* Tetris */) {
-            tetrisCount++;
-          } else if (cell.type === 4 /* TetrisRotated */) {
+          if (cell.type === 3 /* Tetris */) tetrisCount++;
+          else if (cell.type === 4 /* TetrisRotated */) {
             tetrisCount++;
             rotatedTetrisCount++;
           }
@@ -498,18 +630,16 @@ var PuzzleValidator = class {
     difficulty *= sizeFactor;
     return Math.max(0.01, Math.min(1, difficulty / 4));
   }
+  /**
+   * 探索空間を走査して統計情報を収集する
+   */
   exploreSearchSpace(grid, currIdx, visitedMask, path, hexagonsOnPath, totalHexagons, adj, endNodes, fingerprints, stats, limit) {
     stats.totalNodesVisited++;
     stats.maxDepth = Math.max(stats.maxDepth, path.length);
     if (stats.totalNodesVisited > limit) return;
     if (endNodes.includes(currIdx)) {
       if (hexagonsOnPath === totalHexagons) {
-        const solutionPath = {
-          points: path.map((idx) => ({
-            x: idx % (grid.cols + 1),
-            y: Math.floor(idx / (grid.cols + 1))
-          }))
-        };
+        const solutionPath = { points: path.map((idx) => ({ x: idx % (grid.cols + 1), y: Math.floor(idx / (grid.cols + 1)) })) };
         if (this.validate(grid, solutionPath).isValid) {
           const fp = this.getFingerprint(grid, solutionPath.points);
           if (!fingerprints.has(fp)) {
@@ -539,13 +669,9 @@ var PuzzleValidator = class {
           }
         }
       }
-      if (possible) {
-        validMoves.push(edge);
-      }
+      if (possible) validMoves.push(edge);
     }
-    if (validMoves.length > 1) {
-      stats.branchingPoints++;
-    }
+    if (validMoves.length > 1) stats.branchingPoints++;
     for (const move of validMoves) {
       path.push(move.next);
       this.exploreSearchSpace(grid, move.next, visitedMask | 1n << BigInt(move.next), path, hexagonsOnPath + (move.isHexagon ? 1 : 0), totalHexagons, adj, endNodes, fingerprints, stats, limit);
@@ -554,7 +680,7 @@ var PuzzleValidator = class {
     }
   }
   /**
-   * 全ての有効な解答パスの個数をカウントする
+   * 正解数をカウントする
    */
   countSolutions(grid, limit = 100) {
     const rows = grid.rows;
@@ -574,18 +700,18 @@ var PuzzleValidator = class {
           const v = u + 1;
           const type = grid.hEdges[r][c].type;
           const isHexagon = type === 3 /* Hexagon */;
-          const isBlocked = type === 1 /* Broken */ || type === 2 /* Absent */;
-          adj[u].push({ next: v, isHexagon, isBroken: isBlocked });
-          adj[v].push({ next: u, isHexagon, isBroken: isBlocked });
+          const isBroken = type === 1 /* Broken */ || type === 2 /* Absent */;
+          adj[u].push({ next: v, isHexagon, isBroken });
+          adj[v].push({ next: u, isHexagon, isBroken });
           if (isHexagon) hexagonEdges.add(this.getEdgeKey({ x: c, y: r }, { x: c + 1, y: r }));
         }
         if (r < rows) {
           const v = u + nodeCols;
           const type = grid.vEdges[r][c].type;
           const isHexagon = type === 3 /* Hexagon */;
-          const isBlocked = type === 1 /* Broken */ || type === 2 /* Absent */;
-          adj[u].push({ next: v, isHexagon, isBroken: isBlocked });
-          adj[v].push({ next: u, isHexagon, isBroken: isBlocked });
+          const isBroken = type === 1 /* Broken */ || type === 2 /* Absent */;
+          adj[u].push({ next: v, isHexagon, isBroken });
+          adj[v].push({ next: u, isHexagon, isBroken });
           if (isHexagon) hexagonEdges.add(this.getEdgeKey({ x: c, y: r }, { x: c, y: r + 1 }));
         }
       }
@@ -594,7 +720,6 @@ var PuzzleValidator = class {
     const totalHexagons = hexagonEdges.size;
     for (const startIdx of startNodes) {
       this.findPathsOptimized(grid, startIdx, 1n << BigInt(startIdx), [startIdx], 0, totalHexagons, adj, endNodes, fingerprints, limit);
-      if (fingerprints.size >= limit) break;
     }
     return fingerprints.size;
   }
@@ -602,15 +727,8 @@ var PuzzleValidator = class {
     if (fingerprints.size >= limit) return;
     if (endNodes.includes(currIdx)) {
       if (hexagonsOnPath === totalHexagons) {
-        const solutionPath = {
-          points: path.map((idx) => ({
-            x: idx % (grid.cols + 1),
-            y: Math.floor(idx / (grid.cols + 1))
-          }))
-        };
-        if (this.validate(grid, solutionPath).isValid) {
-          fingerprints.add(this.getFingerprint(grid, solutionPath.points));
-        }
+        const solutionPath = { points: path.map((idx) => ({ x: idx % (grid.cols + 1), y: Math.floor(idx / (grid.cols + 1)) })) };
+        if (this.validate(grid, solutionPath).isValid) fingerprints.add(this.getFingerprint(grid, solutionPath.points));
       }
       return;
     }
@@ -636,6 +754,9 @@ var PuzzleValidator = class {
       if (fingerprints.size >= limit) return;
     }
   }
+  /**
+   * 終端まで到達可能かビットマスクBFSで高速に確認する
+   */
   canReachEndOptimized(curr, visitedMask, adj, endNodes) {
     let queue = [curr];
     let localVisited = visitedMask;
@@ -643,15 +764,17 @@ var PuzzleValidator = class {
     while (head < queue.length) {
       const u = queue[head++];
       if (endNodes.includes(u)) return true;
-      for (const edge of adj[u]) {
+      for (const edge of adj[u])
         if (!edge.isBroken && !(localVisited & 1n << BigInt(edge.next))) {
           localVisited |= 1n << BigInt(edge.next);
           queue.push(edge.next);
         }
-      }
     }
     return false;
   }
+  /**
+   * パスの論理的な指紋を取得する（区画分けに基づき、同一解を排除するため）
+   */
   getFingerprint(grid, path) {
     const regions = this.calculateRegions(grid, path);
     const regionFingerprints = regions.map((region) => {
@@ -669,6 +792,7 @@ var PuzzleGenerator = class {
    * @param rows 行数
    * @param cols 列数
    * @param options 生成オプション
+   * @returns 生成されたグリッド
    */
   generate(rows, cols, options = {}) {
     const targetDifficulty = options.difficulty ?? 0.5;
@@ -678,9 +802,7 @@ var PuzzleGenerator = class {
     const maxAttempts = rows * cols > 30 ? 30 : 60;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       const grid = this.generateOnce(rows, cols, options);
-      if (!this.checkAllRequestedConstraintsPresent(grid, options)) {
-        continue;
-      }
+      if (!this.checkAllRequestedConstraintsPresent(grid, options)) continue;
       const difficulty = validator.calculateDifficulty(grid);
       if (difficulty === 0) continue;
       const diffFromTarget = Math.abs(difficulty - targetDifficulty);
@@ -691,8 +813,14 @@ var PuzzleGenerator = class {
       if (targetDifficulty > 0.8 && difficulty > 0.8) break;
       if (diffFromTarget < 0.05) break;
     }
-    return bestGrid || this.generateOnce(rows, cols, options);
+    if (!bestGrid) {
+      return this.generateOnce(rows, cols, options);
+    }
+    return bestGrid;
   }
+  /**
+   * 1回の試行でパズルを構築する
+   */
   generateOnce(rows, cols, options) {
     const grid = new Grid(rows, cols);
     const startPoint = { x: 0, y: rows };
@@ -708,27 +836,18 @@ var PuzzleGenerator = class {
     return grid;
   }
   /**
-   * Randomized DFSを用いてStartからEndへの一本道を生成する
+   * ランダムな正解パスを生成する
    */
   generateRandomPath(grid, start, end) {
     const visited = /* @__PURE__ */ new Set();
     const path = [];
-    const stack = [start];
-    const parentMap = /* @__PURE__ */ new Map();
-    parentMap.set(`${start.x},${start.y}`, null);
     const findPath = (current) => {
       visited.add(`${current.x},${current.y}`);
       path.push(current);
-      if (current.x === end.x && current.y === end.y) {
-        return true;
-      }
+      if (current.x === end.x && current.y === end.y) return true;
       const neighbors = this.getValidNeighbors(grid, current, visited);
       this.shuffleArray(neighbors);
-      for (const next of neighbors) {
-        if (findPath(next)) {
-          return true;
-        }
-      }
+      for (const next of neighbors) if (findPath(next)) return true;
       path.pop();
       return false;
     };
@@ -739,48 +858,39 @@ var PuzzleGenerator = class {
     const candidates = [];
     const directions = [
       { x: 0, y: -1 },
-      // Up
       { x: 1, y: 0 },
-      // Right
       { x: 0, y: 1 },
-      // Down
       { x: -1, y: 0 }
-      // Left
     ];
     for (const d of directions) {
       const nx = p.x + d.x;
       const ny = p.y + d.y;
       if (nx >= 0 && nx <= grid.cols && ny >= 0 && ny <= grid.rows) {
-        if (!visited.has(`${nx},${ny}`)) {
-          candidates.push({ x: nx, y: ny });
-        }
+        if (!visited.has(`${nx},${ny}`)) candidates.push({ x: nx, y: ny });
       }
     }
     return candidates;
   }
+  /**
+   * 解パスが通っていない場所にランダムに断線（Broken/Absent）を配置する
+   */
   applyBrokenEdges(grid, path, options) {
     const complexity = options.complexity ?? 0.5;
     const pathEdges = /* @__PURE__ */ new Set();
-    for (let i = 0; i < path.length - 1; i++) {
-      pathEdges.add(this.getEdgeKey(path[i], path[i + 1]));
-    }
+    for (let i = 0; i < path.length - 1; i++) pathEdges.add(this.getEdgeKey(path[i], path[i + 1]));
     const unusedEdges = [];
     for (let r = 0; r <= grid.rows; r++) {
       for (let c = 0; c < grid.cols; c++) {
         const p1 = { x: c, y: r };
         const p2 = { x: c + 1, y: r };
-        if (!pathEdges.has(this.getEdgeKey(p1, p2))) {
-          unusedEdges.push({ type: "h", r, c, p1, p2 });
-        }
+        if (!pathEdges.has(this.getEdgeKey(p1, p2))) unusedEdges.push({ type: "h", r, c, p1, p2 });
       }
     }
     for (let r = 0; r < grid.rows; r++) {
       for (let c = 0; c <= grid.cols; c++) {
         const p1 = { x: c, y: r };
         const p2 = { x: c, y: r + 1 };
-        if (!pathEdges.has(this.getEdgeKey(p1, p2))) {
-          unusedEdges.push({ type: "v", r, c, p1, p2 });
-        }
+        if (!pathEdges.has(this.getEdgeKey(p1, p2))) unusedEdges.push({ type: "v", r, c, p1, p2 });
       }
     }
     this.shuffleArray(unusedEdges);
@@ -789,14 +899,9 @@ var PuzzleGenerator = class {
     for (const edge of unusedEdges) {
       if (placed >= targetCount) break;
       let type = Math.random() < 0.8 ? 1 /* Broken */ : 2 /* Absent */;
-      if (type === 2 /* Absent */ && this.isAdjacentToMark(grid, edge)) {
-        type = 1 /* Broken */;
-      }
-      if (edge.type === "h") {
-        grid.hEdges[edge.r][edge.c].type = type;
-      } else {
-        grid.vEdges[edge.r][edge.c].type = type;
-      }
+      if (type === 2 /* Absent */ && this.isAdjacentToMark(grid, edge)) type = 1 /* Broken */;
+      if (edge.type === "h") grid.hEdges[edge.r][edge.c].type = type;
+      else grid.vEdges[edge.r][edge.c].type = type;
       placed++;
     }
     for (let r = 0; r <= grid.rows; r++) {
@@ -806,26 +911,21 @@ var PuzzleGenerator = class {
         if (c < grid.cols) edgesWithMeta.push({ e: grid.hEdges[r][c], type: "h", r, c });
         if (r > 0) edgesWithMeta.push({ e: grid.vEdges[r - 1][c], type: "v", r: r - 1, c });
         if (r < grid.rows) edgesWithMeta.push({ e: grid.vEdges[r][c], type: "v", r, c });
-        const allCuts = edgesWithMeta.every((m) => m.e.type === 1 /* Broken */ || m.e.type === 2 /* Absent */);
-        if (allCuts) {
-          const noneNearMark = edgesWithMeta.every((m) => !this.isAdjacentToMark(grid, m));
-          if (noneNearMark) {
-            for (const m of edgesWithMeta) {
-              m.e.type = 2 /* Absent */;
-            }
+        if (edgesWithMeta.every((m) => m.e.type === 1 /* Broken */ || m.e.type === 2 /* Absent */)) {
+          if (edgesWithMeta.every((m) => !this.isAdjacentToMark(grid, m))) {
+            for (const m of edgesWithMeta) m.e.type = 2 /* Absent */;
           }
         }
       }
     }
   }
+  /**
+   * 到達不可能なエリアをAbsent化し、外部に漏れたセルをクリアする
+   */
   cleanGrid(grid) {
     const startNodes = [];
     for (let r = 0; r <= grid.rows; r++) {
-      for (let c = 0; c <= grid.cols; c++) {
-        if (grid.nodes[r][c].type === 1 /* Start */) {
-          startNodes.push({ x: c, y: r });
-        }
-      }
+      for (let c = 0; c <= grid.cols; c++) if (grid.nodes[r][c].type === 1 /* Start */) startNodes.push({ x: c, y: r });
     }
     const reachableNodes = /* @__PURE__ */ new Set();
     const queue = [...startNodes];
@@ -834,13 +934,9 @@ var PuzzleGenerator = class {
       const curr = queue.shift();
       const neighbors = [
         { nx: curr.x, ny: curr.y - 1, edge: grid.vEdges[curr.y - 1]?.[curr.x] },
-        // Up
         { nx: curr.x, ny: curr.y + 1, edge: grid.vEdges[curr.y]?.[curr.x] },
-        // Down
         { nx: curr.x - 1, ny: curr.y, edge: grid.hEdges[curr.y]?.[curr.x - 1] },
-        // Left
         { nx: curr.x + 1, ny: curr.y, edge: grid.hEdges[curr.y]?.[curr.x] }
-        // Right
       ];
       for (const n of neighbors) {
         if (n.edge && n.edge.type !== 2 /* Absent */) {
@@ -852,18 +948,10 @@ var PuzzleGenerator = class {
       }
     }
     for (let r = 0; r <= grid.rows; r++) {
-      for (let c = 0; c < grid.cols; c++) {
-        if (!reachableNodes.has(`${c},${r}`) || !reachableNodes.has(`${c + 1},${r}`)) {
-          grid.hEdges[r][c].type = 2 /* Absent */;
-        }
-      }
+      for (let c = 0; c < grid.cols; c++) if (!reachableNodes.has(`${c},${r}`) || !reachableNodes.has(`${c + 1},${r}`)) grid.hEdges[r][c].type = 2 /* Absent */;
     }
     for (let r = 0; r < grid.rows; r++) {
-      for (let c = 0; c <= grid.cols; c++) {
-        if (!reachableNodes.has(`${c},${r}`) || !reachableNodes.has(`${c},${r + 1}`)) {
-          grid.vEdges[r][c].type = 2 /* Absent */;
-        }
-      }
+      for (let c = 0; c <= grid.cols; c++) if (!reachableNodes.has(`${c},${r}`) || !reachableNodes.has(`${c},${r + 1}`)) grid.vEdges[r][c].type = 2 /* Absent */;
     }
     const external = this.getExternalCells(grid);
     for (const cellKey of external) {
@@ -931,24 +1019,16 @@ var PuzzleGenerator = class {
     }
     return false;
   }
+  /**
+   * マークが完全に断絶されたセルにいないか確認する
+   */
   hasIsolatedMark(grid) {
-    for (let r = 0; r < grid.rows; r++) {
+    for (let r = 0; r < grid.rows; r++)
       for (let c = 0; c < grid.cols; c++) {
         if (grid.cells[r][c].type === 0 /* None */) continue;
-        const edges = [
-          grid.hEdges[r][c],
-          // Top
-          grid.hEdges[r + 1][c],
-          // Bottom
-          grid.vEdges[r][c],
-          // Left
-          grid.vEdges[r][c + 1]
-          // Right
-        ];
-        const passableCount = edges.filter((e) => e.type === 0 /* Normal */ || e.type === 3 /* Hexagon */).length;
-        if (passableCount === 0) return true;
+        const edges = [grid.hEdges[r][c], grid.hEdges[r + 1][c], grid.vEdges[r][c], grid.vEdges[r][c + 1]];
+        if (edges.every((e) => e.type === 1 /* Broken */ || e.type === 2 /* Absent */)) return true;
       }
-    }
     return false;
   }
   getEdgeKey(p1, p2) {
@@ -956,113 +1036,96 @@ var PuzzleGenerator = class {
   }
   TETRIS_SHAPES = [
     [[1]],
-    // 1x1
     [[1, 1]],
-    // 1x2
     [[1, 1, 1]],
-    // 1x3
     [
       [1, 1],
       [1, 0]
     ],
-    // L-3
     [
       [0, 1],
       [1, 0]
     ],
-    // 斜め2x2
     [[1, 1, 1, 1]],
-    // I
     [
       [1, 1],
       [1, 1]
     ],
-    // O
     [
       [1, 1, 1],
       [0, 1, 0]
     ],
-    // T-2
     [
       [1, 1, 0],
       [0, 1, 1]
     ],
-    // Z-2
     [
       [1, 1, 1],
       [1, 0, 0]
     ],
-    // L
     [
       [1, 1, 1],
       [0, 0, 1]
     ],
-    // L-i
     [
       [1, 1, 1],
       [1, 0, 1]
     ],
-    // コ
     [
       [0, 1, 0],
       [1, 0, 1]
     ],
-    // 斜め2x3
     [
       [1, 0, 0, 1],
       [1, 0, 0, 1]
     ],
-    // サンドイッチ
     [
       [1, 1, 1],
       [0, 1, 0],
       [0, 1, 0]
     ],
-    // T
     [
       [1, 1, 0],
       [0, 1, 0],
       [0, 1, 1]
     ],
-    // Z
     [
       [0, 1, 1],
       [0, 1, 0],
       [1, 1, 0]
     ],
-    // Z-i
     [
       [1, 1, 1],
       [1, 0, 1],
       [1, 1, 1]
     ]
-    // ロ
   ];
+  /**
+   * 解パスに基づいて各区画にルールを配置する
+   */
   applyConstraintsBasedOnPath(grid, path, options) {
     const complexity = options.complexity ?? 0.5;
     const useHexagons = options.useHexagons ?? true;
     const useSquares = options.useSquares ?? true;
     const useStars = options.useStars ?? true;
     const useTetris = options.useTetris ?? false;
+    const useEraser = options.useEraser ?? false;
     let hexagonsPlaced = 0;
     let squaresPlaced = 0;
     let starsPlaced = 0;
     let tetrisPlaced = 0;
+    let erasersPlaced = 0;
     let totalTetrisArea = 0;
     const maxTotalTetrisArea = Math.floor(grid.rows * grid.cols * 0.45);
     if (useHexagons) {
       const targetDifficulty = options.difficulty ?? 0.5;
       for (let i = 0; i < path.length - 1; i++) {
-        const p1 = path[i];
-        const p2 = path[i + 1];
-        const neighbors = this.getValidNeighbors(grid, p1, /* @__PURE__ */ new Set());
+        const neighbors = this.getValidNeighbors(grid, path[i], /* @__PURE__ */ new Set());
         const isBranching = neighbors.length > 2;
         let prob = complexity * 0.4;
-        if (isBranching) {
-          prob = targetDifficulty < 0.4 ? prob * 1 : prob * 0.5;
-        }
+        if (isBranching) prob = targetDifficulty < 0.4 ? prob * 1 : prob * 0.5;
         if (Math.random() < prob) {
-          this.setEdgeHexagon(grid, p1, p2);
+          this.setEdgeHexagon(grid, path[i], path[i + 1]);
           hexagonsPlaced++;
         }
       }
@@ -1071,60 +1134,39 @@ var PuzzleGenerator = class {
         this.setEdgeHexagon(grid, path[idx], path[idx + 1]);
       }
     }
-    if (useSquares || useStars) {
+    if (useSquares || useStars || useTetris || useEraser) {
       const regions = this.calculateRegions(grid, path);
       const availableColors = [1 /* Black */, 2 /* White */, 3 /* Red */, 4 /* Blue */];
       const regionIndices = Array.from({ length: regions.length }, (_, i) => i);
       this.shuffleArray(regionIndices);
-      for (const idx of regionIndices) {
+      const squareColorsUsed = /* @__PURE__ */ new Set();
+      for (let rIdx = 0; rIdx < regionIndices.length; rIdx++) {
+        const idx = regionIndices[rIdx];
         const region = regions[idx];
         const skipProb = (options.difficulty ?? 0.5) > 0.7 ? 0.4 : 0.2;
-        const forceOne = useSquares && squaresPlaced === 0 || useStars && starsPlaced === 0 || useTetris && tetrisPlaced === 0;
-        const isLastFew = idx === regionIndices[regionIndices.length - 1];
-        if (!forceOne || !isLastFew) {
-          if (Math.random() > skipProb + complexity * 0.5) continue;
-        }
+        const isLastFew = rIdx >= regionIndices.length - 2;
+        const forceOne = useSquares && squaresPlaced === 0 || useStars && starsPlaced === 0 || useTetris && tetrisPlaced === 0 || useEraser && erasersPlaced === 0;
+        if ((!forceOne || !isLastFew) && Math.random() > skipProb + complexity * 0.5) continue;
         const potentialCells = [...region];
         this.shuffleArray(potentialCells);
         let squareColor = availableColors[Math.floor(Math.random() * availableColors.length)];
-        if (useSquares && !useStars && isLastFew) {
-          const currentColors = /* @__PURE__ */ new Set();
-          for (let r = 0; r < grid.rows; r++) {
-            for (let c = 0; c < grid.cols; c++) {
-              if (grid.cells[r][c].type === 1 /* Square */) currentColors.add(grid.cells[r][c].color);
-            }
-          }
-          if (currentColors.size === 1) {
-            const otherColors = availableColors.filter((c) => !currentColors.has(c));
-            if (otherColors.length > 0) {
-              squareColor = otherColors[Math.floor(Math.random() * otherColors.length)];
-            }
-          }
+        if (useSquares && !useStars && isLastFew && squareColorsUsed.size === 1) {
+          const otherColors = availableColors.filter((c) => !squareColorsUsed.has(c));
+          if (otherColors.length > 0) squareColor = otherColors[Math.floor(Math.random() * otherColors.length)];
         }
-        let numSquares = 0;
         let shouldPlaceSquare = useSquares && Math.random() < 0.5 + complexity * 0.3;
         if (useSquares && squaresPlaced === 0 && isLastFew) shouldPlaceSquare = true;
-        if (useSquares && !useStars && isLastFew) {
-          const currentColors = /* @__PURE__ */ new Set();
-          for (let r = 0; r < grid.rows; r++) {
-            for (let c = 0; c < grid.cols; c++) {
-              if (grid.cells[r][c].type === 1 /* Square */) currentColors.add(grid.cells[r][c].color);
-            }
-          }
-          if (currentColors.size < 2 && squaresPlaced > 0) {
-            shouldPlaceSquare = true;
-          }
-        }
-        if (shouldPlaceSquare) {
+        if (useSquares && !useStars && isLastFew && squareColorsUsed.size < 2 && squaresPlaced > 0) shouldPlaceSquare = true;
+        if (shouldPlaceSquare && potentialCells.length > 0) {
           const maxSquares = Math.min(potentialCells.length, 4);
-          numSquares = Math.floor(Math.random() * maxSquares);
-          if (numSquares === 0 && squaresPlaced === 0) numSquares = 1;
+          const numSquares = Math.floor(Math.random() * maxSquares) + 1;
           for (let i = 0; i < numSquares; i++) {
             if (potentialCells.length === 0) break;
             const cell = potentialCells.pop();
             grid.cells[cell.y][cell.x].type = 1 /* Square */;
             grid.cells[cell.y][cell.x].color = squareColor;
             squaresPlaced++;
+            squareColorsUsed.add(squareColor);
           }
         }
         if (useTetris && totalTetrisArea < maxTotalTetrisArea) {
@@ -1146,74 +1188,66 @@ var PuzzleGenerator = class {
             }
           }
         }
+        if (useEraser) {
+          let shouldPlaceEraser = Math.random() < 0.05 + complexity * 0.2;
+          if (erasersPlaced === 0 && isLastFew) shouldPlaceEraser = true;
+          if (shouldPlaceEraser && potentialCells.length >= 2) {
+            const cell = potentialCells.pop();
+            grid.cells[cell.y][cell.x].type = 5 /* Eraser */;
+            let eraserColor = 0 /* None */;
+            if (useStars && Math.random() < 0.4) eraserColor = availableColors[Math.floor(Math.random() * availableColors.length)];
+            grid.cells[cell.y][cell.x].color = eraserColor;
+            erasersPlaced++;
+            const errCell = potentialCells.pop();
+            grid.cells[errCell.y][errCell.x].type = 2 /* Star */;
+            grid.cells[errCell.y][errCell.x].color = availableColors.find((c) => c !== eraserColor) || 3 /* Red */;
+            starsPlaced++;
+          }
+        }
         if (useStars) {
           for (const color of availableColors) {
             if (potentialCells.length < 1) break;
-            let shouldPlaceStar = Math.random() < 0.2 + complexity * 0.3;
-            if (starsPlaced === 0 && isLastFew) shouldPlaceStar = true;
-            if (!shouldPlaceStar) continue;
-            const tetrisInRegion = region.map((p) => grid.cells[p.y][p.x]).filter((c) => c.type === 3 /* Tetris */ || c.type === 4 /* TetrisRotated */);
-            let existingColorCount = 0;
-            if (color === squareColor) existingColorCount += numSquares;
-            existingColorCount += tetrisInRegion.filter((c) => c.color === color).length;
-            if (existingColorCount === 1) {
+            if (Math.random() > 0.2 + complexity * 0.3) continue;
+            const colorCount = region.filter((p) => grid.cells[p.y][p.x].color === color).length;
+            if (colorCount === 1) {
               const cell = potentialCells.pop();
               grid.cells[cell.y][cell.x].type = 2 /* Star */;
               grid.cells[cell.y][cell.x].color = color;
               starsPlaced++;
-            } else if (existingColorCount === 0) {
-              const uncoloredTetris = tetrisInRegion.filter((c) => c.color === 0 /* None */);
-              if (color !== 4 /* Blue */ && Math.random() < 0.5 && uncoloredTetris.length > 0) {
-                const t = uncoloredTetris[Math.floor(Math.random() * uncoloredTetris.length)];
-                t.color = color;
-                const cell = potentialCells.pop();
-                grid.cells[cell.y][cell.x].type = 2 /* Star */;
-                grid.cells[cell.y][cell.x].color = color;
-                starsPlaced++;
-              } else if (potentialCells.length >= 2) {
-                for (let i = 0; i < 2; i++) {
-                  const cell = potentialCells.pop();
-                  grid.cells[cell.y][cell.x].type = 2 /* Star */;
-                  grid.cells[cell.y][cell.x].color = color;
-                  starsPlaced++;
-                }
-              }
-            }
-          }
-        }
-      }
-      if (useStars && starsPlaced === 0) {
-        for (const region of regions) {
-          if (region.length >= 2) {
-            const potentialCells = [...region].filter((p) => grid.cells[p.y][p.x].type === 0 /* None */);
-            if (potentialCells.length >= 2) {
-              const color = availableColors[Math.floor(Math.random() * availableColors.length)];
+            } else if (colorCount === 0 && potentialCells.length >= 2) {
               for (let i = 0; i < 2; i++) {
                 const cell = potentialCells.pop();
                 grid.cells[cell.y][cell.x].type = 2 /* Star */;
                 grid.cells[cell.y][cell.x].color = color;
                 starsPlaced++;
               }
-              break;
             }
+          }
+        }
+      }
+      if (useSquares && !useStars && squareColorsUsed.size < 2) {
+        for (const region of regions) {
+          if (region.every((p) => grid.cells[p.y][p.x].type === 0 /* None */)) {
+            const otherColor = availableColors.find((c) => !squareColorsUsed.has(c)) || 2 /* White */;
+            const cell = region[Math.floor(Math.random() * region.length)];
+            grid.cells[cell.y][cell.x].type = 1 /* Square */;
+            grid.cells[cell.y][cell.x].color = otherColor;
+            squareColorsUsed.add(otherColor);
+            squaresPlaced++;
+            break;
           }
         }
       }
     }
   }
   /**
-   * パスを壁と見なして、セル（Block）の領域分割を行う (Flood Fill)
+   * 区画分けを行う
    */
   calculateRegions(grid, path) {
     const regions = [];
     const visitedCells = /* @__PURE__ */ new Set();
     const pathEdges = /* @__PURE__ */ new Set();
-    for (let i = 0; i < path.length - 1; i++) {
-      const p1 = path[i];
-      const p2 = path[i + 1];
-      const k = p1.x < p2.x || p1.y < p2.y ? `${p1.x},${p1.y}-${p2.x},${p2.y}` : `${p2.x},${p2.y}-${p1.x},${p1.y}`;
-      pathEdges.add(k);
-    }
+    for (let i = 0; i < path.length - 1; i++) pathEdges.add(this.getEdgeKey(path[i], path[i + 1]));
     for (let r = 0; r < grid.rows; r++) {
       for (let c = 0; c < grid.cols; c++) {
         if (visitedCells.has(`${c},${r}`)) continue;
@@ -1224,25 +1258,18 @@ var PuzzleGenerator = class {
           const cell = queue.shift();
           currentRegion.push(cell);
           const neighbors = [
-            { dx: 0, dy: -1, boundary: { p1: { x: cell.x, y: cell.y }, p2: { x: cell.x + 1, y: cell.y } } },
-            // Up (Boundary is Top edge)
-            { dx: 0, dy: 1, boundary: { p1: { x: cell.x, y: cell.y + 1 }, p2: { x: cell.x + 1, y: cell.y + 1 } } },
-            // Down (Boundary is Bottom edge)
-            { dx: -1, dy: 0, boundary: { p1: { x: cell.x, y: cell.y }, p2: { x: cell.x, y: cell.y + 1 } } },
-            // Left (Boundary is Left edge)
-            { dx: 1, dy: 0, boundary: { p1: { x: cell.x + 1, y: cell.y }, p2: { x: cell.x + 1, y: cell.y + 1 } } }
-            // Right (Boundary is Right edge)
+            { dx: 0, dy: -1, p1: { x: cell.x, y: cell.y }, p2: { x: cell.x + 1, y: cell.y } },
+            { dx: 0, dy: 1, p1: { x: cell.x, y: cell.y + 1 }, p2: { x: cell.x + 1, y: cell.y + 1 } },
+            { dx: -1, dy: 0, p1: { x: cell.x, y: cell.y }, p2: { x: cell.x, y: cell.y + 1 } },
+            { dx: 1, dy: 0, p1: { x: cell.x + 1, y: cell.y }, p2: { x: cell.x + 1, y: cell.y + 1 } }
           ];
           for (const n of neighbors) {
             const nx = cell.x + n.dx;
             const ny = cell.y + n.dy;
             if (nx >= 0 && nx < grid.cols && ny >= 0 && ny < grid.rows) {
-              if (!visitedCells.has(`${nx},${ny}`)) {
-                const key = n.boundary.p1.x < n.boundary.p2.x || n.boundary.p1.y < n.boundary.p2.y ? `${n.boundary.p1.x},${n.boundary.p1.y}-${n.boundary.p2.x},${n.boundary.p2.y}` : `${n.boundary.p2.x},${n.boundary.p2.y}-${n.boundary.p1.x},${n.boundary.p1.y}`;
-                if (!pathEdges.has(key) && !this.isAbsentEdge(grid, n.boundary.p1, n.boundary.p2)) {
-                  visitedCells.add(`${nx},${ny}`);
-                  queue.push({ x: nx, y: ny });
-                }
+              if (!visitedCells.has(`${nx},${ny}`) && !pathEdges.has(this.getEdgeKey(n.p1, n.p2)) && !this.isAbsentEdge(grid, n.p1, n.p2)) {
+                visitedCells.add(`${nx},${ny}`);
+                queue.push({ x: nx, y: ny });
               }
             }
           }
@@ -1262,97 +1289,83 @@ var PuzzleGenerator = class {
     }
   }
   setEdgeHexagon(grid, p1, p2) {
-    if (p1.x === p2.x) {
-      const y = Math.min(p1.y, p2.y);
-      grid.vEdges[y][p1.x].type = 3 /* Hexagon */;
-    } else {
-      const x = Math.min(p1.x, p2.x);
-      grid.hEdges[p1.y][x].type = 3 /* Hexagon */;
-    }
+    if (p1.x === p2.x) grid.vEdges[Math.min(p1.y, p2.y)][p1.x].type = 3 /* Hexagon */;
+    else grid.hEdges[p1.y][Math.min(p1.x, p2.x)].type = 3 /* Hexagon */;
   }
+  /**
+   * 要求された制約が全て含まれているか確認する
+   */
   checkAllRequestedConstraintsPresent(grid, options) {
     const useHexagons = options.useHexagons ?? true;
     const useSquares = options.useSquares ?? true;
     const useStars = options.useStars ?? true;
     const useTetris = options.useTetris ?? false;
+    const useEraser = options.useEraser ?? false;
     const useBrokenEdges = options.useBrokenEdges ?? false;
     if (useBrokenEdges) {
       let found = false;
-      for (let r = 0; r <= grid.rows; r++) {
-        for (let c = 0; c < grid.cols; c++) {
+      for (let r = 0; r <= grid.rows; r++)
+        for (let c = 0; c < grid.cols; c++)
           if (grid.hEdges[r][c].type === 1 /* Broken */ || grid.hEdges[r][c].type === 2 /* Absent */) {
             found = true;
             break;
           }
-        }
-        if (found) break;
-      }
       if (!found) {
-        for (let r = 0; r < grid.rows; r++) {
-          for (let c = 0; c <= grid.cols; c++) {
+        for (let r = 0; r < grid.rows; r++)
+          for (let c = 0; c <= grid.cols; c++)
             if (grid.vEdges[r][c].type === 1 /* Broken */ || grid.vEdges[r][c].type === 2 /* Absent */) {
               found = true;
               break;
             }
-          }
-          if (found) break;
-        }
       }
       if (!found) return false;
     }
     if (useHexagons) {
       let found = false;
-      for (let r = 0; r <= grid.rows; r++) {
-        for (let c = 0; c < grid.cols; c++) {
+      for (let r = 0; r <= grid.rows; r++)
+        for (let c = 0; c < grid.cols; c++)
           if (grid.hEdges[r][c].type === 3 /* Hexagon */) {
             found = true;
             break;
           }
-        }
-        if (found) break;
-      }
       if (!found) {
-        for (let r = 0; r < grid.rows; r++) {
-          for (let c = 0; c <= grid.cols; c++) {
+        for (let r = 0; r < grid.rows; r++)
+          for (let c = 0; c <= grid.cols; c++)
             if (grid.vEdges[r][c].type === 3 /* Hexagon */) {
               found = true;
               break;
             }
-          }
-          if (found) break;
-        }
       }
       if (!found) return false;
     }
-    if (useSquares || useStars || useTetris) {
-      let foundSquare = false;
-      let foundStar = false;
-      let foundTetris = false;
-      const squareColors = /* @__PURE__ */ new Set();
-      for (let r = 0; r < grid.rows; r++) {
+    if (useSquares || useStars || useTetris || useEraser) {
+      let fSq = false;
+      let fSt = false;
+      let fT = false;
+      let fE = false;
+      const sqC = /* @__PURE__ */ new Set();
+      for (let r = 0; r < grid.rows; r++)
         for (let c = 0; c < grid.cols; c++) {
-          if (grid.cells[r][c].type === 1 /* Square */) {
-            foundSquare = true;
-            squareColors.add(grid.cells[r][c].color);
+          const type = grid.cells[r][c].type;
+          if (type === 1 /* Square */) {
+            fSq = true;
+            sqC.add(grid.cells[r][c].color);
           }
-          if (grid.cells[r][c].type === 2 /* Star */) foundStar = true;
-          if (grid.cells[r][c].type === 3 /* Tetris */ || grid.cells[r][c].type === 4 /* TetrisRotated */) {
-            foundTetris = true;
-          }
+          if (type === 2 /* Star */) fSt = true;
+          if (type === 3 /* Tetris */ || type === 4 /* TetrisRotated */) fT = true;
+          if (type === 5 /* Eraser */) fE = true;
         }
-      }
-      if (useSquares && !foundSquare) return false;
-      if (useStars && !foundStar) return false;
-      if (useTetris && !foundTetris) return false;
-      if (foundSquare && !foundStar && squareColors.size < 2) {
-        return false;
-      }
+      if (useSquares && !fSq) return false;
+      if (useStars && !fSt) return false;
+      if (useTetris && !fT) return false;
+      if (useEraser && !fE) return false;
+      if (useSquares && fSq && !fSt && sqC.size < 2) return false;
     }
     if (this.hasIsolatedMark(grid)) return false;
     return true;
   }
   /**
-   * 領域を指定されたピース数以内でタイリングする。成功すればピースのリストを返す。
+   * 指定された区画をピースで埋め尽くすタイリングを生成する
    */
   generateTiling(region, maxPieces, options) {
     const minX = Math.min(...region.map((p) => p.x));
@@ -1362,22 +1375,22 @@ var PuzzleGenerator = class {
     const width = maxX - minX + 1;
     const height = maxY - minY + 1;
     const regionGrid = Array.from({ length: height }, () => Array(width).fill(false));
-    for (const p of region) {
-      regionGrid[p.y - minY][p.x - minX] = true;
-    }
+    for (const p of region) regionGrid[p.y - minY][p.x - minX] = true;
     return this.tilingDfs(regionGrid, [], maxPieces, options);
   }
+  /**
+   * タイリングを深さ優先探索で生成する
+   */
   tilingDfs(regionGrid, currentPieces, maxPieces, options) {
     let r0 = -1;
     let c0 = -1;
     for (let r = 0; r < regionGrid.length; r++) {
-      for (let c = 0; c < regionGrid[0].length; c++) {
+      for (let c = 0; c < regionGrid[0].length; c++)
         if (regionGrid[r][c]) {
           r0 = r;
           c0 = c;
           break;
         }
-      }
       if (r0 !== -1) break;
     }
     if (r0 === -1) return currentPieces;
@@ -1385,34 +1398,20 @@ var PuzzleGenerator = class {
     const difficulty = options.difficulty ?? 0.5;
     let shapes = [...this.TETRIS_SHAPES];
     this.shuffleArray(shapes);
-    if (difficulty > 0.6) {
-      shapes.sort((a, b) => {
-        const areaA = this.getShapeArea(a);
-        const areaB = this.getShapeArea(b);
-        if (areaA <= 2 && areaB > 2) return 1;
-        if (areaB <= 2 && areaA > 2) return -1;
-        return 0;
-      });
-    }
+    if (difficulty > 0.6) shapes.sort((a, b) => this.getShapeArea(b) - this.getShapeArea(a));
     for (const baseShape of shapes) {
-      const isInvariant = this.isRotationallyInvariant(baseShape);
-      const rotations = isInvariant ? [baseShape] : this.getAllRotations(baseShape);
+      const isInv = this.isRotationallyInvariant(baseShape);
+      const rotations = isInv ? [baseShape] : this.getAllRotations(baseShape);
       this.shuffleArray(rotations);
       for (const shape of rotations) {
         const blocks = [];
-        for (let pr = 0; pr < shape.length; pr++) {
-          for (let pc = 0; pc < shape[0].length; pc++) {
-            if (shape[pr][pc]) blocks.push({ r: pr, c: pc });
-          }
-        }
+        for (let pr = 0; pr < shape.length; pr++) for (let pc = 0; pc < shape[0].length; pc++) if (shape[pr][pc]) blocks.push({ r: pr, c: pc });
         for (const anchor of blocks) {
           const dr = r0 - anchor.r;
           const dc = c0 - anchor.c;
           if (this.canPlace(regionGrid, shape, dr, dc)) {
             this.placePiece(regionGrid, shape, dr, dc, false);
-            const rotProb = 0.3 + difficulty * 0.6;
-            const isRotated = !isInvariant && Math.random() < rotProb;
-            const result = this.tilingDfs(regionGrid, [...currentPieces, { shape, displayShape: baseShape, isRotated }], maxPieces, options);
+            const result = this.tilingDfs(regionGrid, [...currentPieces, { shape, displayShape: baseShape, isRotated: !isInv && Math.random() < 0.3 + difficulty * 0.6 }], maxPieces, options);
             if (result) return result;
             this.placePiece(regionGrid, shape, dr, dc, true);
           }
@@ -1423,11 +1422,7 @@ var PuzzleGenerator = class {
   }
   getShapeArea(shape) {
     let area = 0;
-    for (const row of shape) {
-      for (const cell of row) {
-        if (cell) area++;
-      }
-    }
+    for (const row of shape) for (const cell of row) if (cell) area++;
     return area;
   }
   isRotationallyInvariant(shape) {
@@ -1452,35 +1447,20 @@ var PuzzleGenerator = class {
     const rows = shape.length;
     const cols = shape[0].length;
     const newShape = Array.from({ length: cols }, () => Array(rows).fill(0));
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        newShape[c][rows - 1 - r] = shape[r][c];
-      }
-    }
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) newShape[c][rows - 1 - r] = shape[r][c];
     return newShape;
   }
   canPlace(regionGrid, shape, r, c) {
-    for (let i = 0; i < shape.length; i++) {
-      for (let j = 0; j < shape[0].length; j++) {
+    for (let i = 0; i < shape.length; i++)
+      for (let j = 0; j < shape[0].length; j++)
         if (shape[i][j]) {
-          const nr = r + i;
-          const nc = c + j;
-          if (nr < 0 || nr >= regionGrid.length || nc < 0 || nc >= regionGrid[0].length || !regionGrid[nr][nc]) {
-            return false;
-          }
+          const nr = r + i, nc = c + j;
+          if (nr < 0 || nr >= regionGrid.length || nc < 0 || nc >= regionGrid[0].length || !regionGrid[nr][nc]) return false;
         }
-      }
-    }
     return true;
   }
   placePiece(regionGrid, shape, r, c, value) {
-    for (let i = 0; i < shape.length; i++) {
-      for (let j = 0; j < shape[0].length; j++) {
-        if (shape[i][j]) {
-          regionGrid[r + i][c + j] = value;
-        }
-      }
-    }
+    for (let i = 0; i < shape.length; i++) for (let j = 0; j < shape[0].length; j++) if (shape[i][j]) regionGrid[r + i][c + j] = value;
   }
   shuffleArray(array) {
     for (let i = array.length - 1; i > 0; i--) {

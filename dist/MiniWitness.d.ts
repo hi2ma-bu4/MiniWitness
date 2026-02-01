@@ -11,7 +11,8 @@ export declare enum CellType {
 	Square = 1,// 色分けが必要なブロック
 	Star = 2,// 同じ色のペア作成 (星)
 	Tetris = 3,// テトリス
-	TetrisRotated = 4
+	TetrisRotated = 4,// テトリス（回転可能）
+	Eraser = 5
 }
 export declare enum EdgeType {
 	Normal = 0,
@@ -66,6 +67,12 @@ export interface SolutionPath {
 export interface ValidationResult {
 	isValid: boolean;
 	errorReason?: string;
+	invalidatedCells?: Point[];
+	invalidatedEdges?: {
+		type: "h" | "v";
+		r: number;
+		c: number;
+	}[];
 }
 /**
  * パズル生成のオプション
@@ -75,6 +82,7 @@ export interface GenerationOptions {
 	useSquares?: boolean;
 	useStars?: boolean;
 	useTetris?: boolean;
+	useEraser?: boolean;
 	useBrokenEdges?: boolean;
 	complexity?: number;
 	difficulty?: number;
@@ -91,39 +99,64 @@ export declare class Grid {
 	export(): PuzzleData;
 	static fromData(data: PuzzleData): Grid;
 }
+/**
+ * パズルを自動生成するクラス
+ */
 export declare class PuzzleGenerator {
 	/**
 	 * パズルを生成する
 	 * @param rows 行数
 	 * @param cols 列数
 	 * @param options 生成オプション
+	 * @returns 生成されたグリッド
 	 */
 	generate(rows: number, cols: number, options?: GenerationOptions): Grid;
+	/**
+	 * 1回の試行でパズルを構築する
+	 */
 	private generateOnce;
 	/**
-	 * Randomized DFSを用いてStartからEndへの一本道を生成する
+	 * ランダムな正解パスを生成する
 	 */
 	private generateRandomPath;
 	private getValidNeighbors;
+	/**
+	 * 解パスが通っていない場所にランダムに断線（Broken/Absent）を配置する
+	 */
 	private applyBrokenEdges;
+	/**
+	 * 到達不可能なエリアをAbsent化し、外部に漏れたセルをクリアする
+	 */
 	private cleanGrid;
 	private getExternalCells;
 	private isAdjacentToMark;
+	/**
+	 * マークが完全に断絶されたセルにいないか確認する
+	 */
 	private hasIsolatedMark;
 	private getEdgeKey;
 	private TETRIS_SHAPES;
+	/**
+	 * 解パスに基づいて各区画にルールを配置する
+	 */
 	private applyConstraintsBasedOnPath;
 	/**
-	 * パスを壁と見なして、セル（Block）の領域分割を行う (Flood Fill)
+	 * 区画分けを行う
 	 */
 	private calculateRegions;
 	private isAbsentEdge;
 	private setEdgeHexagon;
+	/**
+	 * 要求された制約が全て含まれているか確認する
+	 */
 	private checkAllRequestedConstraintsPresent;
 	/**
-	 * 領域を指定されたピース数以内でタイリングする。成功すればピースのリストを返す。
+	 * 指定された区画をピースで埋め尽くすタイリングを生成する
 	 */
 	private generateTiling;
+	/**
+	 * タイリングを深さ優先探索で生成する
+	 */
 	private tilingDfs;
 	private getShapeArea;
 	private isRotationallyInvariant;
@@ -133,34 +166,95 @@ export declare class PuzzleGenerator {
 	private placePiece;
 	private shuffleArray;
 }
+/**
+ * パズルの回答を検証するクラス
+ */
 export declare class PuzzleValidator {
+	/**
+	 * 与えられたグリッドと回答パスが正当かどうかを検証する
+	 * @param grid パズルのグリッドデータ
+	 * @param solution 回答パス
+	 * @returns 検証結果（正誤、エラー理由、無効化された記号など）
+	 */
 	validate(grid: Grid, solution: SolutionPath): ValidationResult;
+	/**
+	 * 二点間が断線（Broken or Absent）しているか確認する
+	 */
 	private isBrokenEdge;
+	/**
+	 * 二点間が Absent（存在しない）エッジか確認する
+	 */
 	private isAbsentEdge;
-	private checkHexagonConstraint;
-	private checkCellConstraints;
+	/**
+	 * 回答パスが通過しなかった六角形エッジをリストアップする
+	 */
+	private getMissedHexagons;
+	/**
+	 * テトラポッド（エラー削除）を考慮してパズルの各制約を検証する
+	 */
+	private validateWithErasers;
+	/**
+	 * 指定されたエッジが特定の区画に隣接しているか確認する
+	 */
+	private isHexagonAdjacentToRegion;
+	/**
+	 * 区画内のエラー削除可能な全パターンを取得する
+	 */
+	private getPossibleErasures;
+	/**
+	 * 配列からN個選ぶ組み合わせを取得する
+	 */
+	private getNCombinations;
+	/**
+	 * 特定の削除・無効化を適用した状態で、区画内の制約が満たされているか検証する
+	 */
+	private checkRegionValid;
+	/**
+	 * グローバルな制約（六角形）の割り当てをバックトラッキングで探索する
+	 */
+	private findGlobalAssignment;
+	/**
+	 * テトリス制約の検証（指定された領域をピースで埋め尽くせるか）
+	 */
 	private checkTetrisConstraint;
 	private getShapeArea;
+	/**
+	 * 再帰的にタイリングを試みる
+	 */
 	private canTile;
 	private canPlace;
 	private placePiece;
 	private getAllRotations;
 	private rotate90;
+	/**
+	 * 回答パスによって分割された各区画のセルリストを取得する
+	 */
 	private calculateRegions;
+	/**
+	 * エッジ（Absent）によって外部に繋がっているセルを特定する
+	 */
 	private getExternalCells;
 	private getEdgeKey;
 	/**
-	 * パズルの難易度を計算する（0.0 - 1.0）
-	 * 知的なアルゴリズム：探索空間の広さ、分岐数、強制手、解の数などを分析
+	 * パズルの難易度スコア(0.0-1.0)を算出する
 	 */
 	calculateDifficulty(grid: Grid): number;
+	/**
+	 * 探索空間を走査して統計情報を収集する
+	 */
 	private exploreSearchSpace;
 	/**
-	 * 全ての有効な解答パスの個数をカウントする
+	 * 正解数をカウントする
 	 */
 	countSolutions(grid: Grid, limit?: number): number;
 	private findPathsOptimized;
+	/**
+	 * 終端まで到達可能かビットマスクBFSで高速に確認する
+	 */
 	private canReachEndOptimized;
+	/**
+	 * パスの論理的な指紋を取得する（区画分けに基づき、同一解を排除するため）
+	 */
 	private getFingerprint;
 }
 export declare class WitnessCore {

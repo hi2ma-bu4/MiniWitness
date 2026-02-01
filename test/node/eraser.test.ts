@@ -1,0 +1,126 @@
+import assert from "node:assert";
+import { test } from "node:test";
+import { CellType, Color, NodeType, PuzzleData, PuzzleGenerator, SolutionPath, WitnessCore } from "../../dist/MiniWitness.js";
+
+const core = new WitnessCore();
+
+function createBasicGrid(rows: number, cols: number): PuzzleData {
+	const cells = Array.from({ length: rows }, () => Array.from({ length: cols }, () => ({ type: CellType.None, color: Color.None })));
+	const vEdges = Array.from({ length: rows }, () => Array.from({ length: cols + 1 }, () => ({ type: 0 })));
+	const hEdges = Array.from({ length: rows + 1 }, () => Array.from({ length: cols }, () => ({ type: 0 })));
+	const nodes = Array.from({ length: rows + 1 }, () => Array.from({ length: cols + 1 }, () => ({ type: NodeType.Normal })));
+	nodes[rows][0].type = NodeType.Start;
+	nodes[0][cols].type = NodeType.End;
+
+	return { rows, cols, cells, vEdges, hEdges, nodes };
+}
+
+function getPath(cols: number, rows: number = 1): SolutionPath {
+	const points = [];
+	for (let i = 0; i <= cols; i++) points.push({ x: i, y: rows });
+	points.push({ x: cols, y: rows - 1 });
+	return { points };
+}
+
+test("Eraser validation - erase star violation", () => {
+	const puzzle3 = createBasicGrid(1, 4);
+	puzzle3.cells[0][0] = { type: CellType.Star, color: Color.Black };
+	puzzle3.cells[0][1] = { type: CellType.Star, color: Color.Black };
+	puzzle3.cells[0][2] = { type: CellType.Star, color: Color.Black };
+	puzzle3.cells[0][3] = { type: CellType.Eraser, color: Color.None };
+
+	const result = core.validateSolution(puzzle3, getPath(4));
+	assert.strictEqual(result.isValid, true, `Should be valid with eraser: ${result.errorReason}`);
+});
+
+test("Eraser validation - eraser in already valid region", () => {
+	const puzzle = createBasicGrid(1, 3);
+	puzzle.cells[0][0] = { type: CellType.Star, color: Color.Black };
+	puzzle.cells[0][1] = { type: CellType.Star, color: Color.Black };
+	puzzle.cells[0][2] = { type: CellType.Eraser, color: Color.None };
+
+	const result = core.validateSolution(puzzle, getPath(3));
+	assert.strictEqual(result.isValid, false, "Should be invalid: eraser has nothing to erase and not needed as mark");
+});
+
+test("Eraser validation - erase square violation", () => {
+	const puzzle = createBasicGrid(1, 3);
+	puzzle.cells[0][0] = { type: CellType.Square, color: Color.Black };
+	puzzle.cells[0][1] = { type: CellType.Square, color: Color.White };
+	puzzle.cells[0][2] = { type: CellType.Eraser, color: Color.None };
+
+	const result = core.validateSolution(puzzle, getPath(3));
+	assert.strictEqual(result.isValid, true, "Should be valid: eraser removes white square");
+});
+
+test("Eraser validation - two erasers erasing each other in valid region", () => {
+	const puzzle = createBasicGrid(1, 2);
+	// E=2, nothing else. They negate each other.
+	// Partition: 2M=2. Remaining: {}. Valid.
+	// Useful? Yes, if we don't negation, we have E=2.
+	// Wait, my "initiallyValid" check for E=2 will return false because K=0, L=0 is valid but E=2 are present?
+	// In my logic: initiallyValid = checkRegionValid(..., [], [])
+	// This removes ALL erasers. So initiallyValid is true if region is valid without erasers.
+	// If initiallyValid is true, then erasers negate each other if E is even.
+	puzzle.cells[0][0] = { type: CellType.Eraser, color: Color.None };
+	puzzle.cells[0][1] = { type: CellType.Eraser, color: Color.None };
+
+	const result = core.validateSolution(puzzle, getPath(2));
+	assert.strictEqual(result.isValid, true, "Should be valid: two erasers negate each other");
+});
+
+test("Eraser validation - one star and two erasers (invalid)", () => {
+	const puzzle = createBasicGrid(1, 3);
+	// 1 Star + 2 Erasers.
+	// Negate Star? E-K=1. Invalid.
+	// Negate each other? Star is error. Invalid.
+	puzzle.cells[0][0] = { type: CellType.Star, color: Color.Black };
+	puzzle.cells[0][1] = { type: CellType.Eraser, color: Color.None };
+	puzzle.cells[0][2] = { type: CellType.Eraser, color: Color.None };
+
+	const result = core.validateSolution(puzzle, getPath(3));
+	assert.strictEqual(result.isValid, false, "1 Star + 2 Erasers should be INVALID");
+});
+
+test("Eraser validation - colored eraser completing star pair", () => {
+	const puzzle = createBasicGrid(1, 2);
+	puzzle.cells[0][0] = { type: CellType.Star, color: Color.Black };
+	puzzle.cells[0][1] = { type: CellType.Eraser, color: Color.Black };
+
+	const result = core.validateSolution(puzzle, getPath(2));
+	assert.strictEqual(result.isValid, true, "1 Star + 1 Eraser of same color should be VALID (completes pair)");
+});
+
+test("Eraser validation - colored eraser redundant pair", () => {
+	const puzzle = createBasicGrid(1, 3);
+	puzzle.cells[0][0] = { type: CellType.Star, color: Color.Black };
+	puzzle.cells[0][1] = { type: CellType.Star, color: Color.Black };
+	puzzle.cells[0][2] = { type: CellType.Eraser, color: Color.Black };
+
+	const result = core.validateSolution(puzzle, getPath(3));
+	assert.strictEqual(result.isValid, false, "2 Stars + 1 Eraser of same color should be INVALID");
+});
+
+test("Generation independence - Tetris and Eraser without Squares/Stars", () => {
+	const generator = new PuzzleGenerator();
+	const options = {
+		useHexagons: false,
+		useSquares: false,
+		useStars: false,
+		useTetris: true,
+		useEraser: true,
+		complexity: 1.0,
+	};
+
+	const grid = generator.generate(4, 4, options);
+	let hasTetris = false;
+	let hasEraser = false;
+	for (let r = 0; r < grid.rows; r++) {
+		for (let c = 0; c < grid.cols; c++) {
+			if (grid.cells[r][c].type === CellType.Tetris || grid.cells[r][c].type === CellType.TetrisRotated) hasTetris = true;
+			if (grid.cells[r][c].type === CellType.Eraser) hasEraser = true;
+		}
+	}
+	assert.ok(hasTetris, "Should generate Tetris even if Squares/Stars are off");
+	assert.ok(hasEraser, "Should generate Eraser even if Squares/Stars are off");
+});

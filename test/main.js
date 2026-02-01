@@ -14,12 +14,16 @@ class WitnessGame {
 		this.isDrawing = false;
 		this.currentMousePos = { x: 0, y: 0 };
 		this.exitTipPos = null;
+		this.invalidatedCells = [];
+		this.invalidatedEdges = [];
 
 		// Animation state
 		this.isFading = false;
 		this.fadeOpacity = 1.0;
 		this.fadeColor = "#ff4444";
 		this.fadingPath = [];
+		this.isSuccessFading = false;
+		this.successFadeStartTime = 0;
 		this.animationId = null;
 		this.startTime = Date.now();
 
@@ -69,12 +73,15 @@ class WitnessGame {
 
 	startNewGame() {
 		this.cancelFade();
+		this.invalidatedCells = [];
+		this.invalidatedEdges = [];
 		const size = parseInt(this.sizeSelect.value);
 		const options = {
 			useHexagons: document.getElementById("use-hexagons").checked,
 			useSquares: document.getElementById("use-squares").checked,
 			useStars: document.getElementById("use-stars").checked,
 			useTetris: document.getElementById("use-tetris").checked,
+			useEraser: document.getElementById("use-eraser").checked,
 			useBrokenEdges: document.getElementById("use-broken-edges").checked,
 			complexity: parseFloat(document.getElementById("complexity-slider").value),
 			difficulty: parseFloat(document.getElementById("difficulty-slider").value),
@@ -134,6 +141,8 @@ class WitnessGame {
 	handleStart(e) {
 		if (!this.puzzle) return;
 		this.cancelFade();
+		this.invalidatedCells = [];
+		this.invalidatedEdges = [];
 
 		const rect = this.canvas.getBoundingClientRect();
 		const mouseX = e.clientX - rect.left;
@@ -289,12 +298,22 @@ class WitnessGame {
 
 	validate() {
 		const result = this.core.validateSolution(this.puzzle, { points: this.path });
+		this.invalidatedCells = result.invalidatedCells || [];
+		this.invalidatedEdges = result.invalidatedEdges || [];
 		if (result.isValid) {
 			this.updateStatus("Correct! Well done!", "#4f4");
+			// For success, we might want to stay in this state or do something.
+			// The user wants an animation. Let's trigger a slow fade for invalidated cells.
+			this.startSuccessEffect();
 		} else {
 			this.updateStatus("Incorrect: " + (result.errorReason || "Try again"), "#f44");
 			this.startFade("#ff4444");
 		}
+	}
+
+	startSuccessEffect() {
+		this.isSuccessFading = true;
+		this.successFadeStartTime = Date.now();
 	}
 
 	// --- Animation ---
@@ -332,6 +351,7 @@ class WitnessGame {
 		if (!this.puzzle) return;
 
 		const ctx = this.ctx;
+		ctx.globalAlpha = 1.0;
 		ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
 		this.drawGrid(ctx);
@@ -433,10 +453,25 @@ class WitnessGame {
 	}
 
 	drawConstraints(ctx) {
+		const now = Date.now();
 		for (let r = 0; r < this.puzzle.rows; r++) {
 			for (let c = 0; c < this.puzzle.cols; c++) {
 				const cell = this.puzzle.cells[r][c];
 				const pos = this.getCanvasCoords(c + 0.5, r + 0.5);
+
+				ctx.save();
+				// Opacity adjustment for invalidated cells
+				const isInvalidated = this.invalidatedCells.some((p) => p.x === c && p.y === r);
+				if (isInvalidated) {
+					if (this.isFading) {
+						ctx.globalAlpha *= this.fadeOpacity;
+					} else if (this.isSuccessFading) {
+						const elapsed = now - this.successFadeStartTime;
+						const opacity = Math.max(0.3, 1.0 - elapsed / 1000); // Fade to 0.3 over 1s
+						ctx.globalAlpha *= opacity;
+					}
+				}
+
 				if (cell.type === 1) {
 					// Square (Rounded)
 					const size = 22;
@@ -449,7 +484,11 @@ class WitnessGame {
 				} else if (cell.type === 3 || cell.type === 4) {
 					// Tetris / TetrisRotated
 					this.drawTetris(ctx, pos.x, pos.y, cell.shape, cell.type === 4, cell.color);
+				} else if (cell.type === 5) {
+					// Eraser (Tetrapod)
+					this.drawEraser(ctx, pos.x, pos.y, cell.color);
 				}
+				ctx.restore();
 			}
 		}
 
@@ -459,7 +498,17 @@ class WitnessGame {
 			for (let c = 0; c < this.puzzle.cols; c++) {
 				if (this.puzzle.hEdges[r][c].type === 3) {
 					const pos = this.getCanvasCoords(c + 0.5, r);
+					ctx.save();
+					const isInvalidated = this.invalidatedEdges.some((e) => e.type === "h" && e.r === r && e.c === c);
+					if (isInvalidated) {
+						if (this.isFading) ctx.globalAlpha *= this.fadeOpacity;
+						else if (this.isSuccessFading) {
+							const elapsed = now - this.successFadeStartTime;
+							ctx.globalAlpha *= Math.max(0.3, 1.0 - elapsed / 1000);
+						}
+					}
 					this.drawHexagon(ctx, pos.x, pos.y, hexRadius);
+					ctx.restore();
 				}
 			}
 		}
@@ -467,7 +516,17 @@ class WitnessGame {
 			for (let c = 0; c <= this.puzzle.cols; c++) {
 				if (this.puzzle.vEdges[r][c].type === 3) {
 					const pos = this.getCanvasCoords(c, r + 0.5);
+					ctx.save();
+					const isInvalidated = this.invalidatedEdges.some((e) => e.type === "v" && e.r === r && e.c === c);
+					if (isInvalidated) {
+						if (this.isFading) ctx.globalAlpha *= this.fadeOpacity;
+						else if (this.isSuccessFading) {
+							const elapsed = now - this.successFadeStartTime;
+							ctx.globalAlpha *= Math.max(0.3, 1.0 - elapsed / 1000);
+						}
+					}
 					this.drawHexagon(ctx, pos.x, pos.y, hexRadius);
+					ctx.restore();
 				}
 			}
 		}
@@ -587,6 +646,10 @@ class WitnessGame {
 		}
 		ctx.closePath();
 		ctx.fill();
+	}
+
+	drawEraser(ctx, x, y, colorEnum) {
+		this.drawStar(ctx, x, y, 6, 14, 3, colorEnum);
 	}
 
 	drawStar(ctx, x, y, innerRadius, outerRadius, points, colorEnum) {
