@@ -438,12 +438,42 @@ export class PuzzleGenerator {
 				this.shuffleArray(potentialCells);
 
 				// 1. この領域の四角形(Square)の色を決定 (1色のみ)
-				const squareColor = availableColors[Math.floor(Math.random() * availableColors.length)];
+				let squareColor = availableColors[Math.floor(Math.random() * availableColors.length)];
+
+				// トゲがなく2色目が必要な場合、違う色を選ぶ
+				if (useSquares && !useStars && isLastFew) {
+					const currentColors = new Set<number>();
+					for (let r = 0; r < grid.rows; r++) {
+						for (let c = 0; c < grid.cols; c++) {
+							if (grid.cells[r][c].type === CellType.Square) currentColors.add(grid.cells[r][c].color);
+						}
+					}
+					if (currentColors.size === 1) {
+						const otherColors = availableColors.filter((c) => !currentColors.has(c));
+						if (otherColors.length > 0) {
+							squareColor = otherColors[Math.floor(Math.random() * otherColors.length)];
+						}
+					}
+				}
+
 				let numSquares = 0;
 
 				// 四角形を配置するか決定
 				let shouldPlaceSquare = useSquares && Math.random() < 0.5 + complexity * 0.3;
 				if (useSquares && squaresPlaced === 0 && isLastFew) shouldPlaceSquare = true;
+
+				// トゲがなく四角が必要な場合、最低でも2つの領域に四角を置くように誘導
+				if (useSquares && !useStars && isLastFew) {
+					const currentColors = new Set<number>();
+					for (let r = 0; r < grid.rows; r++) {
+						for (let c = 0; c < grid.cols; c++) {
+							if (grid.cells[r][c].type === CellType.Square) currentColors.add(grid.cells[r][c].color);
+						}
+					}
+					if (currentColors.size < 2 && squaresPlaced > 0) {
+						shouldPlaceSquare = true;
+					}
+				}
 
 				if (shouldPlaceSquare) {
 					const maxSquares = Math.min(potentialCells.length, 4);
@@ -661,14 +691,24 @@ export class PuzzleGenerator {
 		if (useSquares || useStars) {
 			let foundSquare = false;
 			let foundStar = false;
+			const squareColors = new Set<number>();
+
 			for (let r = 0; r < grid.rows; r++) {
 				for (let c = 0; c < grid.cols; c++) {
-					if (grid.cells[r][c].type === CellType.Square) foundSquare = true;
+					if (grid.cells[r][c].type === CellType.Square) {
+						foundSquare = true;
+						squareColors.add(grid.cells[r][c].color);
+					}
 					if (grid.cells[r][c].type === CellType.Star) foundStar = true;
 				}
 			}
 			if (useSquares && !foundSquare) return false;
 			if (useStars && !foundStar) return false;
+
+			// トゲが存在する場合を除き、四角が1色のみで生成されるのはパズルとして破綻しているので2色以上必要
+			if (foundSquare && !foundStar && squareColors.size < 2) {
+				return false;
+			}
 		}
 
 		// マークの周囲全てが通行不可の盤面は非推奨

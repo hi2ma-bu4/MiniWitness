@@ -858,10 +858,35 @@ var PuzzleGenerator = class {
         }
         const potentialCells = [...region];
         this.shuffleArray(potentialCells);
-        const squareColor = availableColors[Math.floor(Math.random() * availableColors.length)];
+        let squareColor = availableColors[Math.floor(Math.random() * availableColors.length)];
+        if (useSquares && !useStars && isLastFew) {
+          const currentColors = /* @__PURE__ */ new Set();
+          for (let r = 0; r < grid.rows; r++) {
+            for (let c = 0; c < grid.cols; c++) {
+              if (grid.cells[r][c].type === 1 /* Square */) currentColors.add(grid.cells[r][c].color);
+            }
+          }
+          if (currentColors.size === 1) {
+            const otherColors = availableColors.filter((c) => !currentColors.has(c));
+            if (otherColors.length > 0) {
+              squareColor = otherColors[Math.floor(Math.random() * otherColors.length)];
+            }
+          }
+        }
         let numSquares = 0;
         let shouldPlaceSquare = useSquares && Math.random() < 0.5 + complexity * 0.3;
         if (useSquares && squaresPlaced === 0 && isLastFew) shouldPlaceSquare = true;
+        if (useSquares && !useStars && isLastFew) {
+          const currentColors = /* @__PURE__ */ new Set();
+          for (let r = 0; r < grid.rows; r++) {
+            for (let c = 0; c < grid.cols; c++) {
+              if (grid.cells[r][c].type === 1 /* Square */) currentColors.add(grid.cells[r][c].color);
+            }
+          }
+          if (currentColors.size < 2 && squaresPlaced > 0) {
+            shouldPlaceSquare = true;
+          }
+        }
         if (shouldPlaceSquare) {
           const maxSquares = Math.min(potentialCells.length, 4);
           numSquares = Math.floor(Math.random() * maxSquares);
@@ -1051,14 +1076,21 @@ var PuzzleGenerator = class {
     if (useSquares || useStars) {
       let foundSquare = false;
       let foundStar = false;
+      const squareColors = /* @__PURE__ */ new Set();
       for (let r = 0; r < grid.rows; r++) {
         for (let c = 0; c < grid.cols; c++) {
-          if (grid.cells[r][c].type === 1 /* Square */) foundSquare = true;
+          if (grid.cells[r][c].type === 1 /* Square */) {
+            foundSquare = true;
+            squareColors.add(grid.cells[r][c].color);
+          }
           if (grid.cells[r][c].type === 2 /* Star */) foundStar = true;
         }
       }
       if (useSquares && !foundSquare) return false;
       if (useStars && !foundStar) return false;
+      if (foundSquare && !foundStar && squareColors.size < 2) {
+        return false;
+      }
     }
     if (this.hasIsolatedMark(grid)) return false;
     return true;

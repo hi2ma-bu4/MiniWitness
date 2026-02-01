@@ -13,12 +13,15 @@ class WitnessGame {
 		this.path = []; // Array of {x, y} points
 		this.isDrawing = false;
 		this.currentMousePos = { x: 0, y: 0 };
+		this.exitTipPos = null;
 
 		// Animation state
 		this.isFading = false;
 		this.fadeOpacity = 1.0;
+		this.fadeColor = "#ff4444";
 		this.fadingPath = [];
 		this.animationId = null;
+		this.startTime = Date.now();
 
 		this.gridPadding = 60;
 		this.cellSize = 80;
@@ -61,6 +64,7 @@ class WitnessGame {
 		);
 
 		this.startNewGame();
+		this.animate();
 	}
 
 	startNewGame() {
@@ -82,6 +86,7 @@ class WitnessGame {
 			const diff = this.core.calculateDifficulty(this.puzzle);
 			this.path = [];
 			this.isDrawing = false;
+			this.exitTipPos = null;
 
 			this.resizeCanvas();
 			this.updateStatus(`New puzzle generated! (Difficulty: ${diff.toFixed(2)})`);
@@ -126,6 +131,7 @@ class WitnessGame {
 	// --- Event Handlers ---
 
 	handleStart(e) {
+		if (!this.puzzle) return;
 		this.cancelFade();
 
 		const rect = this.canvas.getBoundingClientRect();
@@ -143,6 +149,7 @@ class WitnessGame {
 						this.isDrawing = true;
 						this.path = [{ x: c, y: r }];
 						this.currentMousePos = nodePos;
+						this.exitTipPos = null;
 						this.updateStatus("Drawing path...");
 						this.draw();
 						return;
@@ -153,7 +160,7 @@ class WitnessGame {
 	}
 
 	handleMove(e) {
-		if (!this.isDrawing) return;
+		if (!this.puzzle || !this.isDrawing) return;
 
 		const rect = this.canvas.getBoundingClientRect();
 		const mouseX = e.clientX - rect.left;
@@ -239,7 +246,7 @@ class WitnessGame {
 	}
 
 	handleEnd(e) {
-		if (!this.isDrawing) return;
+		if (!this.puzzle || !this.isDrawing) return;
 		this.isDrawing = false;
 
 		const lastPoint = this.path[this.path.length - 1];
@@ -248,16 +255,17 @@ class WitnessGame {
 
 		if (exitDir) {
 			const distToExit = Math.hypot(this.currentMousePos.x - lastPos.x, this.currentMousePos.y - lastPos.y);
-			if (distToExit > this.exitLength * 0.5) {
+			if (distToExit > this.exitLength * 0.1) {
+				this.exitTipPos = { ...this.currentMousePos };
 				this.validate();
 				return;
 			}
 		}
 
 		// If not reached exit
-		this.path = [];
 		this.updateStatus("Drag all the way to the exit!", "#f44");
-		this.draw();
+		this.exitTipPos = exitDir ? { ...this.currentMousePos } : null;
+		this.startFade("#ffcc00");
 	}
 
 	getEdgeType(p1, p2) {
@@ -284,46 +292,44 @@ class WitnessGame {
 			this.updateStatus("Correct! Well done!", "#4f4");
 		} else {
 			this.updateStatus("Incorrect: " + (result.errorReason || "Try again"), "#f44");
-			this.startFade();
+			this.startFade("#ff4444");
 		}
 	}
 
 	// --- Animation ---
 
-	startFade() {
+	startFade(color = "#ff4444") {
 		this.isFading = true;
 		this.fadeOpacity = 1.0;
+		this.fadeColor = color;
 		this.fadingPath = [...this.path];
+		this.fadingTipPos = this.exitTipPos ? { ...this.exitTipPos } : null;
 		this.path = [];
-		this.animate();
 	}
 
 	cancelFade() {
 		this.isFading = false;
-		if (this.animationId) {
-			cancelAnimationFrame(this.animationId);
-			this.animationId = null;
-		}
 	}
 
 	animate() {
-		if (!this.isFading) return;
+		this.draw();
 
-		this.fadeOpacity -= 0.015; // Slow fade
-		if (this.fadeOpacity <= 0) {
-			this.isFading = false;
-			this.fadeOpacity = 0;
-			this.draw();
-			return;
+		if (this.isFading) {
+			this.fadeOpacity -= 0.015; // Slow fade
+			if (this.fadeOpacity <= 0) {
+				this.isFading = false;
+				this.fadeOpacity = 0;
+			}
 		}
 
-		this.draw();
 		this.animationId = requestAnimationFrame(() => this.animate());
 	}
 
 	// --- Drawing Logic ---
 
 	draw() {
+		if (!this.puzzle) return;
+
 		const ctx = this.ctx;
 		ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
@@ -331,10 +337,43 @@ class WitnessGame {
 		this.drawConstraints(ctx);
 		this.drawNodes(ctx);
 
+		if (this.path.length === 0 && !this.isDrawing) {
+			this.drawRipples(ctx);
+		}
+
 		if (this.isFading) {
-			this.drawPath(ctx, this.fadingPath, false, "#ff4444", this.fadeOpacity);
+			this.drawPath(ctx, this.fadingPath, false, this.fadeColor, this.fadeOpacity, this.fadingTipPos);
 		} else if (this.path.length > 0) {
-			this.drawPath(ctx, this.path, this.isDrawing, "#ffcc00", 1.0);
+			this.drawPath(ctx, this.path, this.isDrawing, "#ffcc00", 1.0, this.isDrawing ? this.currentMousePos : this.exitTipPos);
+		}
+	}
+
+	drawRipples(ctx) {
+		const time = (Date.now() - this.startTime) / 500;
+
+		for (let r = 0; r <= this.puzzle.rows; r++) {
+			for (let c = 0; c <= this.puzzle.cols; c++) {
+				const node = this.puzzle.nodes[r][c];
+				if (node.type === 2) {
+					// NodeType.End
+					const pos = this.getCanvasCoords(c, r);
+					const dir = this.getExitDir(c, r);
+					const exitPos = {
+						x: pos.x + dir.x * this.exitLength,
+						y: pos.y + dir.y * this.exitLength,
+					};
+
+					const t = time % 4.0;
+					const radius = t * 5;
+					const opacity = Math.max(0, 1 - t / 3.0);
+
+					ctx.beginPath();
+					ctx.arc(exitPos.x, exitPos.y, radius, 0, Math.PI * 2);
+					ctx.strokeStyle = `rgba(170, 170, 170, ${opacity * 0.4})`;
+					ctx.lineWidth = 2;
+					ctx.stroke();
+				}
+			}
 		}
 	}
 
@@ -469,7 +508,7 @@ class WitnessGame {
 		}
 	}
 
-	drawPath(ctx, path, isDrawing, color, opacity) {
+	drawPath(ctx, path, isDrawing, color, opacity, tipPos = null) {
 		if (path.length === 0) return;
 
 		ctx.save();
@@ -489,8 +528,9 @@ class WitnessGame {
 			ctx.lineTo(pos.x, pos.y);
 		}
 
-		if (isDrawing) {
-			ctx.lineTo(this.currentMousePos.x, this.currentMousePos.y);
+		if (isDrawing || tipPos) {
+			const pos = tipPos || this.currentMousePos;
+			ctx.lineTo(pos.x, pos.y);
 		}
 
 		ctx.stroke();

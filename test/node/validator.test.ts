@@ -350,6 +350,34 @@ test("Generator - all requested constraints should be present", () => {
 	}
 });
 
+test("Generator - should produce at least 2 square colors when stars are absent", () => {
+	const generator = new PuzzleGenerator();
+	const options = {
+		useSquares: true,
+		useStars: false,
+		complexity: 0.5,
+	};
+
+	for (let i = 0; i < 20; i++) {
+		const grid = generator.generate(4, 4, options);
+		const squareColors = new Set<number>();
+		let hasStar = false;
+		for (let r = 0; r < grid.rows; r++) {
+			for (let c = 0; c < grid.cols; c++) {
+				if (grid.cells[r][c].type === CellType.Square) {
+					squareColors.add(grid.cells[r][c].color);
+				}
+				if (grid.cells[r][c].type === CellType.Star) {
+					hasStar = true;
+				}
+			}
+		}
+		if (!hasStar) {
+			assert.ok(squareColors.size >= 2, `Grid ${i} should have at least 2 square colors, but has ${squareColors.size}`);
+		}
+	}
+});
+
 test("Solution counter - unique solutions based on region marks", () => {
 	const validator = new PuzzleValidator();
 	const puzzle = createBasicGrid(1, 1);
