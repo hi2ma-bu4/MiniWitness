@@ -1,4 +1,3 @@
-// index.ts
 import { PuzzleGenerator } from "./generator";
 import { Grid } from "./grid";
 import type { GenerationOptions, PuzzleData, SolutionPath, ValidationResult } from "./types";

@@ -124,13 +124,11 @@ var PuzzleValidator = class {
   checkHexagonConstraint(grid, path) {
     const pathEdges = /* @__PURE__ */ new Set();
     for (let i = 0; i < path.length - 1; i++) {
-      const p1 = path[i];
-      const p2 = path[i + 1];
-      pathEdges.add(this.getEdgeKey(p1, p2));
+      pathEdges.add(this.getEdgeKey(path[i], path[i + 1]));
     }
     for (let r = 0; r <= grid.rows; r++) {
       for (let c = 0; c < grid.cols; c++) {
-        if (r < grid.rows + 1 && grid.hEdges[r][c].type === 1 /* Hexagon */) {
+        if (grid.hEdges[r][c].type === 1 /* Hexagon */) {
           const key = this.getEdgeKey({ x: c, y: r }, { x: c + 1, y: r });
           if (!pathEdges.has(key)) return false;
         }
@@ -220,52 +218,107 @@ var PuzzleValidator = class {
   /**
    * 全ての有効な解答パスの個数をカウントする
    */
-  countSolutions(grid) {
+  countSolutions(grid, limit = 100) {
+    const rows = grid.rows;
+    const cols = grid.cols;
+    const nodeCols = cols + 1;
+    const nodeCount = (rows + 1) * nodeCols;
+    const adj = Array.from({ length: nodeCount }, () => []);
     const startNodes = [];
-    for (let r = 0; r <= grid.rows; r++) {
-      for (let c = 0; c <= grid.cols; c++) {
-        if (grid.nodes[r][c].type === 1 /* Start */) {
-          startNodes.push({ x: c, y: r });
+    const endNodes = [];
+    const hexagonEdges = /* @__PURE__ */ new Set();
+    for (let r = 0; r <= rows; r++) {
+      for (let c = 0; c <= cols; c++) {
+        const u = r * nodeCols + c;
+        if (grid.nodes[r][c].type === 1 /* Start */) startNodes.push(u);
+        if (grid.nodes[r][c].type === 2 /* End */) endNodes.push(u);
+        if (c < cols) {
+          const v = u + 1;
+          const isHexagon = grid.hEdges[r][c].type === 1 /* Hexagon */;
+          const isBroken = grid.hEdges[r][c].type === 2 /* Broken */;
+          adj[u].push({ next: v, isHexagon, isBroken });
+          adj[v].push({ next: u, isHexagon, isBroken });
+          if (isHexagon) hexagonEdges.add(this.getEdgeKey({ x: c, y: r }, { x: c + 1, y: r }));
+        }
+        if (r < rows) {
+          const v = u + nodeCols;
+          const isHexagon = grid.vEdges[r][c].type === 1 /* Hexagon */;
+          const isBroken = grid.vEdges[r][c].type === 2 /* Broken */;
+          adj[u].push({ next: v, isHexagon, isBroken });
+          adj[v].push({ next: u, isHexagon, isBroken });
+          if (isHexagon) hexagonEdges.add(this.getEdgeKey({ x: c, y: r }, { x: c, y: r + 1 }));
         }
       }
     }
-    let totalSolutions = 0;
-    for (const start of startNodes) {
-      totalSolutions += this.findPathsRecursively(grid, start, /* @__PURE__ */ new Set(), []);
+    const fingerprints = /* @__PURE__ */ new Set();
+    const totalHexagons = hexagonEdges.size;
+    for (const startIdx of startNodes) {
+      this.findPathsOptimized(grid, startIdx, 1n << BigInt(startIdx), [startIdx], 0, totalHexagons, adj, endNodes, fingerprints, limit);
+      if (fingerprints.size >= limit) break;
     }
-    return totalSolutions;
+    return fingerprints.size;
   }
-  findPathsRecursively(grid, curr, visited, path) {
-    const key = `${curr.x},${curr.y}`;
-    visited.add(key);
-    path.push(curr);
-    let count = 0;
-    if (grid.nodes[curr.y][curr.x].type === 2 /* End */) {
-      const result = this.validate(grid, { points: path });
-      if (result.isValid) {
-        count = 1;
+  findPathsOptimized(grid, currIdx, visitedMask, path, hexagonsOnPath, totalHexagons, adj, endNodes, fingerprints, limit) {
+    if (fingerprints.size >= limit) return;
+    if (endNodes.includes(currIdx)) {
+      if (hexagonsOnPath === totalHexagons) {
+        const solutionPath = {
+          points: path.map((idx) => ({
+            x: idx % (grid.cols + 1),
+            y: Math.floor(idx / (grid.cols + 1))
+          }))
+        };
+        if (this.validate(grid, solutionPath).isValid) {
+          fingerprints.add(this.getFingerprint(grid, solutionPath.points));
+        }
       }
-    } else {
-      const directions = [
-        { dx: 0, dy: -1 },
-        { dx: 1, dy: 0 },
-        { dx: 0, dy: 1 },
-        { dx: -1, dy: 0 }
-      ];
-      for (const d of directions) {
-        const next = { x: curr.x + d.dx, y: curr.y + d.dy };
-        if (next.x >= 0 && next.x <= grid.cols && next.y >= 0 && next.y <= grid.rows) {
-          if (!visited.has(`${next.x},${next.y}`)) {
-            if (!this.isBrokenEdge(grid, curr, next)) {
-              count += this.findPathsRecursively(grid, next, visited, path);
-            }
+      return;
+    }
+    if (!this.canReachEndOptimized(currIdx, visitedMask, adj, endNodes)) return;
+    for (const edge of adj[currIdx]) {
+      if (edge.isBroken) continue;
+      if (visitedMask & 1n << BigInt(edge.next)) continue;
+      let possible = true;
+      for (const otherEdge of adj[currIdx]) {
+        if (otherEdge.isHexagon) {
+          const isAlreadyOnPath = path.length >= 2 && otherEdge.next === path[path.length - 2];
+          const isNextMove = otherEdge.next === edge.next;
+          if (!isAlreadyOnPath && !isNextMove) {
+            possible = false;
+            break;
           }
         }
       }
+      if (!possible) continue;
+      path.push(edge.next);
+      this.findPathsOptimized(grid, edge.next, visitedMask | 1n << BigInt(edge.next), path, hexagonsOnPath + (edge.isHexagon ? 1 : 0), totalHexagons, adj, endNodes, fingerprints, limit);
+      path.pop();
+      if (fingerprints.size >= limit) return;
     }
-    path.pop();
-    visited.delete(key);
-    return count;
+  }
+  canReachEndOptimized(curr, visitedMask, adj, endNodes) {
+    let queue = [curr];
+    let localVisited = visitedMask;
+    let head = 0;
+    while (head < queue.length) {
+      const u = queue[head++];
+      if (endNodes.includes(u)) return true;
+      for (const edge of adj[u]) {
+        if (!edge.isBroken && !(localVisited & 1n << BigInt(edge.next))) {
+          localVisited |= 1n << BigInt(edge.next);
+          queue.push(edge.next);
+        }
+      }
+    }
+    return false;
+  }
+  getFingerprint(grid, path) {
+    const regions = this.calculateRegions(grid, path);
+    const regionFingerprints = regions.map((region) => {
+      const marks = region.map((p) => grid.cells[p.y][p.x]).filter((c) => c.type !== 0 /* None */).map((c) => `${c.type}:${c.color}`).sort();
+      return marks.join(",");
+    }).sort();
+    return regionFingerprints.filter((f) => f.length > 0).join("|") || "empty";
   }
 };
 
@@ -278,31 +331,51 @@ var PuzzleGenerator = class {
    * @param options 生成オプション
    */
   generate(rows, cols, options = {}) {
-    const difficulty = options.difficulty ?? 0.5;
+    const targetDifficulty = options.difficulty ?? 0.5;
     const validator = new PuzzleValidator();
     let bestGrid = null;
-    let bestScore = Infinity;
-    const maxAttempts = rows * cols > 30 ? 3 : 10;
+    let bestScore = -1;
+    const maxAttempts = rows * cols > 30 ? 30 : 60;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       const grid = this.generateOnce(rows, cols, options);
-      const solutionCount = validator.countSolutions(grid);
-      let score;
-      if (difficulty > 0.5) {
-        score = Math.abs(solutionCount - 2);
+      const solutionCount = validator.countSolutions(grid, 20);
+      if (solutionCount === 0) continue;
+      let score = 0;
+      if (solutionCount === 1) {
+        score += 50;
       } else {
-        if (solutionCount === 1) {
-          score = 0;
-        } else {
-          score = Math.max(0, 10 - solutionCount) / 10;
-        }
+        score += Math.max(0, 20 - solutionCount);
       }
-      if (solutionCount > 0 && score < bestScore) {
+      const constraintCount = this.countConstraints(grid);
+      score += constraintCount * 5;
+      const normalizedScore = Math.min(1, score / 100);
+      const diffFromTarget = Math.abs(normalizedScore - targetDifficulty);
+      if (bestGrid === null || diffFromTarget < Math.abs(Math.min(1, bestScore / 100) - targetDifficulty)) {
         bestScore = score;
         bestGrid = grid;
       }
-      if (bestScore === 0) break;
+      if (targetDifficulty > 0.8 && normalizedScore > 0.9) break;
     }
     return bestGrid || this.generateOnce(rows, cols, options);
+  }
+  countConstraints(grid) {
+    let count = 0;
+    for (let r = 0; r < grid.rows; r++) {
+      for (let c = 0; c < grid.cols; c++) {
+        if (grid.cells[r][c].type !== 0 /* None */) count++;
+      }
+    }
+    for (let r = 0; r <= grid.rows; r++) {
+      for (let c = 0; c < grid.cols; c++) {
+        if (grid.hEdges[r][c].type === 1 /* Hexagon */) count++;
+      }
+    }
+    for (let r = 0; r < grid.rows; r++) {
+      for (let c = 0; c <= grid.cols; c++) {
+        if (grid.vEdges[r][c].type === 1 /* Hexagon */) count++;
+      }
+    }
+    return count;
   }
   generateOnce(rows, cols, options) {
     const grid = new Grid(rows, cols);
@@ -374,7 +447,8 @@ var PuzzleGenerator = class {
       for (let i = 0; i < path.length - 1; i++) {
         const p1 = path[i];
         const p2 = path[i + 1];
-        if (Math.random() < complexity * 0.4) {
+        const prob = (options.difficulty ?? 0.5) > 0.7 ? complexity * 0.2 : complexity * 0.5;
+        if (Math.random() < prob) {
           this.setEdgeHexagon(grid, p1, p2);
         }
       }
@@ -383,7 +457,8 @@ var PuzzleGenerator = class {
       const regions = this.calculateRegions(grid, path);
       const availableColors = [1 /* Black */, 2 /* White */, 3 /* Red */, 4 /* Blue */];
       for (const region of regions) {
-        if (Math.random() > 0.4 + complexity * 0.5) continue;
+        const skipProb = (options.difficulty ?? 0.5) > 0.7 ? 0.4 : 0.2;
+        if (Math.random() > skipProb + complexity * 0.5) continue;
         const potentialCells = [...region];
         this.shuffleArray(potentialCells);
         const squareColor = availableColors[Math.floor(Math.random() * availableColors.length)];

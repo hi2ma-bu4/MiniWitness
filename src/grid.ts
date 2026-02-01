@@ -1,5 +1,4 @@
-// grid.ts
-import { CellConstraint, CellType, Color, EdgeConstraint, EdgeType, NodeConstraint, NodeType, PuzzleData } from "./types";
+import { type CellConstraint, CellType, Color, type EdgeConstraint, EdgeType, type NodeConstraint, NodeType, type PuzzleData } from "./types";
 
 export class Grid {
 	public readonly rows: number;

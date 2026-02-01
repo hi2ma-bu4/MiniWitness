@@ -93,6 +93,7 @@ export declare class PuzzleGenerator {
 	 * @param options 生成オプション
 	 */
 	generate(rows: number, cols: number, options?: GenerationOptions): Grid;
+	private countConstraints;
 	private generateOnce;
 	/**
 	 * Randomized DFSを用いてStartからEndへの一本道を生成する
@@ -117,8 +118,10 @@ export declare class PuzzleValidator {
 	/**
 	 * 全ての有効な解答パスの個数をカウントする
 	 */
-	countSolutions(grid: Grid): number;
-	private findPathsRecursively;
+	countSolutions(grid: Grid, limit?: number): number;
+	private findPathsOptimized;
+	private canReachEndOptimized;
+	private getFingerprint;
 }
 export declare class WitnessCore {
 	private generator;

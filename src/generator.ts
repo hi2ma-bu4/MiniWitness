@@ -1,4 +1,3 @@
-// generator.ts
 import { Grid } from "./grid";
 import { CellType, Color, EdgeType, type GenerationOptions, NodeType, type Point } from "./types";
 import { PuzzleValidator } from "./validator";
@@ -11,42 +10,73 @@ export class PuzzleGenerator {
 	 * @param options 生成オプション
 	 */
 	public generate(rows: number, cols: number, options: GenerationOptions = {}): Grid {
-		const difficulty = options.difficulty ?? 0.5;
+		const targetDifficulty = options.difficulty ?? 0.5;
 		const validator = new PuzzleValidator();
 
 		let bestGrid: Grid | null = null;
-		let bestScore = Infinity;
+		let bestScore = -1;
 
 		// グリッドサイズに応じて試行回数を調整
-		const maxAttempts = rows * cols > 30 ? 3 : 10;
+		const maxAttempts = rows * cols > 30 ? 30 : 60;
 
 		for (let attempt = 0; attempt < maxAttempts; attempt++) {
 			const grid = this.generateOnce(rows, cols, options);
-			const solutionCount = validator.countSolutions(grid);
+			const solutionCount = validator.countSolutions(grid, 20);
 
-			// ユーザーの指定: 回答パターンが2に近いほど高難度。1パターンや多数パターンは低難度。
-			let score: number;
-			if (difficulty > 0.5) {
-				// 高難度を目指す場合: 2に近いほどスコアが良い(0に近い)
-				score = Math.abs(solutionCount - 2);
+			if (solutionCount === 0) continue;
+
+			// 難易度スコアの計算
+			// 1. 解の数 (唯一解であるほど難易度が高い)
+			let score = 0;
+			if (solutionCount === 1) {
+				score += 50;
 			} else {
-				// 低難度を目指す場合: 1に近いか、または数が多いほど良い
-				if (solutionCount === 1) {
-					score = 0;
-				} else {
-					// 2から離れるほど(多いほど)スコアが良いとする
-					score = Math.max(0, 10 - solutionCount) / 10;
-				}
+				score += Math.max(0, 20 - solutionCount);
 			}
 
-			if (solutionCount > 0 && score < bestScore) {
+			// 2. 制約の密度と種類
+			const constraintCount = this.countConstraints(grid);
+			score += constraintCount * 5;
+
+			// 3. パスの長さ (長いほど複雑)
+			// (generateOnceの中でパスは生成されているが、ここでは簡易的に評価)
+
+			// 目標難易度に近いものを選択
+			// targetDifficulty (0.0 - 1.0) をスコア範囲 (0 - 100+) にマップ
+			const normalizedScore = Math.min(1.0, score / 100);
+			const diffFromTarget = Math.abs(normalizedScore - targetDifficulty);
+
+			// より目標に近いものを採用
+			if (bestGrid === null || diffFromTarget < Math.abs(Math.min(1.0, bestScore / 100) - targetDifficulty)) {
 				bestScore = score;
 				bestGrid = grid;
 			}
-			if (bestScore === 0) break;
+
+			// 非常に高い難易度が求められていて、十分なスコアが得られたら終了
+			if (targetDifficulty > 0.8 && normalizedScore > 0.9) break;
 		}
 
 		return bestGrid || this.generateOnce(rows, cols, options);
+	}
+
+	private countConstraints(grid: Grid): number {
+		let count = 0;
+		for (let r = 0; r < grid.rows; r++) {
+			for (let c = 0; c < grid.cols; c++) {
+				if (grid.cells[r][c].type !== CellType.None) count++;
+			}
+		}
+		for (let r = 0; r <= grid.rows; r++) {
+			for (let c = 0; c < grid.cols; c++) {
+				if (grid.hEdges[r][c].type === EdgeType.Hexagon) count++;
+			}
+		}
+		for (let r = 0; r < grid.rows; r++) {
+			for (let c = 0; c <= grid.cols; c++) {
+				if (grid.vEdges[r][c].type === EdgeType.Hexagon) count++;
+			}
+		}
+		return count;
 	}
 
 	private generateOnce(rows: number, cols: number, options: GenerationOptions): Grid {
@@ -150,7 +180,9 @@ export class PuzzleGenerator {
 				const p1 = path[i];
 				const p2 = path[i + 1];
 
-				if (Math.random() < complexity * 0.4) {
+				// 難易度が高い場合はヘキサゴンを減らす
+				const prob = (options.difficulty ?? 0.5) > 0.7 ? complexity * 0.2 : complexity * 0.5;
+				if (Math.random() < prob) {
 					this.setEdgeHexagon(grid, p1, p2);
 				}
 			}
@@ -162,7 +194,9 @@ export class PuzzleGenerator {
 			const regions = this.calculateRegions(grid, path);
 			const availableColors = [Color.Black, Color.White, Color.Red, Color.Blue];
 			for (const region of regions) {
-				if (Math.random() > 0.4 + complexity * 0.5) continue;
+				// 難易度が高い場合は制約をスキップしにくくする
+				const skipProb = (options.difficulty ?? 0.5) > 0.7 ? 0.4 : 0.2;
+				if (Math.random() > skipProb + complexity * 0.5) continue;
 
 				const potentialCells = [...region];
 				this.shuffleArray(potentialCells);

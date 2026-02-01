@@ -1,6 +1,5 @@
-// validator.ts
 import { Grid } from "./grid";
-import { CellType, EdgeType, NodeType, Point, SolutionPath, ValidationResult } from "./types";
+import { CellType, EdgeType, NodeType, type Point, type SolutionPath, type ValidationResult } from "./types";
 
 export class PuzzleValidator {
 	public validate(grid: Grid, solution: SolutionPath): ValidationResult {
@@ -16,7 +15,6 @@ export class PuzzleValidator {
 			return { isValid: false, errorReason: "Must start at Start Node" };
 		}
 		if (grid.nodes[end.y][end.x].type !== NodeType.End) {
-			// Note: The Witnessのルールではゴールは複数ある場合もあるが、ここでは簡略化
 			return { isValid: false, errorReason: "Must end at End Node" };
 		}
 
@@ -70,16 +68,13 @@ export class PuzzleValidator {
 		// パス上のエッジキー集合を作成
 		const pathEdges = new Set<string>();
 		for (let i = 0; i < path.length - 1; i++) {
-			const p1 = path[i];
-			const p2 = path[i + 1];
-			pathEdges.add(this.getEdgeKey(p1, p2));
+			pathEdges.add(this.getEdgeKey(path[i], path[i + 1]));
 		}
 
 		// グリッド上の全ヘキサゴンエッジを確認
 		for (let r = 0; r <= grid.rows; r++) {
 			for (let c = 0; c < grid.cols; c++) {
-				// Horizontal Check
-				if (r < grid.rows + 1 && grid.hEdges[r][c].type === EdgeType.Hexagon) {
+				if (grid.hEdges[r][c].type === EdgeType.Hexagon) {
 					const key = this.getEdgeKey({ x: c, y: r }, { x: c + 1, y: r });
 					if (!pathEdges.has(key)) return false;
 				}
@@ -87,14 +82,12 @@ export class PuzzleValidator {
 		}
 		for (let r = 0; r < grid.rows; r++) {
 			for (let c = 0; c <= grid.cols; c++) {
-				// Vertical Check
 				if (grid.vEdges[r][c].type === EdgeType.Hexagon) {
 					const key = this.getEdgeKey({ x: c, y: r }, { x: c, y: r + 1 });
 					if (!pathEdges.has(key)) return false;
 				}
 			}
 		}
-
 		return true;
 	}
 
@@ -108,7 +101,6 @@ export class PuzzleValidator {
 
 			for (const cell of region) {
 				const constraint = grid.cells[cell.y][cell.x];
-
 				if (constraint.type === CellType.None) continue;
 
 				const color = constraint.color;
@@ -131,7 +123,6 @@ export class PuzzleValidator {
 	}
 
 	private calculateRegions(grid: Grid, path: Point[]): Point[][] {
-		// Flood Fill (Generatorの実装と同等)
 		const regions: Point[][] = [];
 		const visitedCells = new Set<string>();
 		const pathEdges = new Set<string>();
@@ -184,60 +175,139 @@ export class PuzzleValidator {
 	/**
 	 * 全ての有効な解答パスの個数をカウントする
 	 */
-	public countSolutions(grid: Grid): number {
-		const startNodes: Point[] = [];
-		for (let r = 0; r <= grid.rows; r++) {
-			for (let c = 0; c <= grid.cols; c++) {
-				if (grid.nodes[r][c].type === NodeType.Start) {
-					startNodes.push({ x: c, y: r });
+	public countSolutions(grid: Grid, limit: number = 100): number {
+		const rows = grid.rows;
+		const cols = grid.cols;
+		const nodeCols = cols + 1;
+		const nodeCount = (rows + 1) * nodeCols;
+
+		// ノード情報の事前計算
+		const adj = Array.from({ length: nodeCount }, () => [] as { next: number; isHexagon: boolean; isBroken: boolean }[]);
+		const startNodes: number[] = [];
+		const endNodes: number[] = [];
+		const hexagonEdges = new Set<string>();
+
+		for (let r = 0; r <= rows; r++) {
+			for (let c = 0; c <= cols; c++) {
+				const u = r * nodeCols + c;
+				if (grid.nodes[r][c].type === NodeType.Start) startNodes.push(u);
+				if (grid.nodes[r][c].type === NodeType.End) endNodes.push(u);
+
+				// Right
+				if (c < cols) {
+					const v = u + 1;
+					const isHexagon = grid.hEdges[r][c].type === EdgeType.Hexagon;
+					const isBroken = grid.hEdges[r][c].type === EdgeType.Broken;
+					adj[u].push({ next: v, isHexagon, isBroken });
+					adj[v].push({ next: u, isHexagon, isBroken });
+					if (isHexagon) hexagonEdges.add(this.getEdgeKey({ x: c, y: r }, { x: c + 1, y: r }));
+				}
+				// Down
+				if (r < rows) {
+					const v = u + nodeCols;
+					const isHexagon = grid.vEdges[r][c].type === EdgeType.Hexagon;
+					const isBroken = grid.vEdges[r][c].type === EdgeType.Broken;
+					adj[u].push({ next: v, isHexagon, isBroken });
+					adj[v].push({ next: u, isHexagon, isBroken });
+					if (isHexagon) hexagonEdges.add(this.getEdgeKey({ x: c, y: r }, { x: c, y: r + 1 }));
 				}
 			}
 		}
 
-		let totalSolutions = 0;
-		for (const start of startNodes) {
-			totalSolutions += this.findPathsRecursively(grid, start, new Set<string>(), []);
+		const fingerprints = new Set<string>();
+		const totalHexagons = hexagonEdges.size;
+
+		for (const startIdx of startNodes) {
+			this.findPathsOptimized(grid, startIdx, 1n << BigInt(startIdx), [startIdx], 0, totalHexagons, adj, endNodes, fingerprints, limit);
+			if (fingerprints.size >= limit) break;
 		}
-		return totalSolutions;
+
+		return fingerprints.size;
 	}
 
-	private findPathsRecursively(grid: Grid, curr: Point, visited: Set<string>, path: Point[]): number {
-		const key = `${curr.x},${curr.y}`;
-		visited.add(key);
-		path.push(curr);
+	private findPathsOptimized(grid: Grid, currIdx: number, visitedMask: bigint, path: number[], hexagonsOnPath: number, totalHexagons: number, adj: { next: number; isHexagon: boolean; isBroken: boolean }[][], endNodes: number[], fingerprints: Set<string>, limit: number): void {
+		if (fingerprints.size >= limit) return;
 
-		let count = 0;
-
-		// 終点ノードに到達した場合
-		if (grid.nodes[curr.y][curr.x].type === NodeType.End) {
-			const result = this.validate(grid, { points: path });
-			if (result.isValid) {
-				count = 1;
+		// 終点に到達した場合
+		if (endNodes.includes(currIdx)) {
+			if (hexagonsOnPath === totalHexagons) {
+				const solutionPath = {
+					points: path.map((idx) => ({
+						x: idx % (grid.cols + 1),
+						y: Math.floor(idx / (grid.cols + 1)),
+					})),
+				};
+				if (this.validate(grid, solutionPath).isValid) {
+					fingerprints.add(this.getFingerprint(grid, solutionPath.points));
+				}
 			}
-			// Note: 終点に到達しても、そこからさらに移動して別の終点を目指すことは The Witness では稀なので、
-			// ここで探索を打ち切る（実際にはエッジの先が出口なので戻れない）
-		} else {
-			const directions = [
-				{ dx: 0, dy: -1 },
-				{ dx: 1, dy: 0 },
-				{ dx: 0, dy: 1 },
-				{ dx: -1, dy: 0 },
-			];
+			// Note: The Witnessのルール上、終点からさらに進むことはできない
+			return;
+		}
 
-			for (const d of directions) {
-				const next = { x: curr.x + d.dx, y: curr.y + d.dy };
-				if (next.x >= 0 && next.x <= grid.cols && next.y >= 0 && next.y <= grid.rows) {
-					if (!visited.has(`${next.x},${next.y}`)) {
-						if (!this.isBrokenEdge(grid, curr, next)) {
-							count += this.findPathsRecursively(grid, next, visited, path);
-						}
+		// 枝刈り: 終点への到達可能性
+		if (!this.canReachEndOptimized(currIdx, visitedMask, adj, endNodes)) return;
+
+		for (const edge of adj[currIdx]) {
+			if (edge.isBroken) continue;
+			if (visitedMask & (1n << BigInt(edge.next))) continue;
+
+			// Hexagon pruning:
+			// 現在のノード(currIdx)に接続されているヘキサゴンエッジのうち、
+			// まだ使っておらず、かつ次の移動(next)でも使わないものは、もう二度と使えない。
+			let possible = true;
+			for (const otherEdge of adj[currIdx]) {
+				if (otherEdge.isHexagon) {
+					// このヘキサゴンエッジがパスに含まれていないかチェック
+					// パスに含まれているなら otherEdge.next は path[path.length-2] のはず
+					const isAlreadyOnPath = path.length >= 2 && otherEdge.next === path[path.length - 2];
+					const isNextMove = otherEdge.next === edge.next;
+					if (!isAlreadyOnPath && !isNextMove) {
+						possible = false;
+						break;
 					}
 				}
 			}
-		}
+			if (!possible) continue;
 
-		path.pop();
-		visited.delete(key);
-		return count;
+			path.push(edge.next);
+			this.findPathsOptimized(grid, edge.next, visitedMask | (1n << BigInt(edge.next)), path, hexagonsOnPath + (edge.isHexagon ? 1 : 0), totalHexagons, adj, endNodes, fingerprints, limit);
+			path.pop();
+			if (fingerprints.size >= limit) return;
+		}
+	}
+
+	private canReachEndOptimized(curr: number, visitedMask: bigint, adj: { next: number; isBroken: boolean }[][], endNodes: number[]): boolean {
+		let queue = [curr];
+		let localVisited = visitedMask;
+
+		let head = 0;
+		while (head < queue.length) {
+			const u = queue[head++];
+			if (endNodes.includes(u)) return true;
+
+			for (const edge of adj[u]) {
+				if (!edge.isBroken && !(localVisited & (1n << BigInt(edge.next)))) {
+					localVisited |= 1n << BigInt(edge.next);
+					queue.push(edge.next);
+				}
+			}
+		}
+		return false;
+	}
+
+	private getFingerprint(grid: Grid, path: Point[]): string {
+		const regions = this.calculateRegions(grid, path);
+		const regionFingerprints = regions
+			.map((region) => {
+				const marks = region
+					.map((p) => grid.cells[p.y][p.x])
+					.filter((c) => c.type !== CellType.None)
+					.map((c) => `${c.type}:${c.color}`)
+					.sort();
+				return marks.join(",");
+			})
+			.sort();
+		return regionFingerprints.filter((f) => f.length > 0).join("|") || "empty";
 	}
 }

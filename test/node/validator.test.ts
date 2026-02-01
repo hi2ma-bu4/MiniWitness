@@ -73,6 +73,33 @@ test("Star validation - stars of different colors in same region", () => {
 	assert.strictEqual(result.isValid, true, `Should be valid: ${result.errorReason}`);
 });
 
+test("Solution counter - unique solutions based on region marks", () => {
+	const validator = new PuzzleValidator();
+	const puzzle = createBasicGrid(1, 1);
+	// No constraints, 1x1 grid has 2 paths.
+	// But both result in same "empty" fingerprint.
+	const grid = Grid.fromData(puzzle);
+	const count = validator.countSolutions(grid);
+	assert.strictEqual(count, 1, "Should have 1 unique solution when no marks are present");
+});
+
+test("Solution counter - paths with same mark partitioning", () => {
+	const validator = new PuzzleValidator();
+	const puzzle = createBasicGrid(2, 2);
+	// Place a square in (0,0) and (1,1)
+	// Any path that separates them is a valid solution.
+	// Multiple paths might do this, but if they partition the marks the same way, it's 1 solution.
+	puzzle.cells[0][0] = { type: CellType.Square, color: Color.Black };
+	puzzle.cells[1][1] = { type: CellType.Square, color: Color.White };
+
+	const grid = Grid.fromData(puzzle);
+	const count = validator.countSolutions(grid);
+	// Previously this would be many, now it should be much fewer (ideally 1 if they all partition same way)
+	// Actually there might be different ways to partition them, e.g. which empty cells go where.
+	// But if empty cells are ignored in fingerprint, it should be 1.
+	assert.strictEqual(count, 1, "Should count as 1 unique solution if marks are partitioned the same way");
+});
+
 test("Solution counter - simple unique solution", () => {
 	const validator = new PuzzleValidator();
 	const puzzle = createBasicGrid(1, 1);
@@ -95,7 +122,8 @@ test("Solution counter - multiple solutions", () => {
 	// No constraints, 1x1 grid has 2 paths
 	const grid = Grid.fromData(puzzle);
 	const count = validator.countSolutions(grid);
-	assert.strictEqual(count, 2, "Should have exactly 2 solutions");
+	// Now we count unique region mark configurations. Since both are empty, it should be 1.
+	assert.strictEqual(count, 1, "Should have exactly 1 unique solution (empty grid)");
 });
 
 test("Solution counter - 2x2 grid with no constraints", () => {
@@ -103,10 +131,8 @@ test("Solution counter - 2x2 grid with no constraints", () => {
 	const puzzle = createBasicGrid(2, 2);
 	const grid = Grid.fromData(puzzle);
 	const count = validator.countSolutions(grid);
-	// 2x2 grid (3x3 nodes), start (0,2), end (2,0)
-	// There should be 6 paths of length 4 (Manhattan distance), but more paths possible with meandering.
-	// Actually, Witness paths can be long.
-	assert.ok(count > 6, `Should have many solutions, found: ${count}`);
+	// Since there are no marks, all valid paths result in the same "empty" fingerprint.
+	assert.strictEqual(count, 1, "Should have exactly 1 unique solution (empty grid)");
 });
 
 test("Star validation - multiple regions with same color stars", () => {
