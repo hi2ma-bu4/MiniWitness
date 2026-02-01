@@ -74,6 +74,7 @@ class WitnessGame {
 			useHexagons: document.getElementById("use-hexagons").checked,
 			useSquares: document.getElementById("use-squares").checked,
 			useStars: document.getElementById("use-stars").checked,
+			useTetris: document.getElementById("use-tetris").checked,
 			useBrokenEdges: document.getElementById("use-broken-edges").checked,
 			complexity: parseFloat(document.getElementById("complexity-slider").value),
 			difficulty: parseFloat(document.getElementById("difficulty-slider").value),
@@ -437,13 +438,17 @@ class WitnessGame {
 				const cell = this.puzzle.cells[r][c];
 				const pos = this.getCanvasCoords(c + 0.5, r + 0.5);
 				if (cell.type === 1) {
-					// Square
-					const size = 20;
+					// Square (Rounded)
+					const size = 22;
+					const radius = 6;
 					ctx.fillStyle = this.getColorCode(cell.color);
-					ctx.fillRect(pos.x - size / 2, pos.y - size / 2, size, size);
+					this.drawRoundedRect(ctx, pos.x - size / 2, pos.y - size / 2, size, size, radius);
 				} else if (cell.type === 2) {
 					// Star (8-pointed sunburst)
 					this.drawStar(ctx, pos.x, pos.y, 10, 14, 8, cell.color);
+				} else if (cell.type === 3 || cell.type === 4) {
+					// Tetris / TetrisRotated
+					this.drawTetris(ctx, pos.x, pos.y, cell.shape, cell.type === 4, cell.color);
 				}
 			}
 		}
@@ -555,6 +560,21 @@ class WitnessGame {
 		ctx.restore();
 	}
 
+	drawRoundedRect(ctx, x, y, width, height, radius) {
+		ctx.beginPath();
+		ctx.moveTo(x + radius, y);
+		ctx.lineTo(x + width - radius, y);
+		ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+		ctx.lineTo(x + width, y + height - radius);
+		ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+		ctx.lineTo(x + radius, y + height);
+		ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+		ctx.lineTo(x, y + radius);
+		ctx.quadraticCurveTo(x, y, x + radius, y);
+		ctx.closePath();
+		ctx.fill();
+	}
+
 	drawHexagon(ctx, x, y, radius) {
 		ctx.fillStyle = "#ffcc00";
 		ctx.beginPath();
@@ -582,6 +602,32 @@ class WitnessGame {
 		}
 		ctx.closePath();
 		ctx.fill();
+	}
+
+	drawTetris(ctx, x, y, shape, rotated, colorEnum) {
+		if (!shape) return;
+		const cellSize = 10;
+		const gap = 2;
+		const totalW = shape[0].length * cellSize + (shape[0].length - 1) * gap;
+		const totalH = shape.length * cellSize + (shape.length - 1) * gap;
+
+		ctx.save();
+		ctx.translate(x, y);
+		if (rotated) {
+			ctx.rotate(Math.PI / 8); // Tilt it
+		}
+		ctx.fillStyle = colorEnum === 0 ? "#ffcc00" : this.getColorCode(colorEnum);
+
+		for (let r = 0; r < shape.length; r++) {
+			for (let c = 0; c < shape[r].length; c++) {
+				if (shape[r][c]) {
+					const px = c * (cellSize + gap) - totalW / 2;
+					const py = r * (cellSize + gap) - totalH / 2;
+					ctx.fillRect(px, py, cellSize, cellSize);
+				}
+			}
+		}
+		ctx.restore();
 	}
 
 	getColorCode(colorEnum) {

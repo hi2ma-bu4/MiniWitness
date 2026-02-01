@@ -9,7 +9,9 @@ export declare enum Direction {
 export declare enum CellType {
 	None = 0,
 	Square = 1,// 色分けが必要なブロック
-	Star = 2
+	Star = 2,// 同じ色のペア作成 (星)
+	Tetris = 3,// テトリス
+	TetrisRotated = 4
 }
 export declare enum EdgeType {
 	Normal = 0,
@@ -36,6 +38,7 @@ export interface Point {
 export interface CellConstraint {
 	type: CellType;
 	color: Color;
+	shape?: number[][];
 }
 export interface EdgeConstraint {
 	type: EdgeType;
@@ -71,6 +74,7 @@ export interface GenerationOptions {
 	useHexagons?: boolean;
 	useSquares?: boolean;
 	useStars?: boolean;
+	useTetris?: boolean;
 	useBrokenEdges?: boolean;
 	complexity?: number;
 	difficulty?: number;
@@ -107,6 +111,7 @@ export declare class PuzzleGenerator {
 	private isAdjacentToMark;
 	private hasIsolatedMark;
 	private getEdgeKey;
+	private TETRIS_SHAPES;
 	private applyConstraintsBasedOnPath;
 	/**
 	 * パスを壁と見なして、セル（Block）の領域分割を行う (Flood Fill)
@@ -115,6 +120,16 @@ export declare class PuzzleGenerator {
 	private isAbsentEdge;
 	private setEdgeHexagon;
 	private checkAllRequestedConstraintsPresent;
+	/**
+	 * 領域を指定されたピース数以内でタイリングする。成功すればピースのリストを返す。
+	 */
+	private generateTiling;
+	private tilingDfs;
+	private isRotationallyInvariant;
+	private getAllRotations;
+	private rotate90;
+	private canPlace;
+	private placePiece;
 	private shuffleArray;
 }
 export declare class PuzzleValidator {
@@ -123,6 +138,13 @@ export declare class PuzzleValidator {
 	private isAbsentEdge;
 	private checkHexagonConstraint;
 	private checkCellConstraints;
+	private checkTetrisConstraint;
+	private getShapeArea;
+	private canTile;
+	private canPlace;
+	private placePiece;
+	private getAllRotations;
+	private rotate90;
 	private calculateRegions;
 	private getExternalCells;
 	private getEdgeKey;

@@ -110,6 +110,7 @@ export class PuzzleValidator {
 			const colorCounts = new Map<number, number>();
 			const starColors = new Set<number>();
 			const squareColors = new Set<number>();
+			const tetrisPieces: { shape: number[][]; rotatable: boolean }[] = [];
 
 			for (const cell of region) {
 				const constraint = grid.cells[cell.y][cell.x];
@@ -122,16 +123,170 @@ export class PuzzleValidator {
 					squareColors.add(color);
 				} else if (constraint.type === CellType.Star) {
 					starColors.add(color);
+				} else if (constraint.type === CellType.Tetris || constraint.type === CellType.TetrisRotated) {
+					if (constraint.shape) {
+						tetrisPieces.push({
+							shape: constraint.shape,
+							rotatable: constraint.type === CellType.TetrisRotated,
+						});
+					}
 				}
+
 				// Squares: All squares in a region must be the same color
 				if (squareColors.size > 1) return false;
 			}
+
 			// Stars: For each color that has a star, there must be exactly 2 marks of that color
+			// Note: Tetris pieces also count as marks for Star rules.
 			for (const color of starColors) {
 				if (colorCounts.get(color) !== 2) return false;
 			}
+
+			// Tetris Rule
+			if (tetrisPieces.length > 0) {
+				if (!this.checkTetrisConstraint(region, tetrisPieces)) {
+					return false;
+				}
+			}
 		}
 		return true;
+	}
+
+	private checkTetrisConstraint(region: Point[], pieces: { shape: number[][]; rotatable: boolean }[]): boolean {
+		const totalTetrisArea = pieces.reduce((sum, p) => sum + this.getShapeArea(p.shape), 0);
+		if (totalTetrisArea !== region.length) return false;
+
+		// Convert region to a relative bitmask/grid for easier tiling check
+		const minX = Math.min(...region.map((p) => p.x));
+		const minY = Math.min(...region.map((p) => p.y));
+		const maxX = Math.max(...region.map((p) => p.x));
+		const maxY = Math.max(...region.map((p) => p.y));
+		const width = maxX - minX + 1;
+		const height = maxY - minY + 1;
+
+		const regionGrid = Array.from({ length: height }, () => Array(width).fill(false));
+		for (const p of region) {
+			regionGrid[p.y - minY][p.x - minX] = true;
+		}
+
+		return this.canTile(regionGrid, pieces);
+	}
+
+	private getShapeArea(shape: number[][]): number {
+		let area = 0;
+		for (const row of shape) {
+			for (const cell of row) {
+				if (cell) area++;
+			}
+		}
+		return area;
+	}
+
+	private canTile(regionGrid: boolean[][], pieces: { shape: number[][]; rotatable: boolean }[]): boolean {
+		// 見つかっていない最初のマスを探す
+		let r0 = -1;
+		let c0 = -1;
+		for (let r = 0; r < regionGrid.length; r++) {
+			for (let c = 0; c < regionGrid[0].length; c++) {
+				if (regionGrid[r][c]) {
+					r0 = r;
+					c0 = c;
+					break;
+				}
+			}
+			if (r0 !== -1) break;
+		}
+
+		// 全てのマスが埋まった場合
+		if (r0 === -1) {
+			return pieces.length === 0;
+		}
+
+		// まだマスがあるのにピースがない場合
+		if (pieces.length === 0) return false;
+
+		// (r0, c0) を埋めるために全ての残りのピースを試す
+		for (let i = 0; i < pieces.length; i++) {
+			const piece = pieces[i];
+			const nextPieces = [...pieces.slice(0, i), ...pieces.slice(i + 1)];
+			const rotations = piece.rotatable ? this.getAllRotations(piece.shape) : [piece.shape];
+
+			for (const shape of rotations) {
+				// ピース内の各ブロックを (r0, c0) に合わせてみる
+				const blocks: { r: number; c: number }[] = [];
+				for (let pr = 0; pr < shape.length; pr++) {
+					for (let pc = 0; pc < shape[0].length; pc++) {
+						if (shape[pr][pc]) blocks.push({ r: pr, c: pc });
+					}
+				}
+
+				for (const anchor of blocks) {
+					const dr = r0 - anchor.r;
+					const dc = c0 - anchor.c;
+
+					if (this.canPlace(regionGrid, shape, dr, dc)) {
+						this.placePiece(regionGrid, shape, dr, dc, false);
+						if (this.canTile(regionGrid, nextPieces)) return true;
+						this.placePiece(regionGrid, shape, dr, dc, true);
+					}
+				}
+			}
+		}
+
+		return false;
+	}
+
+	private canPlace(regionGrid: boolean[][], shape: number[][], r: number, c: number): boolean {
+		for (let i = 0; i < shape.length; i++) {
+			for (let j = 0; j < shape[0].length; j++) {
+				if (shape[i][j]) {
+					const nr = r + i;
+					const nc = c + j;
+					if (nr < 0 || nr >= regionGrid.length || nc < 0 || nc >= regionGrid[0].length || !regionGrid[nr][nc]) {
+						return false;
+					}
+				}
+			}
+		}
+		return true;
+	}
+
+	private placePiece(regionGrid: boolean[][], shape: number[][], r: number, c: number, value: boolean) {
+		for (let i = 0; i < shape.length; i++) {
+			for (let j = 0; j < shape[0].length; j++) {
+				if (shape[i][j]) {
+					regionGrid[r + i][c + j] = value;
+				}
+			}
+		}
+	}
+
+	private getAllRotations(shape: number[][]): number[][][] {
+		const results: number[][][] = [];
+		const keys = new Set<string>();
+
+		let curr = shape;
+		for (let i = 0; i < 4; i++) {
+			const key = JSON.stringify(curr);
+			if (!keys.has(key)) {
+				results.push(curr);
+				keys.add(key);
+			}
+			curr = this.rotate90(curr);
+		}
+		return results;
+	}
+
+	private rotate90(shape: number[][]): number[][] {
+		const rows = shape.length;
+		const cols = shape[0].length;
+		const newShape = Array.from({ length: cols }, () => Array(rows).fill(0));
+		for (let r = 0; r < rows; r++) {
+			for (let c = 0; c < cols; c++) {
+				newShape[c][rows - 1 - r] = shape[r][c];
+			}
+		}
+		return newShape;
 	}
 
 	private calculateRegions(grid: Grid, path: Point[]): Point[][] {

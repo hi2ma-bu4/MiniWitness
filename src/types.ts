@@ -9,7 +9,8 @@ export enum CellType {
 	None = 0,
 	Square = 1, // 色分けが必要なブロック
 	Star = 2, // 同じ色のペア作成 (星)
-	// 必要に応じてTetris型などを追加
+	Tetris = 3, // テトリス
+	TetrisRotated = 4, // テトリス（回転可能）
 }
 
 export enum EdgeType {
@@ -42,6 +43,7 @@ export interface Point {
 export interface CellConstraint {
 	type: CellType;
 	color: Color;
+	shape?: number[][]; // [row][col] 0 or 1
 }
 
 export interface EdgeConstraint {
@@ -83,6 +85,7 @@ export interface GenerationOptions {
 	useHexagons?: boolean;
 	useSquares?: boolean;
 	useStars?: boolean;
+	useTetris?: boolean;
 	useBrokenEdges?: boolean;
 	complexity?: number; // 0.0 - 1.0 (制約の密度)
 	difficulty?: number; // 0.0 (Easy) - 1.0 (Hard) (解パターンの数に基づく)
