@@ -465,18 +465,30 @@ var PuzzleValidator = class {
     let constraintCount = hexagonEdges.size;
     const constraintTypes = /* @__PURE__ */ new Set();
     if (hexagonEdges.size > 0) constraintTypes.add(999);
+    let tetrisCount = 0;
+    let rotatedTetrisCount = 0;
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         const cell = grid.cells[r][c];
         if (cell.type !== 0 /* None */) {
           constraintCount++;
           constraintTypes.add(cell.type);
+          if (cell.type === 3 /* Tetris */) {
+            tetrisCount++;
+          } else if (cell.type === 4 /* TetrisRotated */) {
+            tetrisCount++;
+            rotatedTetrisCount++;
+          }
         }
       }
     }
     const branchingFactor = stats.branchingPoints / (stats.totalNodesVisited || 1);
     const searchComplexity = Math.log10(stats.totalNodesVisited + 1);
     let difficulty = (branchingFactor * 10 + searchComplexity * 1) / (Math.log2(stats.solutions + 1) + 1);
+    if (tetrisCount > 0) {
+      difficulty += rotatedTetrisCount * 0.5;
+      difficulty += (tetrisCount - rotatedTetrisCount) * 0.2;
+    }
     const cellCount = rows * cols;
     const density = constraintCount / cellCount;
     const densityFactor = density < 0.3 ? Math.pow(density / 0.3, 3) : 1;
@@ -663,7 +675,7 @@ var PuzzleGenerator = class {
     const validator = new PuzzleValidator();
     let bestGrid = null;
     let bestScore = -1;
-    const maxAttempts = rows * cols > 30 ? 60 : 100;
+    const maxAttempts = rows * cols > 30 ? 30 : 60;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       const grid = this.generateOnce(rows, cols, options);
       if (!this.checkAllRequestedConstraintsPresent(grid, options)) {
@@ -1036,6 +1048,8 @@ var PuzzleGenerator = class {
     let squaresPlaced = 0;
     let starsPlaced = 0;
     let tetrisPlaced = 0;
+    let totalTetrisArea = 0;
+    const maxTotalTetrisArea = Math.floor(grid.rows * grid.cols * 0.45);
     if (useHexagons) {
       const targetDifficulty = options.difficulty ?? 0.5;
       for (let i = 0; i < path.length - 1; i++) {
@@ -1113,21 +1127,22 @@ var PuzzleGenerator = class {
             squaresPlaced++;
           }
         }
-        if (useTetris) {
-          let shouldPlaceTetris = Math.random() < 0.2 + complexity * 0.3;
+        if (useTetris && totalTetrisArea < maxTotalTetrisArea) {
+          let shouldPlaceTetris = Math.random() < 0.1 + complexity * 0.4;
           if (tetrisPlaced === 0 && isLastFew) shouldPlaceTetris = true;
           const maxTetrisPerRegion = tetrisPlaced === 0 && isLastFew ? 6 : 4;
-          if (shouldPlaceTetris && potentialCells.length > 0 && region.length <= maxTetrisPerRegion * 4) {
-            const tiledPieces = this.generateTiling(region, maxTetrisPerRegion);
+          if (shouldPlaceTetris && potentialCells.length > 0 && region.length <= maxTetrisPerRegion * 4 && totalTetrisArea + region.length <= maxTotalTetrisArea) {
+            const tiledPieces = this.generateTiling(region, maxTetrisPerRegion, options);
             if (tiledPieces) {
               for (const p of tiledPieces) {
                 if (potentialCells.length === 0) break;
                 const cell = potentialCells.pop();
                 grid.cells[cell.y][cell.x].type = p.isRotated ? 4 /* TetrisRotated */ : 3 /* Tetris */;
-                grid.cells[cell.y][cell.x].shape = p.shape;
+                grid.cells[cell.y][cell.x].shape = p.isRotated ? p.displayShape : p.shape;
                 grid.cells[cell.y][cell.x].color = 0 /* None */;
                 tetrisPlaced++;
               }
+              totalTetrisArea += region.length;
             }
           }
         }
@@ -1339,7 +1354,7 @@ var PuzzleGenerator = class {
   /**
    * 領域を指定されたピース数以内でタイリングする。成功すればピースのリストを返す。
    */
-  generateTiling(region, maxPieces) {
+  generateTiling(region, maxPieces, options) {
     const minX = Math.min(...region.map((p) => p.x));
     const minY = Math.min(...region.map((p) => p.y));
     const maxX = Math.max(...region.map((p) => p.x));
@@ -1350,9 +1365,9 @@ var PuzzleGenerator = class {
     for (const p of region) {
       regionGrid[p.y - minY][p.x - minX] = true;
     }
-    return this.tilingDfs(regionGrid, [], maxPieces);
+    return this.tilingDfs(regionGrid, [], maxPieces, options);
   }
-  tilingDfs(regionGrid, currentPieces, maxPieces) {
+  tilingDfs(regionGrid, currentPieces, maxPieces, options) {
     let r0 = -1;
     let c0 = -1;
     for (let r = 0; r < regionGrid.length; r++) {
@@ -1367,8 +1382,18 @@ var PuzzleGenerator = class {
     }
     if (r0 === -1) return currentPieces;
     if (currentPieces.length >= maxPieces) return null;
-    const shapes = [...this.TETRIS_SHAPES];
+    const difficulty = options.difficulty ?? 0.5;
+    let shapes = [...this.TETRIS_SHAPES];
     this.shuffleArray(shapes);
+    if (difficulty > 0.6) {
+      shapes.sort((a, b) => {
+        const areaA = this.getShapeArea(a);
+        const areaB = this.getShapeArea(b);
+        if (areaA <= 2 && areaB > 2) return 1;
+        if (areaB <= 2 && areaA > 2) return -1;
+        return 0;
+      });
+    }
     for (const baseShape of shapes) {
       const isInvariant = this.isRotationallyInvariant(baseShape);
       const rotations = isInvariant ? [baseShape] : this.getAllRotations(baseShape);
@@ -1385,8 +1410,9 @@ var PuzzleGenerator = class {
           const dc = c0 - anchor.c;
           if (this.canPlace(regionGrid, shape, dr, dc)) {
             this.placePiece(regionGrid, shape, dr, dc, false);
-            const isRotated = !isInvariant && Math.random() < 0.5;
-            const result = this.tilingDfs(regionGrid, [...currentPieces, { shape, isRotated: !isInvariant }], maxPieces);
+            const rotProb = 0.3 + difficulty * 0.6;
+            const isRotated = !isInvariant && Math.random() < rotProb;
+            const result = this.tilingDfs(regionGrid, [...currentPieces, { shape, displayShape: baseShape, isRotated }], maxPieces, options);
             if (result) return result;
             this.placePiece(regionGrid, shape, dr, dc, true);
           }
@@ -1395,13 +1421,17 @@ var PuzzleGenerator = class {
     }
     return null;
   }
-  isRotationallyInvariant(shape) {
+  getShapeArea(shape) {
     let area = 0;
     for (const row of shape) {
       for (const cell of row) {
         if (cell) area++;
       }
     }
+    return area;
+  }
+  isRotationallyInvariant(shape) {
+    const area = this.getShapeArea(shape);
     return area === 1 || area === 4 && shape.length === 2 && shape[0].length === 2;
   }
   getAllRotations(shape) {

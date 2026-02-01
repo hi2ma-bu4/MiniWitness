@@ -465,12 +465,22 @@ export class PuzzleValidator {
 		const constraintTypes = new Set<number>();
 		if (hexagonEdges.size > 0) constraintTypes.add(999); // ヘキサゴン用ダミーID
 
+		let tetrisCount = 0;
+		let rotatedTetrisCount = 0;
+
 		for (let r = 0; r < rows; r++) {
 			for (let c = 0; c < cols; c++) {
 				const cell = grid.cells[r][c];
 				if (cell.type !== CellType.None) {
 					constraintCount++;
 					constraintTypes.add(cell.type);
+
+					if (cell.type === CellType.Tetris) {
+						tetrisCount++;
+					} else if (cell.type === CellType.TetrisRotated) {
+						tetrisCount++;
+						rotatedTetrisCount++;
+					}
 				}
 			}
 		}
@@ -484,6 +494,13 @@ export class PuzzleValidator {
 
 		// 基本スコアの計算
 		let difficulty = (branchingFactor * 10 + searchComplexity * 1.0) / (Math.log2(stats.solutions + 1) + 1);
+
+		// テトリスによる難易度補正
+		// 回転可能なテトリスは1つにつき難易度を大幅に上げる
+		if (tetrisCount > 0) {
+			difficulty += rotatedTetrisCount * 0.5;
+			difficulty += (tetrisCount - rotatedTetrisCount) * 0.2;
+		}
 
 		// 密度の計算と補正
 		// 空白マスが多すぎる（制約密度が低い）パズルは人間には非常に簡単に感じられる

@@ -17,7 +17,7 @@ export class PuzzleGenerator {
 		let bestScore = -1;
 
 		// グリッドサイズに応じて試行回数を調整
-		const maxAttempts = rows * cols > 30 ? 60 : 100;
+		const maxAttempts = rows * cols > 30 ? 30 : 60;
 
 		for (let attempt = 0; attempt < maxAttempts; attempt++) {
 			const grid = this.generateOnce(rows, cols, options);
@@ -451,6 +451,8 @@ export class PuzzleGenerator {
 		let squaresPlaced = 0;
 		let starsPlaced = 0;
 		let tetrisPlaced = 0;
+		let totalTetrisArea = 0;
+		const maxTotalTetrisArea = Math.floor(grid.rows * grid.cols * 0.45); // グリッド全体の最大45%まで
 
 		// A. パス上のヘキサゴン (Hexagon) 配置
 		if (useHexagons) {
@@ -559,27 +561,30 @@ export class PuzzleGenerator {
 				}
 
 				// 2. テトリス(Tetris)を配置するか決定
-				if (useTetris) {
-					let shouldPlaceTetris = Math.random() < 0.2 + complexity * 0.3;
+				if (useTetris && totalTetrisArea < maxTotalTetrisArea) {
+					// 複雑度が高いほどテトリスが配置されやすくなる
+					let shouldPlaceTetris = Math.random() < 0.1 + complexity * 0.4;
 					if (tetrisPlaced === 0 && isLastFew) shouldPlaceTetris = true;
 
 					// あまりに大きい領域はテトリスで埋めるのが大変、かつ解答が自明になりやすいため制限
 					// ただし、一つも置かれていない場合は少し制限を緩める
 					const maxTetrisPerRegion = tetrisPlaced === 0 && isLastFew ? 6 : 4;
-					if (shouldPlaceTetris && potentialCells.length > 0 && region.length <= maxTetrisPerRegion * 4) {
+					if (shouldPlaceTetris && potentialCells.length > 0 && region.length <= maxTetrisPerRegion * 4 && totalTetrisArea + region.length <= maxTotalTetrisArea) {
 						// 領域全体をテトリスで埋める必要がある
 						// 実際にタイリング可能か試行しながらピースを選ぶ
-						const tiledPieces = this.generateTiling(region, maxTetrisPerRegion);
+						const tiledPieces = this.generateTiling(region, maxTetrisPerRegion, options);
 
 						if (tiledPieces) {
 							for (const p of tiledPieces) {
 								if (potentialCells.length === 0) break;
 								const cell = potentialCells.pop()!;
 								grid.cells[cell.y][cell.x].type = p.isRotated ? CellType.TetrisRotated : CellType.Tetris;
-								grid.cells[cell.y][cell.x].shape = p.shape;
+								// 回転可能な場合は初期状態（baseShape）を、固定の場合は使用された形状を表示する
+								grid.cells[cell.y][cell.x].shape = p.isRotated ? p.displayShape : p.shape;
 								grid.cells[cell.y][cell.x].color = Color.None;
 								tetrisPlaced++;
 							}
+							totalTetrisArea += region.length;
 						}
 					}
 				}
@@ -828,7 +833,7 @@ export class PuzzleGenerator {
 	/**
 	 * 領域を指定されたピース数以内でタイリングする。成功すればピースのリストを返す。
 	 */
-	private generateTiling(region: Point[], maxPieces: number): { shape: number[][]; isRotated: boolean }[] | null {
+	private generateTiling(region: Point[], maxPieces: number, options: GenerationOptions): { shape: number[][]; displayShape: number[][]; isRotated: boolean }[] | null {
 		const minX = Math.min(...region.map((p) => p.x));
 		const minY = Math.min(...region.map((p) => p.y));
 		const maxX = Math.max(...region.map((p) => p.x));
@@ -841,10 +846,10 @@ export class PuzzleGenerator {
 			regionGrid[p.y - minY][p.x - minX] = true;
 		}
 
-		return this.tilingDfs(regionGrid, [], maxPieces);
+		return this.tilingDfs(regionGrid, [], maxPieces, options);
 	}
 
-	private tilingDfs(regionGrid: boolean[][], currentPieces: { shape: number[][]; isRotated: boolean }[], maxPieces: number): { shape: number[][]; isRotated: boolean }[] | null {
+	private tilingDfs(regionGrid: boolean[][], currentPieces: { shape: number[][]; displayShape: number[][]; isRotated: boolean }[], maxPieces: number, options: GenerationOptions): { shape: number[][]; displayShape: number[][]; isRotated: boolean }[] | null {
 		// 見つかっていない最初のマスを探す
 		let r0 = -1;
 		let c0 = -1;
@@ -865,9 +870,22 @@ export class PuzzleGenerator {
 		// ピース上限
 		if (currentPieces.length >= maxPieces) return null;
 
+		const difficulty = options.difficulty ?? 0.5;
+
 		// シャッフルした形状リストで試す
-		const shapes = [...this.TETRIS_SHAPES];
+		let shapes = [...this.TETRIS_SHAPES];
 		this.shuffleArray(shapes);
+
+		// 難易度が高い場合、小さいピース（面積1や2）の優先度を下げる
+		if (difficulty > 0.6) {
+			shapes.sort((a, b) => {
+				const areaA = this.getShapeArea(a);
+				const areaB = this.getShapeArea(b);
+				if (areaA <= 2 && areaB > 2) return 1;
+				if (areaB <= 2 && areaA > 2) return -1;
+				return 0;
+			});
+		}
 
 		for (const baseShape of shapes) {
 			// 回転パターンを生成
@@ -890,12 +908,12 @@ export class PuzzleGenerator {
 
 					if (this.canPlace(regionGrid, shape, dr, dc)) {
 						this.placePiece(regionGrid, shape, dr, dc, false);
-						const isRotated = !isInvariant && Math.random() < 0.5; // 実際に回転したアイコンにするかはランダム
-						// NOTE: ここで isRotated を決定する際、元の baseShape と shape が異なる場合に TetrisRotated にするのが正しい。
-						// ただし Witness では「傾いているアイコン」＝「回転可能」という意味なので、
-						// ここでは単にランダムに回転可能属性を付与するか、あるいは「回転が必要な場合」に付与するようにする。
-						// 今回は「回転可能」なピースとして生成する。
-						const result = this.tilingDfs(regionGrid, [...currentPieces, { shape, isRotated: !isInvariant }], maxPieces);
+
+						// 難易度が高いほど回転可能なピースが出現しやすくなる
+						const rotProb = 0.3 + difficulty * 0.6;
+						const isRotated = !isInvariant && Math.random() < rotProb;
+
+						const result = this.tilingDfs(regionGrid, [...currentPieces, { shape, displayShape: baseShape, isRotated }], maxPieces, options);
 						if (result) return result;
 						this.placePiece(regionGrid, shape, dr, dc, true);
 					}
@@ -906,13 +924,18 @@ export class PuzzleGenerator {
 		return null;
 	}
 
-	private isRotationallyInvariant(shape: number[][]): boolean {
+	private getShapeArea(shape: number[][]): number {
 		let area = 0;
 		for (const row of shape) {
 			for (const cell of row) {
 				if (cell) area++;
 			}
 		}
+		return area;
+	}
+
+	private isRotationallyInvariant(shape: number[][]): boolean {
+		const area = this.getShapeArea(shape);
 		// 1x1 or 2x2 full square
 		return area === 1 || (area === 4 && shape.length === 2 && shape[0].length === 2);
 	}

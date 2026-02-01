@@ -125,6 +125,7 @@ export declare class PuzzleGenerator {
 	 */
 	private generateTiling;
 	private tilingDfs;
+	private getShapeArea;
 	private isRotationallyInvariant;
 	private getAllRotations;
 	private rotate90;
