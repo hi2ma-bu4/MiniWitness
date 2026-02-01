@@ -1,6 +1,6 @@
 import assert from "node:assert";
 import { test } from "node:test";
-import { CellType, Color, Grid, NodeType, PuzzleData, PuzzleGenerator, PuzzleValidator, SolutionPath, WitnessCore } from "../../dist/MiniWitness.js";
+import { CellType, Color, EdgeType, Grid, NodeType, PuzzleData, PuzzleGenerator, PuzzleValidator, SolutionPath, WitnessCore } from "../../dist/MiniWitness.js";
 
 const core = new WitnessCore();
 
@@ -73,6 +73,198 @@ test("Star validation - stars of different colors in same region", () => {
 	assert.strictEqual(result.isValid, true, `Should be valid: ${result.errorReason}`);
 });
 
+test("Broken vs Absent edges - path blocking and region separation", () => {
+	// 1x2 grid (1 col, 2 rows)
+	// Cells: (0,0), (1,0)  [row, col]
+	// Nodes: (0,0), (1,0)
+	//        (0,1), (1,1)
+	//        (0,2), (1,2)
+	const puzzle = createBasicGrid(2, 1);
+	puzzle.nodes[2][0].type = NodeType.Start;
+	puzzle.nodes[0][1].type = NodeType.End;
+
+	// Place a Broken edge at H(1,0) -> between (0,1) and (1,1) nodes.
+	puzzle.hEdges[1][0].type = EdgeType.Broken;
+
+	// 1. Path crossing Broken edge should fail
+	const pathCrossing: SolutionPath = {
+		points: [
+			{ x: 0, y: 2 },
+			{ x: 0, y: 1 },
+			{ x: 1, y: 1 }, // This crosses hEdges[1][0]
+			{ x: 1, y: 0 },
+			{ x: 0, y: 0 }, // Wait, end is (0,1)
+		],
+	};
+	// Let's use simpler path for 1x2
+	const res1 = core.validateSolution(puzzle, {
+		points: [
+			{ x: 0, y: 2 },
+			{ x: 0, y: 1 },
+			{ x: 1, y: 1 },
+			{ x: 1, y: 0 },
+			{ x: 0, y: 0 },
+			{ x: 0, y: 1 },
+		],
+	});
+	// Actually, easier to just test the specific edge crossing.
+	// But start and end must be valid.
+	puzzle.nodes[2][0].type = NodeType.Start;
+	puzzle.nodes[2][1].type = NodeType.End;
+	const resCrossing = core.validateSolution(puzzle, {
+		points: [
+			{ x: 0, y: 2 },
+			{ x: 1, y: 2 },
+		],
+	}); // Crosses hEdges[2][0]? No.
+	// H-Edges [row][col]: hEdges[2][0] is between (0,2) and (1,2).
+
+	// Let's reset and be precise.
+	const p = createBasicGrid(2, 1);
+	p.nodes[2][0].type = NodeType.Start;
+	p.nodes[0][0].type = NodeType.End;
+	p.hEdges[1][0].type = EdgeType.Broken;
+
+	// Crossing H(1,0) means moving between row 1 nodes: (0,1) and (1,1)
+	const pathCrossing2 = {
+		points: [
+			{ x: 0, y: 2 },
+			{ x: 0, y: 1 },
+			{ x: 1, y: 1 },
+			{ x: 1, y: 0 },
+			{ x: 0, y: 0 },
+		],
+	};
+	assert.strictEqual(core.validateSolution(p, pathCrossing2).isValid, false, "Should be invalid: crossed broken edge");
+
+	// 2. Broken edge should NOT separate regions
+	p.cells[0][0] = { type: CellType.Star, color: Color.Black };
+	p.cells[1][0] = { type: CellType.Star, color: Color.Black };
+	// Path that stays on the left: (0,2) -> (0,1) -> (0,0)
+	const pathSide = {
+		points: [
+			{ x: 0, y: 2 },
+			{ x: 0, y: 1 },
+			{ x: 0, y: 0 },
+		],
+	};
+	const res2 = core.validateSolution(p, pathSide);
+	assert.strictEqual(res2.isValid, true, `Should be valid: broken edge did not separate stars. Error: ${res2.errorReason}`);
+
+	// 3. Absent edge SHOULD separate regions
+	p.hEdges[1][0].type = EdgeType.Absent;
+	const res3 = core.validateSolution(p, pathSide);
+	assert.strictEqual(res3.isValid, false, "Should be invalid: absent edge separated stars into different regions");
+});
+
+test("Dynamic perimeter - bites out of the grid", () => {
+	// 2x2 grid
+	const puzzle = createBasicGrid(2, 2);
+	puzzle.nodes[2][0].type = NodeType.Start;
+	puzzle.nodes[0][2].type = NodeType.End;
+
+	// Top-left cell (0,0) is bitten by making its top and left edges Absent
+	puzzle.hEdges[0][0].type = EdgeType.Absent;
+	puzzle.vEdges[0][0].type = EdgeType.Absent;
+
+	// Path around: (0,2) -> (1,2) -> (2,2) -> (2,1) -> (2,0)
+	const path: SolutionPath = {
+		points: [
+			{ x: 0, y: 2 },
+			{ x: 1, y: 2 },
+			{ x: 2, y: 2 },
+			{ x: 2, y: 1 },
+			{ x: 2, y: 0 },
+		],
+	};
+
+	// 1. Mark in bitten cell (0,0) should be ignored
+	puzzle.cells[0][0] = { type: CellType.Star, color: Color.Black }; // This would fail if counted (single star)
+
+	// 2. Bite boundary should separate regions
+	// Place 2 stars on opposite sides of the bite boundary: (0,1) and (1,0)
+	puzzle.cells[1][0] = { type: CellType.Star, color: Color.Black };
+	puzzle.cells[0][1] = { type: CellType.Star, color: Color.Black };
+
+	// If the Normal edges between (0,1)-(1,1) and (1,0)-(1,1) act as perimeter,
+	// then (0,1) and (1,0) are separated from each other?
+	// Wait, (0,1) and (1,0) are both adjacent to (1,1).
+	// If path doesn't separate them, they are in same region unless the bite separates them.
+	// In a 2x2, (0,1) and (1,0) are only connected via (1,1).
+	// If path is on (0,2)-(1,2)-(2,2)-(2,1)-(2,0), it doesn't separate (0,1), (1,0), (1,1).
+	// So they are one region.
+	const res = core.validateSolution(puzzle, path);
+	assert.strictEqual(res.isValid, true, `Should be valid: bite marks ignored. Error: ${res.errorReason}`);
+
+	// Now separate them with another bite?
+	// If we make (1,1) a bite too, then (0,1) and (1,0) are isolated from each other.
+	puzzle.hEdges[1][1].type = EdgeType.Absent;
+	puzzle.vEdges[1][1].type = EdgeType.Absent;
+	// (0,1) region: top=Normal, left=Normal, right=Absent, bottom=path.
+	// (1,0) region: top=Absent, left=path, right=Normal, bottom=Normal.
+	// They are separated.
+	assert.strictEqual(core.validateSolution(puzzle, path).isValid, false, "Should be invalid: stars separated by bites");
+});
+
+test("Generator - Absent edges should not be adjacent to marks", () => {
+	const generator = new PuzzleGenerator();
+	const options = {
+		useHexagons: true,
+		useSquares: true,
+		useStars: true,
+		useBrokenEdges: true,
+		difficulty: 0.5,
+		complexity: 0.8,
+	};
+
+	for (let i = 0; i < 20; i++) {
+		const grid = generator.generate(4, 4, options);
+
+		for (let r = 0; r < grid.rows; r++) {
+			for (let c = 0; c < grid.cols; c++) {
+				const hasMark = grid.cells[r][c].type !== CellType.None;
+				if (hasMark) {
+					// Check 4 edges
+					const top = grid.hEdges[r][c].type;
+					const bottom = grid.hEdges[r + 1][c].type;
+					const left = grid.vEdges[r][c].type;
+					const right = grid.vEdges[r][c + 1].type;
+
+					assert.notStrictEqual(top, EdgeType.Absent, `Absent edge found at top of mark at (${r},${c})`);
+					assert.notStrictEqual(bottom, EdgeType.Absent, `Absent edge found at bottom of mark at (${r},${c})`);
+					assert.notStrictEqual(left, EdgeType.Absent, `Absent edge found at left of mark at (${r},${c})`);
+					assert.notStrictEqual(right, EdgeType.Absent, `Absent edge found at right of mark at (${r},${c})`);
+				}
+			}
+		}
+	}
+});
+
+test("Generator - should not produce isolated marks", () => {
+	const generator = new PuzzleGenerator();
+	const options = {
+		useHexagons: true,
+		useSquares: true,
+		useStars: true,
+		useBrokenEdges: true,
+		complexity: 1.0,
+	};
+
+	for (let i = 0; i < 20; i++) {
+		const grid = generator.generate(3, 3, options);
+
+		for (let r = 0; r < grid.rows; r++) {
+			for (let c = 0; c < grid.cols; c++) {
+				if (grid.cells[r][c].type !== CellType.None) {
+					const edges = [grid.hEdges[r][c], grid.hEdges[r + 1][c], grid.vEdges[r][c], grid.vEdges[r][c + 1]];
+					const passable = edges.filter((e) => e.type === EdgeType.Normal || e.type === EdgeType.Hexagon);
+					assert.ok(passable.length > 0, `Mark at (${r},${c}) is isolated`);
+				}
+			}
+		}
+	}
+});
+
 test("Difficulty calculation - simple grid", () => {
 	const puzzle = createBasicGrid(2, 2);
 	// No constraints, should have low difficulty but at least 1 solution exists (empty fingerprint)
@@ -86,7 +278,7 @@ test("Difficulty calculation - more constraints should be harder", () => {
 
 	const puzzle2 = createBasicGrid(2, 2);
 	// Add a hexagon
-	puzzle2.hEdges[0][0].type = 1;
+	puzzle2.hEdges[0][0].type = EdgeType.Hexagon;
 	const diff2 = core.calculateDifficulty(puzzle2);
 
 	// Hexagons can actually reduce search space, but let's just check it's valid
@@ -96,7 +288,7 @@ test("Difficulty calculation - more constraints should be harder", () => {
 test("Difficulty calculation - trivial puzzle should have very low difficulty", () => {
 	const puzzle = createBasicGrid(4, 4);
 	// Add only one hexagon
-	puzzle.hEdges[0][0].type = 1;
+	puzzle.hEdges[0][0].type = EdgeType.Hexagon;
 	const difficulty = core.calculateDifficulty(puzzle);
 
 	// Should be very low, definitely less than 0.2
@@ -110,7 +302,7 @@ test("Difficulty calculation - sparse 6x6 grid should have very low difficulty",
 	puzzle.cells[0][1] = { type: CellType.Square, color: Color.Black };
 	puzzle.cells[5][5] = { type: CellType.Square, color: Color.White };
 	puzzle.cells[5][4] = { type: CellType.Square, color: Color.White };
-	puzzle.hEdges[0][0].type = 1; // 1 hexagon
+	puzzle.hEdges[0][0].type = EdgeType.Hexagon;
 
 	const difficulty = core.calculateDifficulty(puzzle);
 
@@ -134,12 +326,12 @@ test("Generator - all requested constraints should be present", () => {
 		let foundHex = false;
 		for (let r = 0; r <= grid.rows; r++) {
 			for (let c = 0; c < grid.cols; c++) {
-				if (grid.hEdges[r][c].type === 1) foundHex = true;
+				if (grid.hEdges[r][c].type === EdgeType.Hexagon) foundHex = true;
 			}
 		}
 		for (let r = 0; r < grid.rows; r++) {
 			for (let c = 0; c <= grid.cols; c++) {
-				if (grid.vEdges[r][c].type === 1) foundHex = true;
+				if (grid.vEdges[r][c].type === EdgeType.Hexagon) foundHex = true;
 			}
 		}
 
@@ -194,7 +386,7 @@ test("Solution counter - simple unique solution", () => {
 	// 2. (0,1) -> (1,1) -> (1,0)
 
 	// Add hexagon to (0,1)-(0,0)
-	puzzle.vEdges[0][0].type = 1; // Hexagon
+	puzzle.vEdges[0][0].type = EdgeType.Hexagon;
 
 	const grid = Grid.fromData(puzzle);
 	const count = validator.countSolutions(grid);
@@ -251,10 +443,10 @@ test("Star validation - multiple regions with same color stars", () => {
 
 test("Star validation - 7 stars and 1 square total in puzzle", () => {
 	const puzzle = createBasicGrid(1, 8);
-	// Split into 4 regions of 2 cells each using broken edges
-	puzzle.vEdges[0][2].type = 2;
-	puzzle.vEdges[0][4].type = 2;
-	puzzle.vEdges[0][6].type = 2;
+	// Split into 4 regions of 2 cells each using absent edges (which act as boundaries)
+	puzzle.vEdges[0][2].type = EdgeType.Absent;
+	puzzle.vEdges[0][4].type = EdgeType.Absent;
+	puzzle.vEdges[0][6].type = EdgeType.Absent;
 
 	// Region 0: 2 stars
 	puzzle.cells[0][0] = { type: CellType.Star, color: Color.Black };
@@ -387,20 +579,20 @@ test("Star validation - star mixed with square of different color", () => {
 	assert.strictEqual(result.isValid, true, `Should be valid: ${result.errorReason}`);
 });
 
-test("Star validation - broken edges as boundaries", () => {
+test("Star validation - absent edges as boundaries", () => {
 	const puzzle = createBasicGrid(1, 2);
 	// 1x2 grid. Vertices: (0,0), (1,0), (2,0), (0,1), (1,1), (2,1)
 	// Cells: (0,0), (1,0)
-	// Add a broken edge between (0,0) and (1,0) -> VERTICAL edge at col 1, row 0
-	puzzle.vEdges[0][1].type = 2; // EdgeType.Broken
+	// Add an absent edge between (0,0) and (1,0) -> VERTICAL edge at col 1, row 0
+	puzzle.vEdges[0][1].type = EdgeType.Absent;
 
 	puzzle.cells[0][0] = { type: CellType.Star, color: Color.Black };
 	puzzle.cells[0][1] = { type: CellType.Star, color: Color.Black };
 
-	// If broken edge works, they are in DIFFERENT regions.
+	// If absent edge works, they are in DIFFERENT regions.
 	// Each region will have only 1 black star -> should FAIL.
 	const result = core.validateSolution(puzzle, getPath(2));
-	assert.strictEqual(result.isValid, false, "Should be invalid: broken edge separates the stars");
+	assert.strictEqual(result.isValid, false, "Should be invalid: absent edge separates the stars");
 });
 
 test("Star validation - star with multiple same color squares", () => {

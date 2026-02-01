@@ -1,5 +1,5 @@
 import { Grid } from "./grid";
-import { CellType, Color, EdgeType, type GenerationOptions, NodeType, type Point } from "./types";
+import { CellType, Color, type EdgeConstraint, EdgeType, type GenerationOptions, NodeType, type Point } from "./types";
 import { PuzzleValidator } from "./validator";
 
 export class PuzzleGenerator {
@@ -64,6 +64,14 @@ export class PuzzleGenerator {
 		// 3. パスに基づいて制約（ルール）を配置
 		// パスが通過するエッジにヘキサゴンを置いたり、分割された領域に色を塗る
 		this.applyConstraintsBasedOnPath(grid, solutionPath, options);
+
+		// 4. 切断（Broken/Absent）を配置
+		if (options.useBrokenEdges) {
+			this.applyBrokenEdges(grid, solutionPath, options);
+		}
+
+		// 5. 浮島の削除と外周の調整
+		this.cleanGrid(grid);
 
 		return grid;
 	}
@@ -135,6 +143,234 @@ export class PuzzleGenerator {
 			}
 		}
 		return candidates;
+	}
+
+	private applyBrokenEdges(grid: Grid, path: Point[], options: GenerationOptions) {
+		const complexity = options.complexity ?? 0.5;
+		const pathEdges = new Set<string>();
+		for (let i = 0; i < path.length - 1; i++) {
+			pathEdges.add(this.getEdgeKey(path[i], path[i + 1]));
+		}
+
+		// パスに使われていないエッジを収集
+		const unusedEdges: { type: "h" | "v"; r: number; c: number; p1: Point; p2: Point }[] = [];
+		for (let r = 0; r <= grid.rows; r++) {
+			for (let c = 0; c < grid.cols; c++) {
+				const p1 = { x: c, y: r };
+				const p2 = { x: c + 1, y: r };
+				if (!pathEdges.has(this.getEdgeKey(p1, p2))) {
+					unusedEdges.push({ type: "h", r, c, p1, p2 });
+				}
+			}
+		}
+		for (let r = 0; r < grid.rows; r++) {
+			for (let c = 0; c <= grid.cols; c++) {
+				const p1 = { x: c, y: r };
+				const p2 = { x: c, y: r + 1 };
+				if (!pathEdges.has(this.getEdgeKey(p1, p2))) {
+					unusedEdges.push({ type: "v", r, c, p1, p2 });
+				}
+			}
+		}
+
+		this.shuffleArray(unusedEdges);
+
+		// 最小限の設置 (1〜3個程度、または複雑度に応じて)
+		const targetCount = Math.max(1, Math.floor(complexity * 4));
+		let placed = 0;
+
+		for (const edge of unusedEdges) {
+			if (placed >= targetCount) break;
+
+			// 80%の確率でBroken(1), 20%の確率でAbsent(2)
+			let type = Math.random() < 0.8 ? EdgeType.Broken : EdgeType.Absent;
+
+			// マークが含まれるマスの外周でAbsentは禁止
+			if (type === EdgeType.Absent && this.isAdjacentToMark(grid, edge)) {
+				type = EdgeType.Broken;
+			}
+
+			if (edge.type === "h") {
+				grid.hEdges[edge.r][edge.c].type = type;
+			} else {
+				grid.vEdges[edge.r][edge.c].type = type;
+			}
+			placed++;
+		}
+
+		// 十字部分で4方向（または隅の全方向）全てがBroken,Absentの場合はその4方向はAbsentにする
+		// ただし、マークの周囲はAbsent禁止
+		for (let r = 0; r <= grid.rows; r++) {
+			for (let c = 0; c <= grid.cols; c++) {
+				const edgesWithMeta: { e: EdgeConstraint; type: "h" | "v"; r: number; c: number }[] = [];
+				if (c > 0) edgesWithMeta.push({ e: grid.hEdges[r][c - 1], type: "h", r, c: c - 1 });
+				if (c < grid.cols) edgesWithMeta.push({ e: grid.hEdges[r][c], type: "h", r, c });
+				if (r > 0) edgesWithMeta.push({ e: grid.vEdges[r - 1][c], type: "v", r: r - 1, c });
+				if (r < grid.rows) edgesWithMeta.push({ e: grid.vEdges[r][c], type: "v", r, c });
+
+				const allCuts = edgesWithMeta.every((m) => m.e.type === EdgeType.Broken || m.e.type === EdgeType.Absent);
+				if (allCuts) {
+					// マークの周囲でないか確認
+					const noneNearMark = edgesWithMeta.every((m) => !this.isAdjacentToMark(grid, m));
+					if (noneNearMark) {
+						for (const m of edgesWithMeta) {
+							m.e.type = EdgeType.Absent;
+						}
+					}
+				}
+			}
+		}
+	}
+
+	private cleanGrid(grid: Grid) {
+		// 1. 浮島（スタートから辿れないノード・エッジ）をAbsentに変換
+		const startNodes: { x: number; y: number }[] = [];
+		for (let r = 0; r <= grid.rows; r++) {
+			for (let c = 0; c <= grid.cols; c++) {
+				if (grid.nodes[r][c].type === NodeType.Start) {
+					startNodes.push({ x: c, y: r });
+				}
+			}
+		}
+
+		const reachableNodes = new Set<string>();
+		const queue: { x: number; y: number }[] = [...startNodes];
+		for (const p of startNodes) reachableNodes.add(`${p.x},${p.y}`);
+
+		while (queue.length > 0) {
+			const curr = queue.shift()!;
+			const neighbors = [
+				{ nx: curr.x, ny: curr.y - 1, edge: grid.vEdges[curr.y - 1]?.[curr.x] }, // Up
+				{ nx: curr.x, ny: curr.y + 1, edge: grid.vEdges[curr.y]?.[curr.x] }, // Down
+				{ nx: curr.x - 1, ny: curr.y, edge: grid.hEdges[curr.y]?.[curr.x - 1] }, // Left
+				{ nx: curr.x + 1, ny: curr.y, edge: grid.hEdges[curr.y]?.[curr.x] }, // Right
+			];
+
+			for (const n of neighbors) {
+				if (n.edge && n.edge.type !== EdgeType.Absent) {
+					if (!reachableNodes.has(`${n.nx},${n.ny}`)) {
+						reachableNodes.add(`${n.nx},${n.ny}`);
+						queue.push({ x: n.nx, y: n.ny });
+					}
+				}
+			}
+		}
+
+		// 辿れないエッジをAbsentに
+		for (let r = 0; r <= grid.rows; r++) {
+			for (let c = 0; c < grid.cols; c++) {
+				if (!reachableNodes.has(`${c},${r}`) || !reachableNodes.has(`${c + 1},${r}`)) {
+					grid.hEdges[r][c].type = EdgeType.Absent;
+				}
+			}
+		}
+		for (let r = 0; r < grid.rows; r++) {
+			for (let c = 0; c <= grid.cols; c++) {
+				if (!reachableNodes.has(`${c},${r}`) || !reachableNodes.has(`${c},${r + 1}`)) {
+					grid.vEdges[r][c].type = EdgeType.Absent;
+				}
+			}
+		}
+
+		// 2. 外周からリークしているセルのマークを削除
+		const external = this.getExternalCells(grid);
+		for (const cellKey of external) {
+			const [c, r] = cellKey.split(",").map(Number);
+			grid.cells[r][c].type = CellType.None;
+		}
+	}
+
+	private getExternalCells(grid: Grid): Set<string> {
+		const external = new Set<string>();
+		const queue: { x: number; y: number }[] = [];
+
+		for (let c = 0; c < grid.cols; c++) {
+			if (grid.hEdges[0][c].type === EdgeType.Absent) {
+				if (!external.has(`${c},0`)) {
+					external.add(`${c},0`);
+					queue.push({ x: c, y: 0 });
+				}
+			}
+			if (grid.hEdges[grid.rows][c].type === EdgeType.Absent) {
+				if (!external.has(`${c},${grid.rows - 1}`)) {
+					external.add(`${c},${grid.rows - 1}`);
+					queue.push({ x: c, y: grid.rows - 1 });
+				}
+			}
+		}
+		for (let r = 0; r < grid.rows; r++) {
+			if (grid.vEdges[r][0].type === EdgeType.Absent) {
+				if (!external.has(`0,${r}`)) {
+					external.add(`0,${r}`);
+					queue.push({ x: 0, y: r });
+				}
+			}
+			if (grid.vEdges[r][grid.cols].type === EdgeType.Absent) {
+				if (!external.has(`${grid.cols - 1},${r}`)) {
+					external.add(`${grid.cols - 1},${r}`);
+					queue.push({ x: grid.cols - 1, y: r });
+				}
+			}
+		}
+
+		while (queue.length > 0) {
+			const curr = queue.shift()!;
+			const neighbors = [
+				{ nx: curr.x, ny: curr.y - 1, edge: grid.hEdges[curr.y][curr.x] },
+				{ nx: curr.x, ny: curr.y + 1, edge: grid.hEdges[curr.y + 1][curr.x] },
+				{ nx: curr.x - 1, ny: curr.y, edge: grid.vEdges[curr.y][curr.x] },
+				{ nx: curr.x + 1, ny: curr.y, edge: grid.vEdges[curr.y][curr.x + 1] },
+			];
+
+			for (const n of neighbors) {
+				if (n.nx >= 0 && n.nx < grid.cols && n.ny >= 0 && n.ny < grid.rows) {
+					if (!external.has(`${n.nx},${n.ny}`) && n.edge.type === EdgeType.Absent) {
+						external.add(`${n.nx},${n.ny}`);
+						queue.push({ x: n.nx, y: n.ny });
+					}
+				}
+			}
+		}
+		return external;
+	}
+
+	private isAdjacentToMark(grid: Grid, edge: { type: "h" | "v"; r: number; c: number }): boolean {
+		if (edge.type === "h") {
+			// 上のセル
+			if (edge.r > 0 && grid.cells[edge.r - 1][edge.c].type !== CellType.None) return true;
+			// 下のセル
+			if (edge.r < grid.rows && grid.cells[edge.r][edge.c].type !== CellType.None) return true;
+		} else {
+			// 左のセル
+			if (edge.c > 0 && grid.cells[edge.r][edge.c - 1].type !== CellType.None) return true;
+			// 右のセル
+			if (edge.c < grid.cols && grid.cells[edge.r][edge.c].type !== CellType.None) return true;
+		}
+		return false;
+	}
+
+	private hasIsolatedMark(grid: Grid): boolean {
+		for (let r = 0; r < grid.rows; r++) {
+			for (let c = 0; c < grid.cols; c++) {
+				if (grid.cells[r][c].type === CellType.None) continue;
+
+				// Check 4 edges of this cell
+				const edges = [
+					grid.hEdges[r][c], // Top
+					grid.hEdges[r + 1][c], // Bottom
+					grid.vEdges[r][c], // Left
+					grid.vEdges[r][c + 1], // Right
+				];
+
+				const passableCount = edges.filter((e) => e.type === EdgeType.Normal || e.type === EdgeType.Hexagon).length;
+				if (passableCount === 0) return true;
+			}
+		}
+		return false;
+	}
+
+	private getEdgeKey(p1: Point, p2: Point): string {
+		return p1.x < p2.x || (p1.x === p2.x && p1.y < p2.y) ? `${p1.x},${p1.y}-${p2.x},${p2.y}` : `${p2.x},${p2.y}-${p1.x},${p1.y}`;
 	}
 
 	private applyConstraintsBasedOnPath(grid: Grid, path: Point[], options: GenerationOptions) {
@@ -326,10 +562,10 @@ export class PuzzleGenerator {
 						// 盤面内か
 						if (nx >= 0 && nx < grid.cols && ny >= 0 && ny < grid.rows) {
 							if (!visitedCells.has(`${nx},${ny}`)) {
-								// パス（壁）で遮られていないかチェック
+								// パス（壁）またはAbsentエッジで遮られていないかチェック
 								const key = n.boundary.p1.x < n.boundary.p2.x || n.boundary.p1.y < n.boundary.p2.y ? `${n.boundary.p1.x},${n.boundary.p1.y}-${n.boundary.p2.x},${n.boundary.p2.y}` : `${n.boundary.p2.x},${n.boundary.p2.y}-${n.boundary.p1.x},${n.boundary.p1.y}`;
 
-								if (!pathEdges.has(key)) {
+								if (!pathEdges.has(key) && !this.isAbsentEdge(grid, n.boundary.p1, n.boundary.p2)) {
 									visitedCells.add(`${nx},${ny}`);
 									queue.push({ x: nx, y: ny });
 								}
@@ -342,6 +578,16 @@ export class PuzzleGenerator {
 		}
 
 		return regions;
+	}
+
+	private isAbsentEdge(grid: Grid, p1: Point, p2: Point): boolean {
+		if (p1.x === p2.x) {
+			const y = Math.min(p1.y, p2.y);
+			return grid.vEdges[y][p1.x].type === EdgeType.Absent;
+		} else {
+			const x = Math.min(p1.x, p2.x);
+			return grid.hEdges[p1.y][x].type === EdgeType.Absent;
+		}
 	}
 
 	private setEdgeHexagon(grid: Grid, p1: Point, p2: Point) {
@@ -360,6 +606,32 @@ export class PuzzleGenerator {
 		const useHexagons = options.useHexagons ?? true;
 		const useSquares = options.useSquares ?? true;
 		const useStars = options.useStars ?? true;
+		const useBrokenEdges = options.useBrokenEdges ?? false;
+
+		if (useBrokenEdges) {
+			let found = false;
+			for (let r = 0; r <= grid.rows; r++) {
+				for (let c = 0; c < grid.cols; c++) {
+					if (grid.hEdges[r][c].type === EdgeType.Broken || grid.hEdges[r][c].type === EdgeType.Absent) {
+						found = true;
+						break;
+					}
+				}
+				if (found) break;
+			}
+			if (!found) {
+				for (let r = 0; r < grid.rows; r++) {
+					for (let c = 0; c <= grid.cols; c++) {
+						if (grid.vEdges[r][c].type === EdgeType.Broken || grid.vEdges[r][c].type === EdgeType.Absent) {
+							found = true;
+							break;
+						}
+					}
+					if (found) break;
+				}
+			}
+			if (!found) return false;
+		}
 
 		if (useHexagons) {
 			let found = false;
@@ -398,6 +670,9 @@ export class PuzzleGenerator {
 			if (useSquares && !foundSquare) return false;
 			if (useStars && !foundStar) return false;
 		}
+
+		// マークの周囲全てが通行不可の盤面は非推奨
+		if (this.hasIsolatedMark(grid)) return false;
 
 		return true;
 	}

@@ -55,12 +55,24 @@ export class PuzzleValidator {
 	}
 
 	private isBrokenEdge(grid: Grid, p1: Point, p2: Point): boolean {
+		let type: EdgeType;
 		if (p1.x === p2.x) {
 			const y = Math.min(p1.y, p2.y);
-			return grid.vEdges[y][p1.x].type === EdgeType.Broken;
+			type = grid.vEdges[y][p1.x].type;
 		} else {
 			const x = Math.min(p1.x, p2.x);
-			return grid.hEdges[p1.y][x].type === EdgeType.Broken;
+			type = grid.hEdges[p1.y][x].type;
+		}
+		return type === EdgeType.Broken || type === EdgeType.Absent;
+	}
+
+	private isAbsentEdge(grid: Grid, p1: Point, p2: Point): boolean {
+		if (p1.x === p2.x) {
+			const y = Math.min(p1.y, p2.y);
+			return grid.vEdges[y][p1.x].type === EdgeType.Absent;
+		} else {
+			const x = Math.min(p1.x, p2.x);
+			return grid.hEdges[p1.y][x].type === EdgeType.Absent;
 		}
 	}
 
@@ -130,9 +142,12 @@ export class PuzzleValidator {
 			pathEdges.add(this.getEdgeKey(path[i], path[i + 1]));
 		}
 
+		// 盤面外にリークしているセルを特定
+		const externalCells = this.getExternalCells(grid);
+
 		for (let r = 0; r < grid.rows; r++) {
 			for (let c = 0; c < grid.cols; c++) {
-				if (visitedCells.has(`${c},${r}`)) continue;
+				if (visitedCells.has(`${c},${r}`) || externalCells.has(`${c},${r}`)) continue;
 
 				const region: Point[] = [];
 				const queue: Point[] = [{ x: c, y: r }];
@@ -151,11 +166,13 @@ export class PuzzleValidator {
 
 					for (const n of neighbors) {
 						if (n.nx >= 0 && n.nx < grid.cols && n.ny >= 0 && n.ny < grid.rows) {
-							if (!visitedCells.has(`${n.nx},${n.ny}`)) {
+							const neighborKey = `${n.nx},${n.ny}`;
+							if (!visitedCells.has(neighborKey) && !externalCells.has(neighborKey)) {
 								const edgeKey = this.getEdgeKey(n.p1, n.p2);
-								const isBroken = this.isBrokenEdge(grid, n.p1, n.p2);
-								if (!pathEdges.has(edgeKey) && !isBroken) {
-									visitedCells.add(`${n.nx},${n.ny}`);
+								const isAbsent = this.isAbsentEdge(grid, n.p1, n.p2);
+								// パスまたはAbsentエッジ、あるいは「外周の迂回」により遮られていないか
+								if (!pathEdges.has(edgeKey) && !isAbsent) {
+									visitedCells.add(neighborKey);
 									queue.push({ x: n.nx, y: n.ny });
 								}
 							}
@@ -166,6 +183,62 @@ export class PuzzleValidator {
 			}
 		}
 		return regions;
+	}
+
+	private getExternalCells(grid: Grid): Set<string> {
+		const external = new Set<string>();
+		const queue: { x: number; y: number }[] = [];
+
+		// 1. グリッド境界からのリークを収集
+		for (let c = 0; c < grid.cols; c++) {
+			if (grid.hEdges[0][c].type === EdgeType.Absent) {
+				if (!external.has(`${c},0`)) {
+					external.add(`${c},0`);
+					queue.push({ x: c, y: 0 });
+				}
+			}
+			if (grid.hEdges[grid.rows][c].type === EdgeType.Absent) {
+				if (!external.has(`${c},${grid.rows - 1}`)) {
+					external.add(`${c},${grid.rows - 1}`);
+					queue.push({ x: c, y: grid.rows - 1 });
+				}
+			}
+		}
+		for (let r = 0; r < grid.rows; r++) {
+			if (grid.vEdges[r][0].type === EdgeType.Absent) {
+				if (!external.has(`0,${r}`)) {
+					external.add(`0,${r}`);
+					queue.push({ x: 0, y: r });
+				}
+			}
+			if (grid.vEdges[r][grid.cols].type === EdgeType.Absent) {
+				if (!external.has(`${grid.cols - 1},${r}`)) {
+					external.add(`${grid.cols - 1},${r}`);
+					queue.push({ x: grid.cols - 1, y: r });
+				}
+			}
+		}
+
+		// 2. Absentエッジを通じたリークの伝搬
+		while (queue.length > 0) {
+			const curr = queue.shift()!;
+			const neighbors = [
+				{ nx: curr.x, ny: curr.y - 1, edge: grid.hEdges[curr.y][curr.x] }, // Up
+				{ nx: curr.x, ny: curr.y + 1, edge: grid.hEdges[curr.y + 1][curr.x] }, // Down
+				{ nx: curr.x - 1, ny: curr.y, edge: grid.vEdges[curr.y][curr.x] }, // Left
+				{ nx: curr.x + 1, ny: curr.y, edge: grid.vEdges[curr.y][curr.x + 1] }, // Right
+			];
+
+			for (const n of neighbors) {
+				if (n.nx >= 0 && n.nx < grid.cols && n.ny >= 0 && n.ny < grid.rows) {
+					if (!external.has(`${n.nx},${n.ny}`) && n.edge.type === EdgeType.Absent) {
+						external.add(`${n.nx},${n.ny}`);
+						queue.push({ x: n.nx, y: n.ny });
+					}
+				}
+			}
+		}
+		return external;
 	}
 
 	private getEdgeKey(p1: Point, p2: Point): string {
@@ -195,18 +268,20 @@ export class PuzzleValidator {
 				if (grid.nodes[r][c].type === NodeType.End) endNodes.push(u);
 				if (c < cols) {
 					const v = u + 1;
-					const isHexagon = grid.hEdges[r][c].type === EdgeType.Hexagon;
-					const isBroken = grid.hEdges[r][c].type === EdgeType.Broken;
-					adj[u].push({ next: v, isHexagon, isBroken });
-					adj[v].push({ next: u, isHexagon, isBroken });
+					const type = grid.hEdges[r][c].type;
+					const isHexagon = type === EdgeType.Hexagon;
+					const isBlocked = type === EdgeType.Broken || type === EdgeType.Absent;
+					adj[u].push({ next: v, isHexagon, isBroken: isBlocked });
+					adj[v].push({ next: u, isHexagon, isBroken: isBlocked });
 					if (isHexagon) hexagonEdges.add(this.getEdgeKey({ x: c, y: r }, { x: c + 1, y: r }));
 				}
 				if (r < rows) {
 					const v = u + nodeCols;
-					const isHexagon = grid.vEdges[r][c].type === EdgeType.Hexagon;
-					const isBroken = grid.vEdges[r][c].type === EdgeType.Broken;
-					adj[u].push({ next: v, isHexagon, isBroken });
-					adj[v].push({ next: u, isHexagon, isBroken });
+					const type = grid.vEdges[r][c].type;
+					const isHexagon = type === EdgeType.Hexagon;
+					const isBlocked = type === EdgeType.Broken || type === EdgeType.Absent;
+					adj[u].push({ next: v, isHexagon, isBroken: isBlocked });
+					adj[v].push({ next: u, isHexagon, isBroken: isBlocked });
 					if (isHexagon) hexagonEdges.add(this.getEdgeKey({ x: c, y: r }, { x: c, y: r + 1 }));
 				}
 			}
@@ -363,19 +438,21 @@ export class PuzzleValidator {
 				// Right
 				if (c < cols) {
 					const v = u + 1;
-					const isHexagon = grid.hEdges[r][c].type === EdgeType.Hexagon;
-					const isBroken = grid.hEdges[r][c].type === EdgeType.Broken;
-					adj[u].push({ next: v, isHexagon, isBroken });
-					adj[v].push({ next: u, isHexagon, isBroken });
+					const type = grid.hEdges[r][c].type;
+					const isHexagon = type === EdgeType.Hexagon;
+					const isBlocked = type === EdgeType.Broken || type === EdgeType.Absent;
+					adj[u].push({ next: v, isHexagon, isBroken: isBlocked });
+					adj[v].push({ next: u, isHexagon, isBroken: isBlocked });
 					if (isHexagon) hexagonEdges.add(this.getEdgeKey({ x: c, y: r }, { x: c + 1, y: r }));
 				}
 				// Down
 				if (r < rows) {
 					const v = u + nodeCols;
-					const isHexagon = grid.vEdges[r][c].type === EdgeType.Hexagon;
-					const isBroken = grid.vEdges[r][c].type === EdgeType.Broken;
-					adj[u].push({ next: v, isHexagon, isBroken });
-					adj[v].push({ next: u, isHexagon, isBroken });
+					const type = grid.vEdges[r][c].type;
+					const isHexagon = type === EdgeType.Hexagon;
+					const isBlocked = type === EdgeType.Broken || type === EdgeType.Absent;
+					adj[u].push({ next: v, isHexagon, isBroken: isBlocked });
+					adj[v].push({ next: u, isHexagon, isBroken: isBlocked });
 					if (isHexagon) hexagonEdges.add(this.getEdgeKey({ x: c, y: r }, { x: c, y: r + 1 }));
 				}
 			}

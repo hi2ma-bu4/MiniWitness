@@ -14,8 +14,9 @@ export enum CellType {
 
 export enum EdgeType {
 	Normal = 0,
-	Hexagon = 1, // 通過必須
-	Broken = 2, // 通過不可
+	Broken = 1, // 線の真ん中で断線 (通行不可)
+	Absent = 2, // そもそも分岐もなし (通行不可)
+	Hexagon = 3, // 通過必須
 }
 
 export enum NodeType {
@@ -82,6 +83,7 @@ export interface GenerationOptions {
 	useHexagons?: boolean;
 	useSquares?: boolean;
 	useStars?: boolean;
+	useBrokenEdges?: boolean;
 	complexity?: number; // 0.0 - 1.0 (制約の密度)
 	difficulty?: number; // 0.0 (Easy) - 1.0 (Hard) (解パターンの数に基づく)
 }

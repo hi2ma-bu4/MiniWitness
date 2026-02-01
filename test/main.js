@@ -70,6 +70,7 @@ class WitnessGame {
 			useHexagons: document.getElementById("use-hexagons").checked,
 			useSquares: document.getElementById("use-squares").checked,
 			useStars: document.getElementById("use-stars").checked,
+			useBrokenEdges: document.getElementById("use-broken-edges").checked,
 			complexity: parseFloat(document.getElementById("complexity-slider").value),
 			difficulty: parseFloat(document.getElementById("difficulty-slider").value),
 		};
@@ -183,10 +184,12 @@ class WitnessGame {
 		if (Math.abs(dx) > Math.abs(dy)) {
 			const dir = dx > 0 ? 1 : -1;
 			const target = { x: lastPoint.x + dir, y: lastPoint.y };
+			const edgeType = this.getEdgeType(lastPoint, target);
 
-			if (target.x >= 0 && target.x <= this.puzzle.cols && !this.isBrokenEdge(lastPoint, target)) {
+			if (target.x >= 0 && target.x <= this.puzzle.cols && edgeType !== 2) {
+				const maxMove = edgeType === 1 ? this.cellSize * 0.35 : this.cellSize;
 				this.currentMousePos = {
-					x: lastPos.x + Math.max(-this.cellSize, Math.min(this.cellSize, dx)),
+					x: lastPos.x + Math.max(-maxMove, Math.min(maxMove, dx)),
 					y: lastPos.y,
 				};
 			} else {
@@ -195,11 +198,13 @@ class WitnessGame {
 		} else {
 			const dir = dy > 0 ? 1 : -1;
 			const target = { x: lastPoint.x, y: lastPoint.y + dir };
+			const edgeType = this.getEdgeType(lastPoint, target);
 
-			if (target.y >= 0 && target.y <= this.puzzle.rows && !this.isBrokenEdge(lastPoint, target)) {
+			if (target.y >= 0 && target.y <= this.puzzle.rows && edgeType !== 2) {
+				const maxMove = edgeType === 1 ? this.cellSize * 0.35 : this.cellSize;
 				this.currentMousePos = {
 					x: lastPos.x,
-					y: lastPos.y + Math.max(-this.cellSize, Math.min(this.cellSize, dy)),
+					y: lastPos.y + Math.max(-maxMove, Math.min(maxMove, dy)),
 				};
 			} else {
 				this.currentMousePos = lastPos;
@@ -255,14 +260,22 @@ class WitnessGame {
 		this.draw();
 	}
 
-	isBrokenEdge(p1, p2) {
+	getEdgeType(p1, p2) {
 		if (p1.x === p2.x) {
 			const y = Math.min(p1.y, p2.y);
-			return this.puzzle.vEdges[y][p1.x].type === 2; // EdgeType.Broken
+			if (y < 0 || y >= this.puzzle.rows) return 2; // Absent
+			return this.puzzle.vEdges[y][p1.x].type;
 		} else {
 			const x = Math.min(p1.x, p2.x);
-			return this.puzzle.hEdges[p1.y][x].type === 2; // EdgeType.Broken
+			if (x < 0 || x >= this.puzzle.cols) return 2; // Absent
+			return this.puzzle.hEdges[p1.y][x].type;
 		}
+	}
+
+	isBrokenEdge(p1, p2) {
+		const type = this.getEdgeType(p1, p2);
+		// 1: Broken, 2: Absent
+		return type === 1 || type === 2;
 	}
 
 	validate() {
@@ -330,29 +343,51 @@ class WitnessGame {
 		ctx.lineWidth = 12;
 		ctx.lineCap = "round";
 
+		const drawEdge = (p1, p2, type) => {
+			if (type === 2) return; // Absent
+
+			const midX = (p1.x + p2.x) / 2;
+			const midY = (p1.y + p2.y) / 2;
+
+			if (type === 1) {
+				// Broken (with gap in the middle)
+				const gapSize = 0.15;
+				const q1 = {
+					x: p1.x + (p2.x - p1.x) * (0.5 - gapSize),
+					y: p1.y + (p2.y - p1.y) * (0.5 - gapSize),
+				};
+				const q2 = {
+					x: p1.x + (p2.x - p1.x) * (0.5 + gapSize),
+					y: p1.y + (p2.y - p1.y) * (0.5 + gapSize),
+				};
+
+				ctx.beginPath();
+				ctx.moveTo(p1.x, p1.y);
+				ctx.lineTo(q1.x, q1.y);
+				ctx.stroke();
+
+				ctx.beginPath();
+				ctx.moveTo(q2.x, q2.y);
+				ctx.lineTo(p2.x, p2.y);
+				ctx.stroke();
+			} else {
+				// Normal or Hexagon
+				ctx.beginPath();
+				ctx.moveTo(p1.x, p1.y);
+				ctx.lineTo(p2.x, p2.y);
+				ctx.stroke();
+			}
+		};
+
 		for (let r = 0; r <= this.puzzle.rows; r++) {
 			for (let c = 0; c < this.puzzle.cols; c++) {
-				if (this.puzzle.hEdges[r][c].type !== 2) {
-					const p1 = this.getCanvasCoords(c, r);
-					const p2 = this.getCanvasCoords(c + 1, r);
-					ctx.beginPath();
-					ctx.moveTo(p1.x, p1.y);
-					ctx.lineTo(p2.x, p2.y);
-					ctx.stroke();
-				}
+				drawEdge(this.getCanvasCoords(c, r), this.getCanvasCoords(c + 1, r), this.puzzle.hEdges[r][c].type);
 			}
 		}
 
 		for (let r = 0; r < this.puzzle.rows; r++) {
 			for (let c = 0; c <= this.puzzle.cols; c++) {
-				if (this.puzzle.vEdges[r][c].type !== 2) {
-					const p1 = this.getCanvasCoords(c, r);
-					const p2 = this.getCanvasCoords(c, r + 1);
-					ctx.beginPath();
-					ctx.moveTo(p1.x, p1.y);
-					ctx.lineTo(p2.x, p2.y);
-					ctx.stroke();
-				}
+				drawEdge(this.getCanvasCoords(c, r), this.getCanvasCoords(c, r + 1), this.puzzle.vEdges[r][c].type);
 			}
 		}
 	}
@@ -378,7 +413,7 @@ class WitnessGame {
 		const hexRadius = 8;
 		for (let r = 0; r <= this.puzzle.rows; r++) {
 			for (let c = 0; c < this.puzzle.cols; c++) {
-				if (this.puzzle.hEdges[r][c].type === 1) {
+				if (this.puzzle.hEdges[r][c].type === 3) {
 					const pos = this.getCanvasCoords(c + 0.5, r);
 					this.drawHexagon(ctx, pos.x, pos.y, hexRadius);
 				}
@@ -386,7 +421,7 @@ class WitnessGame {
 		}
 		for (let r = 0; r < this.puzzle.rows; r++) {
 			for (let c = 0; c <= this.puzzle.cols; c++) {
-				if (this.puzzle.vEdges[r][c].type === 1) {
+				if (this.puzzle.vEdges[r][c].type === 3) {
 					const pos = this.getCanvasCoords(c, r + 0.5);
 					this.drawHexagon(ctx, pos.x, pos.y, hexRadius);
 				}
@@ -395,8 +430,19 @@ class WitnessGame {
 	}
 
 	drawNodes(ctx) {
+		const isNodeIsolated = (c, r) => {
+			const connectedEdges = [];
+			if (c > 0) connectedEdges.push(this.puzzle.hEdges[r][c - 1]);
+			if (c < this.puzzle.cols) connectedEdges.push(this.puzzle.hEdges[r][c]);
+			if (r > 0) connectedEdges.push(this.puzzle.vEdges[r - 1][c]);
+			if (r < this.puzzle.rows) connectedEdges.push(this.puzzle.vEdges[r][c]);
+			return connectedEdges.length > 0 && connectedEdges.every((e) => e.type === 2); // 2 is Absent
+		};
+
 		for (let r = 0; r <= this.puzzle.rows; r++) {
 			for (let c = 0; c <= this.puzzle.cols; c++) {
+				if (isNodeIsolated(c, r)) continue;
+
 				const node = this.puzzle.nodes[r][c];
 				const pos = this.getCanvasCoords(c, r);
 

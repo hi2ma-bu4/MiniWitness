@@ -14,8 +14,9 @@ var CellType = /* @__PURE__ */ ((CellType2) => {
 })(CellType || {});
 var EdgeType = /* @__PURE__ */ ((EdgeType2) => {
   EdgeType2[EdgeType2["Normal"] = 0] = "Normal";
-  EdgeType2[EdgeType2["Hexagon"] = 1] = "Hexagon";
-  EdgeType2[EdgeType2["Broken"] = 2] = "Broken";
+  EdgeType2[EdgeType2["Broken"] = 1] = "Broken";
+  EdgeType2[EdgeType2["Absent"] = 2] = "Absent";
+  EdgeType2[EdgeType2["Hexagon"] = 3] = "Hexagon";
   return EdgeType2;
 })(EdgeType || {});
 var NodeType = /* @__PURE__ */ ((NodeType2) => {
@@ -113,12 +114,23 @@ var PuzzleValidator = class {
     return { isValid: true };
   }
   isBrokenEdge(grid, p1, p2) {
+    let type;
     if (p1.x === p2.x) {
       const y = Math.min(p1.y, p2.y);
-      return grid.vEdges[y][p1.x].type === 2 /* Broken */;
+      type = grid.vEdges[y][p1.x].type;
     } else {
       const x = Math.min(p1.x, p2.x);
-      return grid.hEdges[p1.y][x].type === 2 /* Broken */;
+      type = grid.hEdges[p1.y][x].type;
+    }
+    return type === 1 /* Broken */ || type === 2 /* Absent */;
+  }
+  isAbsentEdge(grid, p1, p2) {
+    if (p1.x === p2.x) {
+      const y = Math.min(p1.y, p2.y);
+      return grid.vEdges[y][p1.x].type === 2 /* Absent */;
+    } else {
+      const x = Math.min(p1.x, p2.x);
+      return grid.hEdges[p1.y][x].type === 2 /* Absent */;
     }
   }
   checkHexagonConstraint(grid, path) {
@@ -128,7 +140,7 @@ var PuzzleValidator = class {
     }
     for (let r = 0; r <= grid.rows; r++) {
       for (let c = 0; c < grid.cols; c++) {
-        if (grid.hEdges[r][c].type === 1 /* Hexagon */) {
+        if (grid.hEdges[r][c].type === 3 /* Hexagon */) {
           const key = this.getEdgeKey({ x: c, y: r }, { x: c + 1, y: r });
           if (!pathEdges.has(key)) return false;
         }
@@ -136,7 +148,7 @@ var PuzzleValidator = class {
     }
     for (let r = 0; r < grid.rows; r++) {
       for (let c = 0; c <= grid.cols; c++) {
-        if (grid.vEdges[r][c].type === 1 /* Hexagon */) {
+        if (grid.vEdges[r][c].type === 3 /* Hexagon */) {
           const key = this.getEdgeKey({ x: c, y: r }, { x: c, y: r + 1 });
           if (!pathEdges.has(key)) return false;
         }
@@ -175,9 +187,10 @@ var PuzzleValidator = class {
     for (let i = 0; i < path.length - 1; i++) {
       pathEdges.add(this.getEdgeKey(path[i], path[i + 1]));
     }
+    const externalCells = this.getExternalCells(grid);
     for (let r = 0; r < grid.rows; r++) {
       for (let c = 0; c < grid.cols; c++) {
-        if (visitedCells.has(`${c},${r}`)) continue;
+        if (visitedCells.has(`${c},${r}`) || externalCells.has(`${c},${r}`)) continue;
         const region = [];
         const queue = [{ x: c, y: r }];
         visitedCells.add(`${c},${r}`);
@@ -196,11 +209,12 @@ var PuzzleValidator = class {
           ];
           for (const n of neighbors) {
             if (n.nx >= 0 && n.nx < grid.cols && n.ny >= 0 && n.ny < grid.rows) {
-              if (!visitedCells.has(`${n.nx},${n.ny}`)) {
+              const neighborKey = `${n.nx},${n.ny}`;
+              if (!visitedCells.has(neighborKey) && !externalCells.has(neighborKey)) {
                 const edgeKey = this.getEdgeKey(n.p1, n.p2);
-                const isBroken = this.isBrokenEdge(grid, n.p1, n.p2);
-                if (!pathEdges.has(edgeKey) && !isBroken) {
-                  visitedCells.add(`${n.nx},${n.ny}`);
+                const isAbsent = this.isAbsentEdge(grid, n.p1, n.p2);
+                if (!pathEdges.has(edgeKey) && !isAbsent) {
+                  visitedCells.add(neighborKey);
                   queue.push({ x: n.nx, y: n.ny });
                 }
               }
@@ -211,6 +225,60 @@ var PuzzleValidator = class {
       }
     }
     return regions;
+  }
+  getExternalCells(grid) {
+    const external = /* @__PURE__ */ new Set();
+    const queue = [];
+    for (let c = 0; c < grid.cols; c++) {
+      if (grid.hEdges[0][c].type === 2 /* Absent */) {
+        if (!external.has(`${c},0`)) {
+          external.add(`${c},0`);
+          queue.push({ x: c, y: 0 });
+        }
+      }
+      if (grid.hEdges[grid.rows][c].type === 2 /* Absent */) {
+        if (!external.has(`${c},${grid.rows - 1}`)) {
+          external.add(`${c},${grid.rows - 1}`);
+          queue.push({ x: c, y: grid.rows - 1 });
+        }
+      }
+    }
+    for (let r = 0; r < grid.rows; r++) {
+      if (grid.vEdges[r][0].type === 2 /* Absent */) {
+        if (!external.has(`0,${r}`)) {
+          external.add(`0,${r}`);
+          queue.push({ x: 0, y: r });
+        }
+      }
+      if (grid.vEdges[r][grid.cols].type === 2 /* Absent */) {
+        if (!external.has(`${grid.cols - 1},${r}`)) {
+          external.add(`${grid.cols - 1},${r}`);
+          queue.push({ x: grid.cols - 1, y: r });
+        }
+      }
+    }
+    while (queue.length > 0) {
+      const curr = queue.shift();
+      const neighbors = [
+        { nx: curr.x, ny: curr.y - 1, edge: grid.hEdges[curr.y][curr.x] },
+        // Up
+        { nx: curr.x, ny: curr.y + 1, edge: grid.hEdges[curr.y + 1][curr.x] },
+        // Down
+        { nx: curr.x - 1, ny: curr.y, edge: grid.vEdges[curr.y][curr.x] },
+        // Left
+        { nx: curr.x + 1, ny: curr.y, edge: grid.vEdges[curr.y][curr.x + 1] }
+        // Right
+      ];
+      for (const n of neighbors) {
+        if (n.nx >= 0 && n.nx < grid.cols && n.ny >= 0 && n.ny < grid.rows) {
+          if (!external.has(`${n.nx},${n.ny}`) && n.edge.type === 2 /* Absent */) {
+            external.add(`${n.nx},${n.ny}`);
+            queue.push({ x: n.nx, y: n.ny });
+          }
+        }
+      }
+    }
+    return external;
   }
   getEdgeKey(p1, p2) {
     return p1.x < p2.x || p1.x === p2.x && p1.y < p2.y ? `${p1.x},${p1.y}-${p2.x},${p2.y}` : `${p2.x},${p2.y}-${p1.x},${p1.y}`;
@@ -235,18 +303,20 @@ var PuzzleValidator = class {
         if (grid.nodes[r][c].type === 2 /* End */) endNodes.push(u);
         if (c < cols) {
           const v = u + 1;
-          const isHexagon = grid.hEdges[r][c].type === 1 /* Hexagon */;
-          const isBroken = grid.hEdges[r][c].type === 2 /* Broken */;
-          adj[u].push({ next: v, isHexagon, isBroken });
-          adj[v].push({ next: u, isHexagon, isBroken });
+          const type = grid.hEdges[r][c].type;
+          const isHexagon = type === 3 /* Hexagon */;
+          const isBlocked = type === 1 /* Broken */ || type === 2 /* Absent */;
+          adj[u].push({ next: v, isHexagon, isBroken: isBlocked });
+          adj[v].push({ next: u, isHexagon, isBroken: isBlocked });
           if (isHexagon) hexagonEdges.add(this.getEdgeKey({ x: c, y: r }, { x: c + 1, y: r }));
         }
         if (r < rows) {
           const v = u + nodeCols;
-          const isHexagon = grid.vEdges[r][c].type === 1 /* Hexagon */;
-          const isBroken = grid.vEdges[r][c].type === 2 /* Broken */;
-          adj[u].push({ next: v, isHexagon, isBroken });
-          adj[v].push({ next: u, isHexagon, isBroken });
+          const type = grid.vEdges[r][c].type;
+          const isHexagon = type === 3 /* Hexagon */;
+          const isBlocked = type === 1 /* Broken */ || type === 2 /* Absent */;
+          adj[u].push({ next: v, isHexagon, isBroken: isBlocked });
+          adj[v].push({ next: u, isHexagon, isBroken: isBlocked });
           if (isHexagon) hexagonEdges.add(this.getEdgeKey({ x: c, y: r }, { x: c, y: r + 1 }));
         }
       }
@@ -362,18 +432,20 @@ var PuzzleValidator = class {
         if (grid.nodes[r][c].type === 2 /* End */) endNodes.push(u);
         if (c < cols) {
           const v = u + 1;
-          const isHexagon = grid.hEdges[r][c].type === 1 /* Hexagon */;
-          const isBroken = grid.hEdges[r][c].type === 2 /* Broken */;
-          adj[u].push({ next: v, isHexagon, isBroken });
-          adj[v].push({ next: u, isHexagon, isBroken });
+          const type = grid.hEdges[r][c].type;
+          const isHexagon = type === 3 /* Hexagon */;
+          const isBlocked = type === 1 /* Broken */ || type === 2 /* Absent */;
+          adj[u].push({ next: v, isHexagon, isBroken: isBlocked });
+          adj[v].push({ next: u, isHexagon, isBroken: isBlocked });
           if (isHexagon) hexagonEdges.add(this.getEdgeKey({ x: c, y: r }, { x: c + 1, y: r }));
         }
         if (r < rows) {
           const v = u + nodeCols;
-          const isHexagon = grid.vEdges[r][c].type === 1 /* Hexagon */;
-          const isBroken = grid.vEdges[r][c].type === 2 /* Broken */;
-          adj[u].push({ next: v, isHexagon, isBroken });
-          adj[v].push({ next: u, isHexagon, isBroken });
+          const type = grid.vEdges[r][c].type;
+          const isHexagon = type === 3 /* Hexagon */;
+          const isBlocked = type === 1 /* Broken */ || type === 2 /* Absent */;
+          adj[u].push({ next: v, isHexagon, isBroken: isBlocked });
+          adj[v].push({ next: u, isHexagon, isBroken: isBlocked });
           if (isHexagon) hexagonEdges.add(this.getEdgeKey({ x: c, y: r }, { x: c, y: r + 1 }));
         }
       }
@@ -489,6 +561,10 @@ var PuzzleGenerator = class {
     grid.nodes[endPoint.y][endPoint.x].type = 2 /* End */;
     const solutionPath = this.generateRandomPath(grid, startPoint, endPoint);
     this.applyConstraintsBasedOnPath(grid, solutionPath, options);
+    if (options.useBrokenEdges) {
+      this.applyBrokenEdges(grid, solutionPath, options);
+    }
+    this.cleanGrid(grid);
     return grid;
   }
   /**
@@ -541,6 +617,202 @@ var PuzzleGenerator = class {
       }
     }
     return candidates;
+  }
+  applyBrokenEdges(grid, path, options) {
+    const complexity = options.complexity ?? 0.5;
+    const pathEdges = /* @__PURE__ */ new Set();
+    for (let i = 0; i < path.length - 1; i++) {
+      pathEdges.add(this.getEdgeKey(path[i], path[i + 1]));
+    }
+    const unusedEdges = [];
+    for (let r = 0; r <= grid.rows; r++) {
+      for (let c = 0; c < grid.cols; c++) {
+        const p1 = { x: c, y: r };
+        const p2 = { x: c + 1, y: r };
+        if (!pathEdges.has(this.getEdgeKey(p1, p2))) {
+          unusedEdges.push({ type: "h", r, c, p1, p2 });
+        }
+      }
+    }
+    for (let r = 0; r < grid.rows; r++) {
+      for (let c = 0; c <= grid.cols; c++) {
+        const p1 = { x: c, y: r };
+        const p2 = { x: c, y: r + 1 };
+        if (!pathEdges.has(this.getEdgeKey(p1, p2))) {
+          unusedEdges.push({ type: "v", r, c, p1, p2 });
+        }
+      }
+    }
+    this.shuffleArray(unusedEdges);
+    const targetCount = Math.max(1, Math.floor(complexity * 4));
+    let placed = 0;
+    for (const edge of unusedEdges) {
+      if (placed >= targetCount) break;
+      let type = Math.random() < 0.8 ? 1 /* Broken */ : 2 /* Absent */;
+      if (type === 2 /* Absent */ && this.isAdjacentToMark(grid, edge)) {
+        type = 1 /* Broken */;
+      }
+      if (edge.type === "h") {
+        grid.hEdges[edge.r][edge.c].type = type;
+      } else {
+        grid.vEdges[edge.r][edge.c].type = type;
+      }
+      placed++;
+    }
+    for (let r = 0; r <= grid.rows; r++) {
+      for (let c = 0; c <= grid.cols; c++) {
+        const edgesWithMeta = [];
+        if (c > 0) edgesWithMeta.push({ e: grid.hEdges[r][c - 1], type: "h", r, c: c - 1 });
+        if (c < grid.cols) edgesWithMeta.push({ e: grid.hEdges[r][c], type: "h", r, c });
+        if (r > 0) edgesWithMeta.push({ e: grid.vEdges[r - 1][c], type: "v", r: r - 1, c });
+        if (r < grid.rows) edgesWithMeta.push({ e: grid.vEdges[r][c], type: "v", r, c });
+        const allCuts = edgesWithMeta.every((m) => m.e.type === 1 /* Broken */ || m.e.type === 2 /* Absent */);
+        if (allCuts) {
+          const noneNearMark = edgesWithMeta.every((m) => !this.isAdjacentToMark(grid, m));
+          if (noneNearMark) {
+            for (const m of edgesWithMeta) {
+              m.e.type = 2 /* Absent */;
+            }
+          }
+        }
+      }
+    }
+  }
+  cleanGrid(grid) {
+    const startNodes = [];
+    for (let r = 0; r <= grid.rows; r++) {
+      for (let c = 0; c <= grid.cols; c++) {
+        if (grid.nodes[r][c].type === 1 /* Start */) {
+          startNodes.push({ x: c, y: r });
+        }
+      }
+    }
+    const reachableNodes = /* @__PURE__ */ new Set();
+    const queue = [...startNodes];
+    for (const p of startNodes) reachableNodes.add(`${p.x},${p.y}`);
+    while (queue.length > 0) {
+      const curr = queue.shift();
+      const neighbors = [
+        { nx: curr.x, ny: curr.y - 1, edge: grid.vEdges[curr.y - 1]?.[curr.x] },
+        // Up
+        { nx: curr.x, ny: curr.y + 1, edge: grid.vEdges[curr.y]?.[curr.x] },
+        // Down
+        { nx: curr.x - 1, ny: curr.y, edge: grid.hEdges[curr.y]?.[curr.x - 1] },
+        // Left
+        { nx: curr.x + 1, ny: curr.y, edge: grid.hEdges[curr.y]?.[curr.x] }
+        // Right
+      ];
+      for (const n of neighbors) {
+        if (n.edge && n.edge.type !== 2 /* Absent */) {
+          if (!reachableNodes.has(`${n.nx},${n.ny}`)) {
+            reachableNodes.add(`${n.nx},${n.ny}`);
+            queue.push({ x: n.nx, y: n.ny });
+          }
+        }
+      }
+    }
+    for (let r = 0; r <= grid.rows; r++) {
+      for (let c = 0; c < grid.cols; c++) {
+        if (!reachableNodes.has(`${c},${r}`) || !reachableNodes.has(`${c + 1},${r}`)) {
+          grid.hEdges[r][c].type = 2 /* Absent */;
+        }
+      }
+    }
+    for (let r = 0; r < grid.rows; r++) {
+      for (let c = 0; c <= grid.cols; c++) {
+        if (!reachableNodes.has(`${c},${r}`) || !reachableNodes.has(`${c},${r + 1}`)) {
+          grid.vEdges[r][c].type = 2 /* Absent */;
+        }
+      }
+    }
+    const external = this.getExternalCells(grid);
+    for (const cellKey of external) {
+      const [c, r] = cellKey.split(",").map(Number);
+      grid.cells[r][c].type = 0 /* None */;
+    }
+  }
+  getExternalCells(grid) {
+    const external = /* @__PURE__ */ new Set();
+    const queue = [];
+    for (let c = 0; c < grid.cols; c++) {
+      if (grid.hEdges[0][c].type === 2 /* Absent */) {
+        if (!external.has(`${c},0`)) {
+          external.add(`${c},0`);
+          queue.push({ x: c, y: 0 });
+        }
+      }
+      if (grid.hEdges[grid.rows][c].type === 2 /* Absent */) {
+        if (!external.has(`${c},${grid.rows - 1}`)) {
+          external.add(`${c},${grid.rows - 1}`);
+          queue.push({ x: c, y: grid.rows - 1 });
+        }
+      }
+    }
+    for (let r = 0; r < grid.rows; r++) {
+      if (grid.vEdges[r][0].type === 2 /* Absent */) {
+        if (!external.has(`0,${r}`)) {
+          external.add(`0,${r}`);
+          queue.push({ x: 0, y: r });
+        }
+      }
+      if (grid.vEdges[r][grid.cols].type === 2 /* Absent */) {
+        if (!external.has(`${grid.cols - 1},${r}`)) {
+          external.add(`${grid.cols - 1},${r}`);
+          queue.push({ x: grid.cols - 1, y: r });
+        }
+      }
+    }
+    while (queue.length > 0) {
+      const curr = queue.shift();
+      const neighbors = [
+        { nx: curr.x, ny: curr.y - 1, edge: grid.hEdges[curr.y][curr.x] },
+        { nx: curr.x, ny: curr.y + 1, edge: grid.hEdges[curr.y + 1][curr.x] },
+        { nx: curr.x - 1, ny: curr.y, edge: grid.vEdges[curr.y][curr.x] },
+        { nx: curr.x + 1, ny: curr.y, edge: grid.vEdges[curr.y][curr.x + 1] }
+      ];
+      for (const n of neighbors) {
+        if (n.nx >= 0 && n.nx < grid.cols && n.ny >= 0 && n.ny < grid.rows) {
+          if (!external.has(`${n.nx},${n.ny}`) && n.edge.type === 2 /* Absent */) {
+            external.add(`${n.nx},${n.ny}`);
+            queue.push({ x: n.nx, y: n.ny });
+          }
+        }
+      }
+    }
+    return external;
+  }
+  isAdjacentToMark(grid, edge) {
+    if (edge.type === "h") {
+      if (edge.r > 0 && grid.cells[edge.r - 1][edge.c].type !== 0 /* None */) return true;
+      if (edge.r < grid.rows && grid.cells[edge.r][edge.c].type !== 0 /* None */) return true;
+    } else {
+      if (edge.c > 0 && grid.cells[edge.r][edge.c - 1].type !== 0 /* None */) return true;
+      if (edge.c < grid.cols && grid.cells[edge.r][edge.c].type !== 0 /* None */) return true;
+    }
+    return false;
+  }
+  hasIsolatedMark(grid) {
+    for (let r = 0; r < grid.rows; r++) {
+      for (let c = 0; c < grid.cols; c++) {
+        if (grid.cells[r][c].type === 0 /* None */) continue;
+        const edges = [
+          grid.hEdges[r][c],
+          // Top
+          grid.hEdges[r + 1][c],
+          // Bottom
+          grid.vEdges[r][c],
+          // Left
+          grid.vEdges[r][c + 1]
+          // Right
+        ];
+        const passableCount = edges.filter((e) => e.type === 0 /* Normal */ || e.type === 3 /* Hexagon */).length;
+        if (passableCount === 0) return true;
+      }
+    }
+    return false;
+  }
+  getEdgeKey(p1, p2) {
+    return p1.x < p2.x || p1.x === p2.x && p1.y < p2.y ? `${p1.x},${p1.y}-${p2.x},${p2.y}` : `${p2.x},${p2.y}-${p1.x},${p1.y}`;
   }
   applyConstraintsBasedOnPath(grid, path, options) {
     const complexity = options.complexity ?? 0.5;
@@ -692,7 +964,7 @@ var PuzzleGenerator = class {
             if (nx >= 0 && nx < grid.cols && ny >= 0 && ny < grid.rows) {
               if (!visitedCells.has(`${nx},${ny}`)) {
                 const key = n.boundary.p1.x < n.boundary.p2.x || n.boundary.p1.y < n.boundary.p2.y ? `${n.boundary.p1.x},${n.boundary.p1.y}-${n.boundary.p2.x},${n.boundary.p2.y}` : `${n.boundary.p2.x},${n.boundary.p2.y}-${n.boundary.p1.x},${n.boundary.p1.y}`;
-                if (!pathEdges.has(key)) {
+                if (!pathEdges.has(key) && !this.isAbsentEdge(grid, n.boundary.p1, n.boundary.p2)) {
                   visitedCells.add(`${nx},${ny}`);
                   queue.push({ x: nx, y: ny });
                 }
@@ -705,24 +977,34 @@ var PuzzleGenerator = class {
     }
     return regions;
   }
+  isAbsentEdge(grid, p1, p2) {
+    if (p1.x === p2.x) {
+      const y = Math.min(p1.y, p2.y);
+      return grid.vEdges[y][p1.x].type === 2 /* Absent */;
+    } else {
+      const x = Math.min(p1.x, p2.x);
+      return grid.hEdges[p1.y][x].type === 2 /* Absent */;
+    }
+  }
   setEdgeHexagon(grid, p1, p2) {
     if (p1.x === p2.x) {
       const y = Math.min(p1.y, p2.y);
-      grid.vEdges[y][p1.x].type = 1 /* Hexagon */;
+      grid.vEdges[y][p1.x].type = 3 /* Hexagon */;
     } else {
       const x = Math.min(p1.x, p2.x);
-      grid.hEdges[p1.y][x].type = 1 /* Hexagon */;
+      grid.hEdges[p1.y][x].type = 3 /* Hexagon */;
     }
   }
   checkAllRequestedConstraintsPresent(grid, options) {
     const useHexagons = options.useHexagons ?? true;
     const useSquares = options.useSquares ?? true;
     const useStars = options.useStars ?? true;
-    if (useHexagons) {
+    const useBrokenEdges = options.useBrokenEdges ?? false;
+    if (useBrokenEdges) {
       let found = false;
       for (let r = 0; r <= grid.rows; r++) {
         for (let c = 0; c < grid.cols; c++) {
-          if (grid.hEdges[r][c].type === 1 /* Hexagon */) {
+          if (grid.hEdges[r][c].type === 1 /* Broken */ || grid.hEdges[r][c].type === 2 /* Absent */) {
             found = true;
             break;
           }
@@ -732,7 +1014,31 @@ var PuzzleGenerator = class {
       if (!found) {
         for (let r = 0; r < grid.rows; r++) {
           for (let c = 0; c <= grid.cols; c++) {
-            if (grid.vEdges[r][c].type === 1 /* Hexagon */) {
+            if (grid.vEdges[r][c].type === 1 /* Broken */ || grid.vEdges[r][c].type === 2 /* Absent */) {
+              found = true;
+              break;
+            }
+          }
+          if (found) break;
+        }
+      }
+      if (!found) return false;
+    }
+    if (useHexagons) {
+      let found = false;
+      for (let r = 0; r <= grid.rows; r++) {
+        for (let c = 0; c < grid.cols; c++) {
+          if (grid.hEdges[r][c].type === 3 /* Hexagon */) {
+            found = true;
+            break;
+          }
+        }
+        if (found) break;
+      }
+      if (!found) {
+        for (let r = 0; r < grid.rows; r++) {
+          for (let c = 0; c <= grid.cols; c++) {
+            if (grid.vEdges[r][c].type === 3 /* Hexagon */) {
               found = true;
               break;
             }
@@ -754,6 +1060,7 @@ var PuzzleGenerator = class {
       if (useSquares && !foundSquare) return false;
       if (useStars && !foundStar) return false;
     }
+    if (this.hasIsolatedMark(grid)) return false;
     return true;
   }
   shuffleArray(array) {

@@ -13,8 +13,9 @@ export declare enum CellType {
 }
 export declare enum EdgeType {
 	Normal = 0,
-	Hexagon = 1,// 通過必須
-	Broken = 2
+	Broken = 1,// 線の真ん中で断線 (通行不可)
+	Absent = 2,// そもそも分岐もなし (通行不可)
+	Hexagon = 3
 }
 export declare enum NodeType {
 	Normal = 0,
@@ -70,6 +71,7 @@ export interface GenerationOptions {
 	useHexagons?: boolean;
 	useSquares?: boolean;
 	useStars?: boolean;
+	useBrokenEdges?: boolean;
 	complexity?: number;
 	difficulty?: number;
 }
@@ -99,11 +101,18 @@ export declare class PuzzleGenerator {
 	 */
 	private generateRandomPath;
 	private getValidNeighbors;
+	private applyBrokenEdges;
+	private cleanGrid;
+	private getExternalCells;
+	private isAdjacentToMark;
+	private hasIsolatedMark;
+	private getEdgeKey;
 	private applyConstraintsBasedOnPath;
 	/**
 	 * パスを壁と見なして、セル（Block）の領域分割を行う (Flood Fill)
 	 */
 	private calculateRegions;
+	private isAbsentEdge;
 	private setEdgeHexagon;
 	private checkAllRequestedConstraintsPresent;
 	private shuffleArray;
@@ -111,9 +120,11 @@ export declare class PuzzleGenerator {
 export declare class PuzzleValidator {
 	validate(grid: Grid, solution: SolutionPath): ValidationResult;
 	private isBrokenEdge;
+	private isAbsentEdge;
 	private checkHexagonConstraint;
 	private checkCellConstraints;
 	private calculateRegions;
+	private getExternalCells;
 	private getEdgeKey;
 	/**
 	 * パズルの難易度を計算する（0.0 - 1.0）
