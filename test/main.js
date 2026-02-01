@@ -78,11 +78,12 @@ class WitnessGame {
 		// Use setTimeout to allow UI to update before heavy generation
 		setTimeout(() => {
 			this.puzzle = this.core.createPuzzle(size, size, options);
+			const diff = this.core.calculateDifficulty(this.puzzle);
 			this.path = [];
 			this.isDrawing = false;
 
 			this.resizeCanvas();
-			this.updateStatus("New puzzle generated!");
+			this.updateStatus(`New puzzle generated! (Difficulty: ${diff.toFixed(2)})`);
 			this.draw();
 		}, 10);
 	}

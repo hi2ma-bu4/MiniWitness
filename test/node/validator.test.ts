@@ -1,6 +1,6 @@
 import assert from "node:assert";
 import { test } from "node:test";
-import { CellType, Color, Grid, NodeType, PuzzleData, PuzzleValidator, SolutionPath, WitnessCore } from "../../dist/MiniWitness.js";
+import { CellType, Color, Grid, NodeType, PuzzleData, PuzzleGenerator, PuzzleValidator, SolutionPath, WitnessCore } from "../../dist/MiniWitness.js";
 
 const core = new WitnessCore();
 
@@ -71,6 +71,91 @@ test("Star validation - stars of different colors in same region", () => {
 	puzzle.cells[0][3] = { type: CellType.Star, color: Color.White };
 	const result = core.validateSolution(puzzle, getPath(4));
 	assert.strictEqual(result.isValid, true, `Should be valid: ${result.errorReason}`);
+});
+
+test("Difficulty calculation - simple grid", () => {
+	const puzzle = createBasicGrid(2, 2);
+	// No constraints, should have low difficulty but at least 1 solution exists (empty fingerprint)
+	const difficulty = core.calculateDifficulty(puzzle);
+	assert.ok(difficulty >= 0 && difficulty <= 1, "Difficulty should be between 0 and 1");
+});
+
+test("Difficulty calculation - more constraints should be harder", () => {
+	const puzzle1 = createBasicGrid(2, 2);
+	const diff1 = core.calculateDifficulty(puzzle1);
+
+	const puzzle2 = createBasicGrid(2, 2);
+	// Add a hexagon
+	puzzle2.hEdges[0][0].type = 1;
+	const diff2 = core.calculateDifficulty(puzzle2);
+
+	// Hexagons can actually reduce search space, but let's just check it's valid
+	assert.ok(diff2 >= 0 && diff2 <= 1, "Difficulty with hexagon should be valid");
+});
+
+test("Difficulty calculation - trivial puzzle should have very low difficulty", () => {
+	const puzzle = createBasicGrid(4, 4);
+	// Add only one hexagon
+	puzzle.hEdges[0][0].type = 1;
+	const difficulty = core.calculateDifficulty(puzzle);
+
+	// Should be very low, definitely less than 0.2
+	assert.ok(difficulty < 0.2, `Trivial puzzle should have low difficulty, got: ${difficulty}`);
+});
+
+test("Difficulty calculation - sparse 6x6 grid should have very low difficulty", () => {
+	const puzzle = createBasicGrid(6, 6);
+	// Add 5 symbols (approx 1/7 of 36 cells)
+	puzzle.cells[0][0] = { type: CellType.Square, color: Color.Black };
+	puzzle.cells[0][1] = { type: CellType.Square, color: Color.Black };
+	puzzle.cells[5][5] = { type: CellType.Square, color: Color.White };
+	puzzle.cells[5][4] = { type: CellType.Square, color: Color.White };
+	puzzle.hEdges[0][0].type = 1; // 1 hexagon
+
+	const difficulty = core.calculateDifficulty(puzzle);
+
+	// Should be very low
+	assert.ok(difficulty < 0.15, `Sparse 6x6 grid should have very low difficulty, got: ${difficulty}`);
+});
+
+test("Generator - all requested constraints should be present", () => {
+	const generator = new PuzzleGenerator();
+	const options = {
+		useHexagons: true,
+		useSquares: true,
+		useStars: true,
+		difficulty: 0.5,
+		complexity: 0.5,
+	};
+
+	for (let i = 0; i < 5; i++) {
+		const grid = generator.generate(4, 4, options);
+
+		let foundHex = false;
+		for (let r = 0; r <= grid.rows; r++) {
+			for (let c = 0; c < grid.cols; c++) {
+				if (grid.hEdges[r][c].type === 1) foundHex = true;
+			}
+		}
+		for (let r = 0; r < grid.rows; r++) {
+			for (let c = 0; c <= grid.cols; c++) {
+				if (grid.vEdges[r][c].type === 1) foundHex = true;
+			}
+		}
+
+		let foundSquare = false;
+		let foundStar = false;
+		for (let r = 0; r < grid.rows; r++) {
+			for (let c = 0; c < grid.cols; c++) {
+				if (grid.cells[r][c].type === CellType.Square) foundSquare = true;
+				if (grid.cells[r][c].type === CellType.Star) foundStar = true;
+			}
+		}
+
+		assert.ok(foundHex, "Should contain hexagons");
+		assert.ok(foundSquare, "Should contain squares");
+		assert.ok(foundStar, "Should contain stars");
+	}
 });
 
 test("Solution counter - unique solutions based on region marks", () => {

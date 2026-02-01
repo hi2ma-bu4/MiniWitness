@@ -173,6 +173,173 @@ export class PuzzleValidator {
 	}
 
 	/**
+	 * パズルの難易度を計算する（0.0 - 1.0）
+	 * 知的なアルゴリズム：探索空間の広さ、分岐数、強制手、解の数などを分析
+	 */
+	public calculateDifficulty(grid: Grid): number {
+		const rows = grid.rows;
+		const cols = grid.cols;
+		const nodeCols = cols + 1;
+		const nodeCount = (rows + 1) * nodeCols;
+
+		// 探索用データの準備
+		const adj = Array.from({ length: nodeCount }, () => [] as { next: number; isHexagon: boolean; isBroken: boolean }[]);
+		const startNodes: number[] = [];
+		const endNodes: number[] = [];
+		const hexagonEdges = new Set<string>();
+
+		for (let r = 0; r <= rows; r++) {
+			for (let c = 0; c <= cols; c++) {
+				const u = r * nodeCols + c;
+				if (grid.nodes[r][c].type === NodeType.Start) startNodes.push(u);
+				if (grid.nodes[r][c].type === NodeType.End) endNodes.push(u);
+				if (c < cols) {
+					const v = u + 1;
+					const isHexagon = grid.hEdges[r][c].type === EdgeType.Hexagon;
+					const isBroken = grid.hEdges[r][c].type === EdgeType.Broken;
+					adj[u].push({ next: v, isHexagon, isBroken });
+					adj[v].push({ next: u, isHexagon, isBroken });
+					if (isHexagon) hexagonEdges.add(this.getEdgeKey({ x: c, y: r }, { x: c + 1, y: r }));
+				}
+				if (r < rows) {
+					const v = u + nodeCols;
+					const isHexagon = grid.vEdges[r][c].type === EdgeType.Hexagon;
+					const isBroken = grid.vEdges[r][c].type === EdgeType.Broken;
+					adj[u].push({ next: v, isHexagon, isBroken });
+					adj[v].push({ next: u, isHexagon, isBroken });
+					if (isHexagon) hexagonEdges.add(this.getEdgeKey({ x: c, y: r }, { x: c, y: r + 1 }));
+				}
+			}
+		}
+
+		const stats = {
+			totalNodesVisited: 0,
+			branchingPoints: 0,
+			solutions: 0,
+			maxDepth: 0,
+			backtracks: 0,
+		};
+
+		const totalHexagons = hexagonEdges.size;
+		const fingerprints = new Set<string>();
+
+		for (const startIdx of startNodes) {
+			this.exploreSearchSpace(grid, startIdx, 1n << BigInt(startIdx), [startIdx], 0, totalHexagons, adj, endNodes, fingerprints, stats, 500);
+		}
+
+		if (stats.solutions === 0) return 0;
+
+		// 難易度計算ロジック
+		// 1. 制約の数と種類 (少ないほど単純)
+		let constraintCount = hexagonEdges.size;
+		const constraintTypes = new Set<number>();
+		if (hexagonEdges.size > 0) constraintTypes.add(999); // ヘキサゴン用ダミーID
+
+		for (let r = 0; r < rows; r++) {
+			for (let c = 0; c < cols; c++) {
+				const cell = grid.cells[r][c];
+				if (cell.type !== CellType.None) {
+					constraintCount++;
+					constraintTypes.add(cell.type);
+				}
+			}
+		}
+
+		// 2. 分岐の多さは思考の複雑さに比例する
+		// 3. 探索空間の広さは総当たりの大変さに比例する
+		// 4. 解の数が多いほど、偶然正解を見つけやすい（難易度低下）
+
+		const branchingFactor = stats.branchingPoints / (stats.totalNodesVisited || 1);
+		const searchComplexity = Math.log10(stats.totalNodesVisited + 1);
+
+		// 基本スコアの計算
+		let difficulty = (branchingFactor * 10 + searchComplexity * 1.0) / (Math.log2(stats.solutions + 1) + 1);
+
+		// 密度の計算と補正
+		// 空白マスが多すぎる（制約密度が低い）パズルは人間には非常に簡単に感じられる
+		const cellCount = rows * cols;
+		const density = constraintCount / cellCount;
+
+		// 密度が 0.3 (30%) を下回る場合、急激に難易度を減衰させる（3乗カーブ）
+		const densityFactor = density < 0.3 ? Math.pow(density / 0.3, 3) : 1.0;
+
+		// 制約の種類が少ない場合の更なる減衰
+		const typeFactor = constraintTypes.size <= 1 ? 0.4 : 1.0;
+
+		difficulty *= densityFactor * typeFactor;
+
+		// グリッドサイズで正規化 (大きいグリッドほど探索空間が広いため)
+		const sizeFactor = Math.sqrt(cellCount) / 4;
+		difficulty *= sizeFactor;
+
+		// 最終的な値を 0.0 - 1.0 に収める
+		return Math.max(0.01, Math.min(1.0, difficulty / 4));
+	}
+
+	private exploreSearchSpace(grid: Grid, currIdx: number, visitedMask: bigint, path: number[], hexagonsOnPath: number, totalHexagons: number, adj: { next: number; isHexagon: boolean; isBroken: boolean }[][], endNodes: number[], fingerprints: Set<string>, stats: { totalNodesVisited: number; branchingPoints: number; solutions: number; maxDepth: number; backtracks: number }, limit: number): void {
+		stats.totalNodesVisited++;
+		stats.maxDepth = Math.max(stats.maxDepth, path.length);
+
+		if (stats.totalNodesVisited > limit) return;
+
+		if (endNodes.includes(currIdx)) {
+			if (hexagonsOnPath === totalHexagons) {
+				const solutionPath = {
+					points: path.map((idx) => ({
+						x: idx % (grid.cols + 1),
+						y: Math.floor(idx / (grid.cols + 1)),
+					})),
+				};
+				if (this.validate(grid, solutionPath).isValid) {
+					const fp = this.getFingerprint(grid, solutionPath.points);
+					if (!fingerprints.has(fp)) {
+						fingerprints.add(fp);
+						stats.solutions++;
+					}
+				}
+			}
+			return;
+		}
+
+		if (!this.canReachEndOptimized(currIdx, visitedMask, adj, endNodes)) {
+			stats.backtracks++;
+			return;
+		}
+
+		const validMoves = [];
+		for (const edge of adj[currIdx]) {
+			if (edge.isBroken) continue;
+			if (visitedMask & (1n << BigInt(edge.next))) continue;
+
+			let possible = true;
+			for (const otherEdge of adj[currIdx]) {
+				if (otherEdge.isHexagon) {
+					const isAlreadyOnPath = path.length >= 2 && otherEdge.next === path[path.length - 2];
+					const isNextMove = otherEdge.next === edge.next;
+					if (!isAlreadyOnPath && !isNextMove) {
+						possible = false;
+						break;
+					}
+				}
+			}
+			if (possible) {
+				validMoves.push(edge);
+			}
+		}
+
+		if (validMoves.length > 1) {
+			stats.branchingPoints++;
+		}
+
+		for (const move of validMoves) {
+			path.push(move.next);
+			this.exploreSearchSpace(grid, move.next, visitedMask | (1n << BigInt(move.next)), path, hexagonsOnPath + (move.isHexagon ? 1 : 0), totalHexagons, adj, endNodes, fingerprints, stats, limit);
+			path.pop();
+			if (stats.totalNodesVisited > limit) return;
+		}
+	}
+
+	/**
 	 * 全ての有効な解答パスの個数をカウントする
 	 */
 	public countSolutions(grid: Grid, limit: number = 100): number {

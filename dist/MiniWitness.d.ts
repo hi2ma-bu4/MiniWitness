@@ -93,7 +93,6 @@ export declare class PuzzleGenerator {
 	 * @param options 生成オプション
 	 */
 	generate(rows: number, cols: number, options?: GenerationOptions): Grid;
-	private countConstraints;
 	private generateOnce;
 	/**
 	 * Randomized DFSを用いてStartからEndへの一本道を生成する
@@ -106,6 +105,7 @@ export declare class PuzzleGenerator {
 	 */
 	private calculateRegions;
 	private setEdgeHexagon;
+	private checkAllRequestedConstraintsPresent;
 	private shuffleArray;
 }
 export declare class PuzzleValidator {
@@ -115,6 +115,12 @@ export declare class PuzzleValidator {
 	private checkCellConstraints;
 	private calculateRegions;
 	private getEdgeKey;
+	/**
+	 * パズルの難易度を計算する（0.0 - 1.0）
+	 * 知的なアルゴリズム：探索空間の広さ、分岐数、強制手、解の数などを分析
+	 */
+	calculateDifficulty(grid: Grid): number;
+	private exploreSearchSpace;
 	/**
 	 * 全ての有効な解答パスの個数をカウントする
 	 */
@@ -135,6 +141,10 @@ export declare class WitnessCore {
 	 * 解答を検証する
 	 */
 	validateSolution(puzzleData: PuzzleData, solution: SolutionPath): ValidationResult;
+	/**
+	 * パズルの難易度を計算する
+	 */
+	calculateDifficulty(puzzleData: PuzzleData): number;
 }
 
 export {};

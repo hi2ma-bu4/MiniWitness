@@ -32,6 +32,14 @@ export class WitnessCore {
 		const grid = Grid.fromData(puzzleData);
 		return this.validator.validate(grid, solution);
 	}
+
+	/**
+	 * パズルの難易度を計算する
+	 */
+	public calculateDifficulty(puzzleData: PuzzleData): number {
+		const grid = Grid.fromData(puzzleData);
+		return this.validator.calculateDifficulty(grid);
+	}
 }
 
 // ブラウザ/Node.js環境両対応のためのエクスポート

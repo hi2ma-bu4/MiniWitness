@@ -216,6 +216,134 @@ var PuzzleValidator = class {
     return p1.x < p2.x || p1.x === p2.x && p1.y < p2.y ? `${p1.x},${p1.y}-${p2.x},${p2.y}` : `${p2.x},${p2.y}-${p1.x},${p1.y}`;
   }
   /**
+   * パズルの難易度を計算する（0.0 - 1.0）
+   * 知的なアルゴリズム：探索空間の広さ、分岐数、強制手、解の数などを分析
+   */
+  calculateDifficulty(grid) {
+    const rows = grid.rows;
+    const cols = grid.cols;
+    const nodeCols = cols + 1;
+    const nodeCount = (rows + 1) * nodeCols;
+    const adj = Array.from({ length: nodeCount }, () => []);
+    const startNodes = [];
+    const endNodes = [];
+    const hexagonEdges = /* @__PURE__ */ new Set();
+    for (let r = 0; r <= rows; r++) {
+      for (let c = 0; c <= cols; c++) {
+        const u = r * nodeCols + c;
+        if (grid.nodes[r][c].type === 1 /* Start */) startNodes.push(u);
+        if (grid.nodes[r][c].type === 2 /* End */) endNodes.push(u);
+        if (c < cols) {
+          const v = u + 1;
+          const isHexagon = grid.hEdges[r][c].type === 1 /* Hexagon */;
+          const isBroken = grid.hEdges[r][c].type === 2 /* Broken */;
+          adj[u].push({ next: v, isHexagon, isBroken });
+          adj[v].push({ next: u, isHexagon, isBroken });
+          if (isHexagon) hexagonEdges.add(this.getEdgeKey({ x: c, y: r }, { x: c + 1, y: r }));
+        }
+        if (r < rows) {
+          const v = u + nodeCols;
+          const isHexagon = grid.vEdges[r][c].type === 1 /* Hexagon */;
+          const isBroken = grid.vEdges[r][c].type === 2 /* Broken */;
+          adj[u].push({ next: v, isHexagon, isBroken });
+          adj[v].push({ next: u, isHexagon, isBroken });
+          if (isHexagon) hexagonEdges.add(this.getEdgeKey({ x: c, y: r }, { x: c, y: r + 1 }));
+        }
+      }
+    }
+    const stats = {
+      totalNodesVisited: 0,
+      branchingPoints: 0,
+      solutions: 0,
+      maxDepth: 0,
+      backtracks: 0
+    };
+    const totalHexagons = hexagonEdges.size;
+    const fingerprints = /* @__PURE__ */ new Set();
+    for (const startIdx of startNodes) {
+      this.exploreSearchSpace(grid, startIdx, 1n << BigInt(startIdx), [startIdx], 0, totalHexagons, adj, endNodes, fingerprints, stats, 500);
+    }
+    if (stats.solutions === 0) return 0;
+    let constraintCount = hexagonEdges.size;
+    const constraintTypes = /* @__PURE__ */ new Set();
+    if (hexagonEdges.size > 0) constraintTypes.add(999);
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const cell = grid.cells[r][c];
+        if (cell.type !== 0 /* None */) {
+          constraintCount++;
+          constraintTypes.add(cell.type);
+        }
+      }
+    }
+    const branchingFactor = stats.branchingPoints / (stats.totalNodesVisited || 1);
+    const searchComplexity = Math.log10(stats.totalNodesVisited + 1);
+    let difficulty = (branchingFactor * 10 + searchComplexity * 1) / (Math.log2(stats.solutions + 1) + 1);
+    const cellCount = rows * cols;
+    const density = constraintCount / cellCount;
+    const densityFactor = density < 0.3 ? Math.pow(density / 0.3, 3) : 1;
+    const typeFactor = constraintTypes.size <= 1 ? 0.4 : 1;
+    difficulty *= densityFactor * typeFactor;
+    const sizeFactor = Math.sqrt(cellCount) / 4;
+    difficulty *= sizeFactor;
+    return Math.max(0.01, Math.min(1, difficulty / 4));
+  }
+  exploreSearchSpace(grid, currIdx, visitedMask, path, hexagonsOnPath, totalHexagons, adj, endNodes, fingerprints, stats, limit) {
+    stats.totalNodesVisited++;
+    stats.maxDepth = Math.max(stats.maxDepth, path.length);
+    if (stats.totalNodesVisited > limit) return;
+    if (endNodes.includes(currIdx)) {
+      if (hexagonsOnPath === totalHexagons) {
+        const solutionPath = {
+          points: path.map((idx) => ({
+            x: idx % (grid.cols + 1),
+            y: Math.floor(idx / (grid.cols + 1))
+          }))
+        };
+        if (this.validate(grid, solutionPath).isValid) {
+          const fp = this.getFingerprint(grid, solutionPath.points);
+          if (!fingerprints.has(fp)) {
+            fingerprints.add(fp);
+            stats.solutions++;
+          }
+        }
+      }
+      return;
+    }
+    if (!this.canReachEndOptimized(currIdx, visitedMask, adj, endNodes)) {
+      stats.backtracks++;
+      return;
+    }
+    const validMoves = [];
+    for (const edge of adj[currIdx]) {
+      if (edge.isBroken) continue;
+      if (visitedMask & 1n << BigInt(edge.next)) continue;
+      let possible = true;
+      for (const otherEdge of adj[currIdx]) {
+        if (otherEdge.isHexagon) {
+          const isAlreadyOnPath = path.length >= 2 && otherEdge.next === path[path.length - 2];
+          const isNextMove = otherEdge.next === edge.next;
+          if (!isAlreadyOnPath && !isNextMove) {
+            possible = false;
+            break;
+          }
+        }
+      }
+      if (possible) {
+        validMoves.push(edge);
+      }
+    }
+    if (validMoves.length > 1) {
+      stats.branchingPoints++;
+    }
+    for (const move of validMoves) {
+      path.push(move.next);
+      this.exploreSearchSpace(grid, move.next, visitedMask | 1n << BigInt(move.next), path, hexagonsOnPath + (move.isHexagon ? 1 : 0), totalHexagons, adj, endNodes, fingerprints, stats, limit);
+      path.pop();
+      if (stats.totalNodesVisited > limit) return;
+    }
+  }
+  /**
    * 全ての有効な解答パスの個数をカウントする
    */
   countSolutions(grid, limit = 100) {
@@ -338,44 +466,20 @@ var PuzzleGenerator = class {
     const maxAttempts = rows * cols > 30 ? 30 : 60;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       const grid = this.generateOnce(rows, cols, options);
-      const solutionCount = validator.countSolutions(grid, 20);
-      if (solutionCount === 0) continue;
-      let score = 0;
-      if (solutionCount === 1) {
-        score += 50;
-      } else {
-        score += Math.max(0, 20 - solutionCount);
+      if (!this.checkAllRequestedConstraintsPresent(grid, options)) {
+        continue;
       }
-      const constraintCount = this.countConstraints(grid);
-      score += constraintCount * 5;
-      const normalizedScore = Math.min(1, score / 100);
-      const diffFromTarget = Math.abs(normalizedScore - targetDifficulty);
-      if (bestGrid === null || diffFromTarget < Math.abs(Math.min(1, bestScore / 100) - targetDifficulty)) {
-        bestScore = score;
+      const difficulty = validator.calculateDifficulty(grid);
+      if (difficulty === 0) continue;
+      const diffFromTarget = Math.abs(difficulty - targetDifficulty);
+      if (bestGrid === null || diffFromTarget < Math.abs(bestScore - targetDifficulty)) {
+        bestScore = difficulty;
         bestGrid = grid;
       }
-      if (targetDifficulty > 0.8 && normalizedScore > 0.9) break;
+      if (targetDifficulty > 0.8 && difficulty > 0.8) break;
+      if (diffFromTarget < 0.05) break;
     }
     return bestGrid || this.generateOnce(rows, cols, options);
-  }
-  countConstraints(grid) {
-    let count = 0;
-    for (let r = 0; r < grid.rows; r++) {
-      for (let c = 0; c < grid.cols; c++) {
-        if (grid.cells[r][c].type !== 0 /* None */) count++;
-      }
-    }
-    for (let r = 0; r <= grid.rows; r++) {
-      for (let c = 0; c < grid.cols; c++) {
-        if (grid.hEdges[r][c].type === 1 /* Hexagon */) count++;
-      }
-    }
-    for (let r = 0; r < grid.rows; r++) {
-      for (let c = 0; c <= grid.cols; c++) {
-        if (grid.vEdges[r][c].type === 1 /* Hexagon */) count++;
-      }
-    }
-    return count;
   }
   generateOnce(rows, cols, options) {
     const grid = new Grid(rows, cols);
@@ -443,49 +547,79 @@ var PuzzleGenerator = class {
     const useHexagons = options.useHexagons ?? true;
     const useSquares = options.useSquares ?? true;
     const useStars = options.useStars ?? true;
+    let hexagonsPlaced = 0;
+    let squaresPlaced = 0;
+    let starsPlaced = 0;
     if (useHexagons) {
+      const targetDifficulty = options.difficulty ?? 0.5;
       for (let i = 0; i < path.length - 1; i++) {
         const p1 = path[i];
         const p2 = path[i + 1];
-        const prob = (options.difficulty ?? 0.5) > 0.7 ? complexity * 0.2 : complexity * 0.5;
+        const neighbors = this.getValidNeighbors(grid, p1, /* @__PURE__ */ new Set());
+        const isBranching = neighbors.length > 2;
+        let prob = complexity * 0.4;
+        if (isBranching) {
+          prob = targetDifficulty < 0.4 ? prob * 1 : prob * 0.5;
+        }
         if (Math.random() < prob) {
           this.setEdgeHexagon(grid, p1, p2);
+          hexagonsPlaced++;
         }
+      }
+      if (hexagonsPlaced === 0 && path.length >= 2) {
+        const idx = Math.floor(Math.random() * (path.length - 1));
+        this.setEdgeHexagon(grid, path[idx], path[idx + 1]);
       }
     }
     if (useSquares || useStars) {
       const regions = this.calculateRegions(grid, path);
       const availableColors = [1 /* Black */, 2 /* White */, 3 /* Red */, 4 /* Blue */];
-      for (const region of regions) {
+      const regionIndices = Array.from({ length: regions.length }, (_, i) => i);
+      this.shuffleArray(regionIndices);
+      for (const idx of regionIndices) {
+        const region = regions[idx];
         const skipProb = (options.difficulty ?? 0.5) > 0.7 ? 0.4 : 0.2;
-        if (Math.random() > skipProb + complexity * 0.5) continue;
+        const forceOne = useSquares && squaresPlaced === 0 || useStars && starsPlaced === 0;
+        const isLastFew = idx === regionIndices[regionIndices.length - 1];
+        if (!forceOne || !isLastFew) {
+          if (Math.random() > skipProb + complexity * 0.5) continue;
+        }
         const potentialCells = [...region];
         this.shuffleArray(potentialCells);
         const squareColor = availableColors[Math.floor(Math.random() * availableColors.length)];
         let numSquares = 0;
-        if (useSquares && Math.random() < 0.5 + complexity * 0.3) {
+        let shouldPlaceSquare = useSquares && Math.random() < 0.5 + complexity * 0.3;
+        if (useSquares && squaresPlaced === 0 && isLastFew) shouldPlaceSquare = true;
+        if (shouldPlaceSquare) {
           const maxSquares = Math.min(potentialCells.length, 4);
           numSquares = Math.floor(Math.random() * maxSquares);
+          if (numSquares === 0 && squaresPlaced === 0) numSquares = 1;
           for (let i = 0; i < numSquares; i++) {
+            if (potentialCells.length === 0) break;
             const cell = potentialCells.pop();
             grid.cells[cell.y][cell.x].type = 1 /* Square */;
             grid.cells[cell.y][cell.x].color = squareColor;
+            squaresPlaced++;
           }
         }
         if (useStars) {
           for (const color of availableColors) {
             if (potentialCells.length < 1) break;
-            if (Math.random() > 0.2 + complexity * 0.3) continue;
+            let shouldPlaceStar = Math.random() < 0.2 + complexity * 0.3;
+            if (starsPlaced === 0 && isLastFew) shouldPlaceStar = true;
+            if (!shouldPlaceStar) continue;
             if (color === squareColor) {
               if (numSquares === 1 && potentialCells.length >= 1) {
                 const cell = potentialCells.pop();
                 grid.cells[cell.y][cell.x].type = 2 /* Star */;
                 grid.cells[cell.y][cell.x].color = color;
+                starsPlaced++;
               } else if (numSquares === 0 && potentialCells.length >= 2) {
                 for (let i = 0; i < 2; i++) {
                   const cell = potentialCells.pop();
                   grid.cells[cell.y][cell.x].type = 2 /* Star */;
                   grid.cells[cell.y][cell.x].color = color;
+                  starsPlaced++;
                 }
               }
             } else {
@@ -494,8 +628,26 @@ var PuzzleGenerator = class {
                   const cell = potentialCells.pop();
                   grid.cells[cell.y][cell.x].type = 2 /* Star */;
                   grid.cells[cell.y][cell.x].color = color;
+                  starsPlaced++;
                 }
               }
+            }
+          }
+        }
+      }
+      if (useStars && starsPlaced === 0) {
+        for (const region of regions) {
+          if (region.length >= 2) {
+            const potentialCells = [...region].filter((p) => grid.cells[p.y][p.x].type === 0 /* None */);
+            if (potentialCells.length >= 2) {
+              const color = availableColors[Math.floor(Math.random() * availableColors.length)];
+              for (let i = 0; i < 2; i++) {
+                const cell = potentialCells.pop();
+                grid.cells[cell.y][cell.x].type = 2 /* Star */;
+                grid.cells[cell.y][cell.x].color = color;
+                starsPlaced++;
+              }
+              break;
             }
           }
         }
@@ -562,6 +714,48 @@ var PuzzleGenerator = class {
       grid.hEdges[p1.y][x].type = 1 /* Hexagon */;
     }
   }
+  checkAllRequestedConstraintsPresent(grid, options) {
+    const useHexagons = options.useHexagons ?? true;
+    const useSquares = options.useSquares ?? true;
+    const useStars = options.useStars ?? true;
+    if (useHexagons) {
+      let found = false;
+      for (let r = 0; r <= grid.rows; r++) {
+        for (let c = 0; c < grid.cols; c++) {
+          if (grid.hEdges[r][c].type === 1 /* Hexagon */) {
+            found = true;
+            break;
+          }
+        }
+        if (found) break;
+      }
+      if (!found) {
+        for (let r = 0; r < grid.rows; r++) {
+          for (let c = 0; c <= grid.cols; c++) {
+            if (grid.vEdges[r][c].type === 1 /* Hexagon */) {
+              found = true;
+              break;
+            }
+          }
+          if (found) break;
+        }
+      }
+      if (!found) return false;
+    }
+    if (useSquares || useStars) {
+      let foundSquare = false;
+      let foundStar = false;
+      for (let r = 0; r < grid.rows; r++) {
+        for (let c = 0; c < grid.cols; c++) {
+          if (grid.cells[r][c].type === 1 /* Square */) foundSquare = true;
+          if (grid.cells[r][c].type === 2 /* Star */) foundStar = true;
+        }
+      }
+      if (useSquares && !foundSquare) return false;
+      if (useStars && !foundStar) return false;
+    }
+    return true;
+  }
   shuffleArray(array) {
     for (let i = array.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -591,6 +785,13 @@ var WitnessCore = class {
   validateSolution(puzzleData, solution) {
     const grid = Grid.fromData(puzzleData);
     return this.validator.validate(grid, solution);
+  }
+  /**
+   * パズルの難易度を計算する
+   */
+  calculateDifficulty(puzzleData) {
+    const grid = Grid.fromData(puzzleData);
+    return this.validator.calculateDifficulty(grid);
   }
 };
 export {
