@@ -72,13 +72,13 @@ test("Eraser validation - one star and two erasers (invalid)", () => {
 	assert.strictEqual(result.isValid, false, "1 Star + 2 Erasers should be INVALID");
 });
 
-test("Eraser validation - colored eraser completing star pair", () => {
+test("Eraser validation - colored eraser completing star pair (invalid)", () => {
 	const puzzle = createBasicGrid(1, 2);
 	puzzle.cells[0][0] = { type: CellType.Star, color: Color.Black };
 	puzzle.cells[0][1] = { type: CellType.Eraser, color: Color.Black };
 
 	const result = core.validateSolution(puzzle, getPath(2));
-	assert.strictEqual(result.isValid, true, "1 Star + 1 Eraser of same color should be VALID (completes pair)");
+	assert.strictEqual(result.isValid, false, "1 Star + 1 Eraser of same color should be INVALID (no error to negate)");
 });
 
 test("Eraser validation - colored eraser redundant pair", () => {
@@ -110,6 +110,22 @@ test("Eraser validation - complex scenario (2 White Sq, 1 White Star, 1 Black St
 	const cell = puzzle.cells[invalidated[0].y][invalidated[0].x];
 	assert.strictEqual(cell.type, CellType.Square, "The invalidated cell should be a Square");
 	assert.strictEqual(cell.color, Color.White, "The invalidated Square should be White");
+});
+
+test("Eraser validation - star, red stars, black stars and same color eraser (invalid)", () => {
+	// 1 White Star, 2 Red Stars, 2 Black Stars, 1 White Eraser
+	// If Eraser is mark: White(2), Red(2), Black(2). No error to negate -> INVALID
+	// If Eraser negates White Star: White(1) (only Eraser remains). -> INVALID
+	const puzzle = createBasicGrid(1, 6);
+	puzzle.cells[0][0] = { type: CellType.Star, color: Color.White };
+	puzzle.cells[0][1] = { type: CellType.Star, color: Color.Red };
+	puzzle.cells[0][2] = { type: CellType.Star, color: Color.Red };
+	puzzle.cells[0][3] = { type: CellType.Star, color: Color.Black };
+	puzzle.cells[0][4] = { type: CellType.Star, color: Color.Black };
+	puzzle.cells[0][5] = { type: CellType.Eraser, color: Color.White };
+
+	const result = core.validateSolution(puzzle, getPath(6));
+	assert.strictEqual(result.isValid, false, "Should be invalid: Eraser has no error to negate (it and star form a pair)");
 });
 
 test("Generation independence - Tetris and Eraser without Squares/Stars", () => {

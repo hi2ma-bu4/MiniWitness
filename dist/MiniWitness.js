@@ -229,8 +229,7 @@ var PuzzleValidator = class {
         const negatedErasersSet = new Set(negatedErasers.map((e) => `${e.x},${e.y}`));
         const activeErasers = erasers.filter((e) => !negatedErasersSet.has(`${e.x},${e.y}`));
         for (let K = 0; K <= itemsToNegate.length; K++) {
-          if (activeErasers.length < N + K) continue;
-          const leftoverPower = activeErasers.length - (N + K);
+          if (activeErasers.length !== N + K) continue;
           const itemCombinations = this.getNCombinations(itemsToNegate, K);
           for (const negatedItems of itemCombinations) {
             const negatedCells = negatedItems.filter((it) => it.type === "cell").map((it) => it.pos);
@@ -238,7 +237,7 @@ var PuzzleValidator = class {
             if (this.checkRegionValid(grid, region, [...negatedCells, ...negatedErasers], activeErasers)) {
               let isUseful = true;
               if (initiallyValid) {
-                if (K > 0 || leftoverPower > 0) isUseful = false;
+                if (K > 0) isUseful = false;
               } else {
                 for (let i = 0; i < negatedItems.length; i++) {
                   const subset = [...negatedItems.slice(0, i), ...negatedItems.slice(i + 1)];
@@ -246,18 +245,6 @@ var PuzzleValidator = class {
                   if (this.checkRegionValid(grid, region, subsetCells, activeErasers)) {
                     isUseful = false;
                     break;
-                  }
-                }
-                if (!isUseful) continue;
-                if (leftoverPower > 0) {
-                  for (let i = 0; i < activeErasers.length; i++) {
-                    if (i >= N + K) {
-                      const subsetMarks = [...activeErasers.slice(0, i), ...activeErasers.slice(i + 1)];
-                      if (this.checkRegionValid(grid, region, [...negatedCells, ...negatedErasers], subsetMarks)) {
-                        isUseful = false;
-                        break;
-                      }
-                    }
                   }
                 }
               }
@@ -1046,26 +1033,15 @@ var PuzzleGenerator = class {
     [[1]],
     [[1, 1]],
     [[1, 1, 1]],
-    [
-      [1, 1],
-      [1, 0]
-    ],
-    [
-      [0, 1],
-      [1, 0]
-    ],
     [[1, 1, 1, 1]],
+    [[1, 1, 1, 1, 1]],
     [
       [1, 1],
       [1, 1]
     ],
     [
-      [1, 1, 1],
-      [0, 1, 0]
-    ],
-    [
-      [1, 1, 0],
-      [0, 1, 1]
+      [1, 1],
+      [1, 0]
     ],
     [
       [1, 1, 1],
@@ -1074,6 +1050,37 @@ var PuzzleGenerator = class {
     [
       [1, 1, 1],
       [0, 0, 1]
+    ],
+    [
+      [0, 1],
+      [1, 0]
+    ],
+    [
+      [1, 1, 1],
+      [0, 1, 0]
+    ],
+    [
+      [1, 1, 1],
+      [0, 1, 0],
+      [0, 1, 0]
+    ],
+    [
+      [1, 1, 0],
+      [0, 1, 1]
+    ],
+    [
+      [0, 1, 1],
+      [1, 1, 0]
+    ],
+    [
+      [1, 1, 0],
+      [0, 1, 0],
+      [0, 1, 1]
+    ],
+    [
+      [0, 1, 1],
+      [0, 1, 0],
+      [1, 1, 0]
     ],
     [
       [1, 1, 1],
@@ -1086,21 +1093,6 @@ var PuzzleGenerator = class {
     [
       [1, 0, 0, 1],
       [1, 0, 0, 1]
-    ],
-    [
-      [1, 1, 1],
-      [0, 1, 0],
-      [0, 1, 0]
-    ],
-    [
-      [1, 1, 0],
-      [0, 1, 0],
-      [0, 1, 1]
-    ],
-    [
-      [0, 1, 1],
-      [0, 1, 0],
-      [1, 1, 0]
     ],
     [
       [1, 1, 1],

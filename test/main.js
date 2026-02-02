@@ -474,19 +474,19 @@ class WitnessGame {
 
 				if (cell.type === 1) {
 					// Square (Rounded)
-					const size = 22;
-					const radius = 6;
+					const size = 26;
+					const radius = 8;
 					ctx.fillStyle = this.getColorCode(cell.color);
 					this.drawRoundedRect(ctx, pos.x - size / 2, pos.y - size / 2, size, size, radius);
 				} else if (cell.type === 2) {
 					// Star (8-pointed sunburst)
-					this.drawStar(ctx, pos.x, pos.y, 10, 14, 8, cell.color);
+					this.drawStar(ctx, pos.x, pos.y, 11, 16, 8, cell.color);
 				} else if (cell.type === 3 || cell.type === 4) {
 					// Tetris / TetrisRotated
 					this.drawTetris(ctx, pos.x, pos.y, cell.shape, cell.type === 4, cell.color);
 				} else if (cell.type === 5) {
 					// Eraser (Tetrapod)
-					this.drawEraser(ctx, pos.x, pos.y, cell.color);
+					this.drawEraser(ctx, pos.x, pos.y, 10, 3, cell.color);
 				}
 				ctx.restore();
 			}
@@ -648,8 +648,21 @@ class WitnessGame {
 		ctx.fill();
 	}
 
-	drawEraser(ctx, x, y, colorEnum) {
-		this.drawStar(ctx, x, y, 6, 14, 3, colorEnum);
+	drawEraser(ctx, x, y, radius, points, colorEnum) {
+		ctx.strokeStyle = this.getColorCode(colorEnum);
+		ctx.lineWidth = radius * 0.75;
+		ctx.lineCap = "square";
+		const rotation = 0.5;
+		for (let i = 0; i < points; i++) {
+			const angle = ((Math.PI * 2) / points) * i + rotation;
+			const px = x + radius * Math.cos(angle);
+			const py = y + radius * Math.sin(angle);
+
+			ctx.beginPath();
+			ctx.moveTo(x, y);
+			ctx.lineTo(px, py);
+			ctx.stroke();
+		}
 	}
 
 	drawStar(ctx, x, y, innerRadius, outerRadius, points, colorEnum) {
@@ -669,7 +682,7 @@ class WitnessGame {
 
 	drawTetris(ctx, x, y, shape, rotated, colorEnum) {
 		if (!shape) return;
-		const cellSize = 10;
+		const cellSize = 12;
 		const gap = 2;
 		const totalW = shape[0].length * cellSize + (shape[0].length - 1) * gap;
 		const totalH = shape.length * cellSize + (shape.length - 1) * gap;

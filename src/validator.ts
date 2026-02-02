@@ -179,8 +179,7 @@ export class PuzzleValidator {
 				const activeErasers = erasers.filter((e) => !negatedErasersSet.has(`${e.x},${e.y}`));
 
 				for (let K = 0; K <= itemsToNegate.length; K++) {
-					if (activeErasers.length < N + K) continue; // 削除能力が不足
-					const leftoverPower = activeErasers.length - (N + K);
+					if (activeErasers.length !== N + K) continue; // すべてのテトラポッドは削除（N or K）に使用されなければならない
 
 					const itemCombinations = this.getNCombinations(itemsToNegate, K);
 					for (const negatedItems of itemCombinations) {
@@ -190,8 +189,8 @@ export class PuzzleValidator {
 						if (this.checkRegionValid(grid, region, [...negatedCells, ...negatedErasers], activeErasers)) {
 							let isUseful = true;
 							if (initiallyValid) {
-								// 初期状態で有効なら、テトラポッド同士で完全に消し合うしかない
-								if (K > 0 || leftoverPower > 0) isUseful = false;
+								// 初期状態で有効なら、テトラポッド同士で完全に消し合うしかない（K=0、かつNによってすべて消える）
+								if (K > 0) isUseful = false;
 							} else {
 								// 冗長な削除（natural なエラーに対するもの）のチェック
 								for (let i = 0; i < negatedItems.length; i++) {
@@ -200,21 +199,6 @@ export class PuzzleValidator {
 									if (this.checkRegionValid(grid, region, subsetCells, activeErasers)) {
 										isUseful = false;
 										break;
-									}
-								}
-								if (!isUseful) continue;
-
-								// 余ったテトラポッドが記号として必須かチェック
-								if (leftoverPower > 0) {
-									for (let i = 0; i < activeErasers.length; i++) {
-										// 削除に使われていないテトラポッドを1つ記号から外してみて、有効なら冗長
-										if (i >= N + K) {
-											const subsetMarks = [...activeErasers.slice(0, i), ...activeErasers.slice(i + 1)];
-											if (this.checkRegionValid(grid, region, [...negatedCells, ...negatedErasers], subsetMarks)) {
-												isUseful = false;
-												break;
-											}
-										}
 									}
 								}
 							}
