@@ -117,6 +117,12 @@ export class PuzzleValidator {
 			// 各区画でエラー削除の全組み合わせを試行
 			const possible = this.getPossibleErasures(grid, region, erasers, otherMarks, adjacentMissedHexagons);
 			if (possible.length === 0) return { isValid: false, errorReason: `Constraints failed in region ${i}` };
+			// 最小の削除数を持つ解決策を優先する
+			possible.sort((a, b) => {
+				const costA = a.invalidatedCells.length + a.invalidatedHexagons.length;
+				const costB = b.invalidatedCells.length + b.invalidatedHexagons.length;
+				return costA - costB;
+			});
 			regionResults.push(possible);
 		}
 
@@ -160,50 +166,62 @@ export class PuzzleValidator {
 
 		const itemsToNegate = [...otherMarks.map((p) => ({ type: "cell" as const, pos: p })), ...adjacentMissedHexagons.map((idx) => ({ type: "hex" as const, index: idx }))];
 
-		// テトラポッドが「記号として振る舞う(L個)」か「削除として振る舞う(numRemaining個)」かの組み合わせ
-		for (let L = 0; L <= numErasers; L++) {
-			const eraserCombinations = this.getNCombinations(erasers, L);
-			for (const erasersAsMarks of eraserCombinations) {
-				const erasersAsMarksSet = new Set(erasersAsMarks.map((e) => `${e.x},${e.y}`));
-				const remainingErasers = erasers.filter((e) => !erasersAsMarksSet.has(`${e.x},${e.y}`));
-				const numRemaining = remainingErasers.length;
+		// 初期状態でエラーがあるか確認（テトラポッド自身のペア不成立は除外して判定）
+		const initiallyValid = this.checkRegionValid(grid, region, [], []) && adjacentMissedHexagons.length === 0;
 
-				// K個の項目を削除し、残りのテトラポッド(numRemaining-K)がペアで相殺されるか
-				for (let K = 0; K <= numRemaining; K++) {
-					if ((numRemaining - K) % 2 !== 0) continue;
+		// E: 全テトラポッド数, N: テトラポッド自身が削除される数, K: itemsToNegate から削除する数
+		// 各 activeEraser (E-N個) は、1つの対象（N個のテトラポッド or K個の項目）を削除できる。
+		// 余った activeEraser は、Starのペアなどの記号として機能し、それが必須でなければならない。
+		for (let N = 0; N <= numErasers; N++) {
+			const negatedEraserCombinations = this.getNCombinations(erasers, N);
+			for (const negatedErasers of negatedEraserCombinations) {
+				const negatedErasersSet = new Set(negatedErasers.map((e) => `${e.x},${e.y}`));
+				const activeErasers = erasers.filter((e) => !negatedErasersSet.has(`${e.x},${e.y}`));
+
+				for (let K = 0; K <= itemsToNegate.length; K++) {
+					if (activeErasers.length < N + K) continue; // 削除能力が不足
+					const leftoverPower = activeErasers.length - (N + K);
+
 					const itemCombinations = this.getNCombinations(itemsToNegate, K);
 					for (const negatedItems of itemCombinations) {
 						const negatedCells = negatedItems.filter((it) => it.type === "cell").map((it) => it.pos as Point);
 						const negatedHexIndices = negatedItems.filter((it) => it.type === "hex").map((it) => it.index as number);
 
-						if (this.checkRegionValid(grid, region, negatedCells, erasersAsMarks)) {
-							// 冗長な削除でないか（必要最小限の削除か）のチェック
+						if (this.checkRegionValid(grid, region, [...negatedCells, ...negatedErasers], activeErasers)) {
 							let isUseful = true;
-							if (this.checkRegionValid(grid, region, [], []) && adjacentMissedHexagons.length === 0) {
-								if (L > 0 || K > 0) isUseful = false;
-								else if (numRemaining === 0) isUseful = false;
+							if (initiallyValid) {
+								// 初期状態で有効なら、テトラポッド同士で完全に消し合うしかない
+								if (K > 0 || leftoverPower > 0) isUseful = false;
 							} else {
+								// 冗長な削除（natural なエラーに対するもの）のチェック
 								for (let i = 0; i < negatedItems.length; i++) {
 									const subset = [...negatedItems.slice(0, i), ...negatedItems.slice(i + 1)];
 									const subsetCells = subset.filter((it) => it.type === "cell").map((it) => it.pos as Point);
-									const subsetHexCount = subset.filter((it) => it.type === "hex").length;
-									if (subsetHexCount === negatedHexIndices.length && this.checkRegionValid(grid, region, subsetCells, erasersAsMarks)) {
+									if (this.checkRegionValid(grid, region, subsetCells, activeErasers)) {
 										isUseful = false;
 										break;
 									}
 								}
 								if (!isUseful) continue;
-								for (let i = 0; i < erasersAsMarks.length; i++) {
-									const subset = [...erasersAsMarks.slice(0, i), ...erasersAsMarks.slice(i + 1)];
-									if (this.checkRegionValid(grid, region, negatedCells, subset)) {
-										isUseful = false;
-										break;
+
+								// 余ったテトラポッドが記号として必須かチェック
+								if (leftoverPower > 0) {
+									for (let i = 0; i < activeErasers.length; i++) {
+										// 削除に使われていないテトラポッドを1つ記号から外してみて、有効なら冗長
+										if (i >= N + K) {
+											const subsetMarks = [...activeErasers.slice(0, i), ...activeErasers.slice(i + 1)];
+											if (this.checkRegionValid(grid, region, [...negatedCells, ...negatedErasers], subsetMarks)) {
+												isUseful = false;
+												break;
+											}
+										}
 									}
 								}
 							}
+
 							if (isUseful) {
 								results.push({
-									invalidatedCells: [...negatedCells, ...remainingErasers],
+									invalidatedCells: [...negatedCells, ...negatedErasers],
 									invalidatedHexagons: negatedHexIndices,
 									isValid: true,
 								});

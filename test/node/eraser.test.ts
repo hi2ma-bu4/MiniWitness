@@ -55,13 +55,6 @@ test("Eraser validation - erase square violation", () => {
 
 test("Eraser validation - two erasers erasing each other in valid region", () => {
 	const puzzle = createBasicGrid(1, 2);
-	// E=2, nothing else. They negate each other.
-	// Partition: 2M=2. Remaining: {}. Valid.
-	// Useful? Yes, if we don't negation, we have E=2.
-	// Wait, my "initiallyValid" check for E=2 will return false because K=0, L=0 is valid but E=2 are present?
-	// In my logic: initiallyValid = checkRegionValid(..., [], [])
-	// This removes ALL erasers. So initiallyValid is true if region is valid without erasers.
-	// If initiallyValid is true, then erasers negate each other if E is even.
 	puzzle.cells[0][0] = { type: CellType.Eraser, color: Color.None };
 	puzzle.cells[0][1] = { type: CellType.Eraser, color: Color.None };
 
@@ -71,9 +64,6 @@ test("Eraser validation - two erasers erasing each other in valid region", () =>
 
 test("Eraser validation - one star and two erasers (invalid)", () => {
 	const puzzle = createBasicGrid(1, 3);
-	// 1 Star + 2 Erasers.
-	// Negate Star? E-K=1. Invalid.
-	// Negate each other? Star is error. Invalid.
 	puzzle.cells[0][0] = { type: CellType.Star, color: Color.Black };
 	puzzle.cells[0][1] = { type: CellType.Eraser, color: Color.None };
 	puzzle.cells[0][2] = { type: CellType.Eraser, color: Color.None };
@@ -99,6 +89,27 @@ test("Eraser validation - colored eraser redundant pair", () => {
 
 	const result = core.validateSolution(puzzle, getPath(3));
 	assert.strictEqual(result.isValid, false, "2 Stars + 1 Eraser of same color should be INVALID");
+});
+
+test("Eraser validation - complex scenario (2 White Sq, 1 White Star, 1 Black Star, 1 Black Eraser)", () => {
+	const puzzle = createBasicGrid(1, 5);
+	puzzle.cells[0][0] = { type: CellType.Square, color: Color.White };
+	puzzle.cells[0][1] = { type: CellType.Square, color: Color.White };
+	puzzle.cells[0][2] = { type: CellType.Star, color: Color.White };
+	puzzle.cells[0][3] = { type: CellType.Star, color: Color.Black };
+	puzzle.cells[0][4] = { type: CellType.Eraser, color: Color.Black };
+
+	const result = core.validateSolution(puzzle, getPath(5));
+	assert.strictEqual(result.isValid, true, "Should be valid: Black Eraser pairs with Black Star AND negates one White Square");
+
+	// Check that exactly one White Square was invalidated.
+	// The Star(White) now has 2 white marks (1 Square + 1 Star).
+	// The Star(Black) now has 2 black marks (1 Star + 1 Eraser).
+	const invalidated = result.invalidatedCells || [];
+	assert.strictEqual(invalidated.length, 1, "Exactly one cell should be invalidated");
+	const cell = puzzle.cells[invalidated[0].y][invalidated[0].x];
+	assert.strictEqual(cell.type, CellType.Square, "The invalidated cell should be a Square");
+	assert.strictEqual(cell.color, Color.White, "The invalidated Square should be White");
 });
 
 test("Generation independence - Tetris and Eraser without Squares/Stars", () => {

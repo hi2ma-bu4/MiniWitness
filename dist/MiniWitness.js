@@ -180,6 +180,11 @@ var PuzzleValidator = class {
       }
       const possible = this.getPossibleErasures(grid, region, erasers, otherMarks, adjacentMissedHexagons);
       if (possible.length === 0) return { isValid: false, errorReason: `Constraints failed in region ${i}` };
+      possible.sort((a, b) => {
+        const costA = a.invalidatedCells.length + a.invalidatedHexagons.length;
+        const costB = b.invalidatedCells.length + b.invalidatedHexagons.length;
+        return costA - costB;
+      });
       regionResults.push(possible);
     }
     const assignment = this.findGlobalAssignment(regionResults, missedHexagons.length);
@@ -217,45 +222,48 @@ var PuzzleValidator = class {
       return results;
     }
     const itemsToNegate = [...otherMarks.map((p) => ({ type: "cell", pos: p })), ...adjacentMissedHexagons.map((idx) => ({ type: "hex", index: idx }))];
-    for (let L = 0; L <= numErasers; L++) {
-      const eraserCombinations = this.getNCombinations(erasers, L);
-      for (const erasersAsMarks of eraserCombinations) {
-        const erasersAsMarksSet = new Set(erasersAsMarks.map((e) => `${e.x},${e.y}`));
-        const remainingErasers = erasers.filter((e) => !erasersAsMarksSet.has(`${e.x},${e.y}`));
-        const numRemaining = remainingErasers.length;
-        for (let K = 0; K <= numRemaining; K++) {
-          if ((numRemaining - K) % 2 !== 0) continue;
+    const initiallyValid = this.checkRegionValid(grid, region, [], []) && adjacentMissedHexagons.length === 0;
+    for (let N = 0; N <= numErasers; N++) {
+      const negatedEraserCombinations = this.getNCombinations(erasers, N);
+      for (const negatedErasers of negatedEraserCombinations) {
+        const negatedErasersSet = new Set(negatedErasers.map((e) => `${e.x},${e.y}`));
+        const activeErasers = erasers.filter((e) => !negatedErasersSet.has(`${e.x},${e.y}`));
+        for (let K = 0; K <= itemsToNegate.length; K++) {
+          if (activeErasers.length < N + K) continue;
+          const leftoverPower = activeErasers.length - (N + K);
           const itemCombinations = this.getNCombinations(itemsToNegate, K);
           for (const negatedItems of itemCombinations) {
             const negatedCells = negatedItems.filter((it) => it.type === "cell").map((it) => it.pos);
             const negatedHexIndices = negatedItems.filter((it) => it.type === "hex").map((it) => it.index);
-            if (this.checkRegionValid(grid, region, negatedCells, erasersAsMarks)) {
+            if (this.checkRegionValid(grid, region, [...negatedCells, ...negatedErasers], activeErasers)) {
               let isUseful = true;
-              if (this.checkRegionValid(grid, region, [], []) && adjacentMissedHexagons.length === 0) {
-                if (L > 0 || K > 0) isUseful = false;
-                else if (numRemaining === 0) isUseful = false;
+              if (initiallyValid) {
+                if (K > 0 || leftoverPower > 0) isUseful = false;
               } else {
                 for (let i = 0; i < negatedItems.length; i++) {
                   const subset = [...negatedItems.slice(0, i), ...negatedItems.slice(i + 1)];
                   const subsetCells = subset.filter((it) => it.type === "cell").map((it) => it.pos);
-                  const subsetHexCount = subset.filter((it) => it.type === "hex").length;
-                  if (subsetHexCount === negatedHexIndices.length && this.checkRegionValid(grid, region, subsetCells, erasersAsMarks)) {
+                  if (this.checkRegionValid(grid, region, subsetCells, activeErasers)) {
                     isUseful = false;
                     break;
                   }
                 }
                 if (!isUseful) continue;
-                for (let i = 0; i < erasersAsMarks.length; i++) {
-                  const subset = [...erasersAsMarks.slice(0, i), ...erasersAsMarks.slice(i + 1)];
-                  if (this.checkRegionValid(grid, region, negatedCells, subset)) {
-                    isUseful = false;
-                    break;
+                if (leftoverPower > 0) {
+                  for (let i = 0; i < activeErasers.length; i++) {
+                    if (i >= N + K) {
+                      const subsetMarks = [...activeErasers.slice(0, i), ...activeErasers.slice(i + 1)];
+                      if (this.checkRegionValid(grid, region, [...negatedCells, ...negatedErasers], subsetMarks)) {
+                        isUseful = false;
+                        break;
+                      }
+                    }
                   }
                 }
               }
               if (isUseful) {
                 results.push({
-                  invalidatedCells: [...negatedCells, ...remainingErasers],
+                  invalidatedCells: [...negatedCells, ...negatedErasers],
                   invalidatedHexagons: negatedHexIndices,
                   isValid: true
                 });
