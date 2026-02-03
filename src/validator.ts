@@ -579,8 +579,11 @@ export class PuzzleValidator {
 		const totalHexagons = hexagonEdges.size;
 		const fingerprints = new Set<string>();
 
+		// 盤面の大きさに合わせて探索リミットを調整
+		const searchLimit = Math.max(1000, rows * cols * 200);
+
 		for (const startIdx of startNodes) {
-			this.exploreSearchSpace(grid, startIdx, 1n << BigInt(startIdx), [startIdx], 0, totalHexagons, adj, endNodes, fingerprints, stats, 500);
+			this.exploreSearchSpace(grid, startIdx, 1n << BigInt(startIdx), [startIdx], 0, totalHexagons, adj, endNodes, fingerprints, stats, searchLimit);
 		}
 
 		if (stats.solutions === 0) return 0;
@@ -608,7 +611,8 @@ export class PuzzleValidator {
 
 		const branchingFactor = stats.branchingPoints / (stats.totalNodesVisited || 1);
 		const searchComplexity = Math.log10(stats.totalNodesVisited + 1);
-		let difficulty = (branchingFactor * 10 + searchComplexity * 1.0) / (Math.log2(stats.solutions + 1) + 1);
+		// 解の数が多いほど難易度を下げる。スケールを調整
+		let difficulty = (branchingFactor * 10 + searchComplexity * 1.5) / (Math.log2(stats.solutions + 1) * 0.5 + 1);
 
 		if (tetrisCount > 0) {
 			difficulty += rotatedTetrisCount * 0.5;
@@ -617,11 +621,13 @@ export class PuzzleValidator {
 
 		const cellCount = rows * cols;
 		const density = constraintCount / cellCount;
-		const densityFactor = density < 0.3 ? Math.pow(density / 0.3, 3) : 1.0;
-		const typeFactor = constraintTypes.size <= 1 ? 0.4 : 1.0;
+		// 密度が低すぎると急激に難易度が下がるように調整。より厳しく。
+		const densityFactor = density < 0.25 ? Math.pow(density / 0.25, 4) : 1.0;
+		const typeFactor = constraintTypes.size <= 1 ? 0.5 : 1.0;
 
 		difficulty *= densityFactor * typeFactor;
-		const sizeFactor = Math.sqrt(cellCount) / 4;
+		// 盤面サイズによる補正を緩やかに
+		const sizeFactor = Math.log2(cellCount) / 5;
 		difficulty *= sizeFactor;
 
 		return Math.max(0.01, Math.min(1.0, difficulty / 4));
@@ -675,6 +681,16 @@ export class PuzzleValidator {
 		}
 
 		if (validMoves.length > 1) stats.branchingPoints++;
+
+		// 大きな盤面では探索がリミットに達しやすいため、探索順序をランダム化して
+		// 少なくともいくつかの解を見つけやすくする
+		if (grid.rows * grid.cols > 30) {
+			for (let i = validMoves.length - 1; i > 0; i--) {
+				const j = Math.floor(Math.random() * (i + 1));
+				[validMoves[i], validMoves[j]] = [validMoves[j], validMoves[i]];
+			}
+		}
+
 		for (const move of validMoves) {
 			path.push(move.next);
 			this.exploreSearchSpace(grid, move.next, visitedMask | (1n << BigInt(move.next)), path, hexagonsOnPath + (move.isHexagon ? 1 : 0), totalHexagons, adj, endNodes, fingerprints, stats, limit);

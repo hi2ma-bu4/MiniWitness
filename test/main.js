@@ -5,6 +5,9 @@ class WitnessGame {
 		this.core = new WitnessCore();
 		this.canvas = document.getElementById("game-canvas");
 		this.ctx = this.canvas.getContext("2d");
+		this.ctx.imageSmoothingEnabled = false;
+		this.ctx.webkitImageSmoothingEnabled = false;
+		this.ctx.mozImageSmoothingEnabled = false;
 		this.statusMsg = document.getElementById("status-message");
 		this.sizeSelect = document.getElementById("size-select");
 		this.newPuzzleBtn = document.getElementById("new-puzzle-btn");
@@ -480,7 +483,7 @@ class WitnessGame {
 					this.drawRoundedRect(ctx, pos.x - size / 2, pos.y - size / 2, size, size, radius);
 				} else if (cell.type === 2) {
 					// Star (8-pointed sunburst)
-					this.drawStar(ctx, pos.x, pos.y, 11, 16, 8, cell.color);
+					this.drawStar(ctx, pos.x, pos.y, 12, 16, 8, cell.color);
 				} else if (cell.type === 3 || cell.type === 4) {
 					// Tetris / TetrisRotated
 					this.drawTetris(ctx, pos.x, pos.y, cell.shape, cell.type === 4, cell.color);
@@ -717,7 +720,7 @@ class WitnessGame {
 			case 4:
 				return "#00f";
 			default:
-				return "#888";
+				return "#666";
 		}
 	}
 }

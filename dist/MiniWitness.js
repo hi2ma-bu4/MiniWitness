@@ -589,8 +589,9 @@ var PuzzleValidator = class {
     const stats = { totalNodesVisited: 0, branchingPoints: 0, solutions: 0, maxDepth: 0, backtracks: 0 };
     const totalHexagons = hexagonEdges.size;
     const fingerprints = /* @__PURE__ */ new Set();
+    const searchLimit = Math.max(1e3, rows * cols * 200);
     for (const startIdx of startNodes) {
-      this.exploreSearchSpace(grid, startIdx, 1n << BigInt(startIdx), [startIdx], 0, totalHexagons, adj, endNodes, fingerprints, stats, 500);
+      this.exploreSearchSpace(grid, startIdx, 1n << BigInt(startIdx), [startIdx], 0, totalHexagons, adj, endNodes, fingerprints, stats, searchLimit);
     }
     if (stats.solutions === 0) return 0;
     let constraintCount = hexagonEdges.size;
@@ -614,17 +615,17 @@ var PuzzleValidator = class {
     }
     const branchingFactor = stats.branchingPoints / (stats.totalNodesVisited || 1);
     const searchComplexity = Math.log10(stats.totalNodesVisited + 1);
-    let difficulty = (branchingFactor * 10 + searchComplexity * 1) / (Math.log2(stats.solutions + 1) + 1);
+    let difficulty = (branchingFactor * 10 + searchComplexity * 1.5) / (Math.log2(stats.solutions + 1) * 0.5 + 1);
     if (tetrisCount > 0) {
       difficulty += rotatedTetrisCount * 0.5;
       difficulty += (tetrisCount - rotatedTetrisCount) * 0.2;
     }
     const cellCount = rows * cols;
     const density = constraintCount / cellCount;
-    const densityFactor = density < 0.3 ? Math.pow(density / 0.3, 3) : 1;
-    const typeFactor = constraintTypes.size <= 1 ? 0.4 : 1;
+    const densityFactor = density < 0.25 ? Math.pow(density / 0.25, 4) : 1;
+    const typeFactor = constraintTypes.size <= 1 ? 0.5 : 1;
     difficulty *= densityFactor * typeFactor;
-    const sizeFactor = Math.sqrt(cellCount) / 4;
+    const sizeFactor = Math.log2(cellCount) / 5;
     difficulty *= sizeFactor;
     return Math.max(0.01, Math.min(1, difficulty / 4));
   }
@@ -670,6 +671,12 @@ var PuzzleValidator = class {
       if (possible) validMoves.push(edge);
     }
     if (validMoves.length > 1) stats.branchingPoints++;
+    if (grid.rows * grid.cols > 30) {
+      for (let i = validMoves.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [validMoves[i], validMoves[j]] = [validMoves[j], validMoves[i]];
+      }
+    }
     for (const move of validMoves) {
       path.push(move.next);
       this.exploreSearchSpace(grid, move.next, visitedMask | 1n << BigInt(move.next), path, hexagonsOnPath + (move.isHexagon ? 1 : 0), totalHexagons, adj, endNodes, fingerprints, stats, limit);
@@ -797,7 +804,7 @@ var PuzzleGenerator = class {
     const validator = new PuzzleValidator();
     let bestGrid = null;
     let bestScore = -1;
-    const maxAttempts = rows * cols > 30 ? 30 : 60;
+    const maxAttempts = rows * cols > 30 ? 50 : 80;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       const grid = this.generateOnce(rows, cols, options);
       if (!this.checkAllRequestedConstraintsPresent(grid, options)) continue;
@@ -892,7 +899,7 @@ var PuzzleGenerator = class {
       }
     }
     this.shuffleArray(unusedEdges);
-    const targetCount = Math.max(1, Math.floor(complexity * 4));
+    const targetCount = Math.max(1, Math.floor(complexity * (grid.rows * grid.cols) / 4));
     let placed = 0;
     for (const edge of unusedEdges) {
       if (placed >= targetCount) break;
@@ -1143,26 +1150,34 @@ var PuzzleGenerator = class {
       const regionIndices = Array.from({ length: regions.length }, (_, i) => i);
       this.shuffleArray(regionIndices);
       const squareColorsUsed = /* @__PURE__ */ new Set();
+      const needs = {
+        square: useSquares,
+        star: useStars,
+        tetris: useTetris,
+        eraser: useEraser
+      };
       for (let rIdx = 0; rIdx < regionIndices.length; rIdx++) {
         const idx = regionIndices[rIdx];
         const region = regions[idx];
-        const skipProb = (options.difficulty ?? 0.5) > 0.7 ? 0.4 : 0.2;
-        const isLastFew = rIdx >= regionIndices.length - 2;
-        const forceOne = useSquares && squaresPlaced === 0 || useStars && starsPlaced === 0 || useTetris && tetrisPlaced === 0 || useEraser && erasersPlaced === 0;
-        if ((!forceOne || !isLastFew) && Math.random() > skipProb + complexity * 0.5) continue;
+        const remainingRegions = regionIndices.length - rIdx;
+        const forceOne = needs.square && squaresPlaced === 0 || needs.star && starsPlaced === 0 || needs.tetris && tetrisPlaced === 0 || needs.eraser && erasersPlaced === 0;
+        let placementProb = 0.2 + complexity * 0.6;
+        if (forceOne && remainingRegions <= 3) placementProb = 1;
+        else if (forceOne && remainingRegions <= 6) placementProb = 0.7;
+        if (Math.random() > placementProb) continue;
         const potentialCells = [...region];
         this.shuffleArray(potentialCells);
         let squareColor = availableColors[Math.floor(Math.random() * availableColors.length)];
-        if (useSquares && !useStars && isLastFew && squareColorsUsed.size === 1) {
+        if (useSquares && !useStars && remainingRegions <= 2 && squareColorsUsed.size === 1) {
           const otherColors = availableColors.filter((c) => !squareColorsUsed.has(c));
           if (otherColors.length > 0) squareColor = otherColors[Math.floor(Math.random() * otherColors.length)];
         }
         let shouldPlaceSquare = useSquares && Math.random() < 0.5 + complexity * 0.3;
-        if (useSquares && squaresPlaced === 0 && isLastFew) shouldPlaceSquare = true;
-        if (useSquares && !useStars && isLastFew && squareColorsUsed.size < 2 && squaresPlaced > 0) shouldPlaceSquare = true;
+        if (useSquares && squaresPlaced === 0 && remainingRegions <= 2) shouldPlaceSquare = true;
+        if (useSquares && !useStars && remainingRegions <= 2 && squareColorsUsed.size < 2 && squaresPlaced > 0) shouldPlaceSquare = true;
         if (shouldPlaceSquare && potentialCells.length > 0) {
-          const maxSquares = Math.min(potentialCells.length, 4);
-          const numSquares = Math.floor(Math.random() * maxSquares) + 1;
+          const maxSquares = Math.min(potentialCells.length, Math.max(4, Math.floor(region.length / 4)));
+          const numSquares = Math.floor(Math.random() * (maxSquares / 2)) + Math.ceil(maxSquares / 2);
           for (let i = 0; i < numSquares; i++) {
             if (potentialCells.length === 0) break;
             const cell = potentialCells.pop();
@@ -1174,8 +1189,8 @@ var PuzzleGenerator = class {
         }
         if (useTetris && totalTetrisArea < maxTotalTetrisArea) {
           let shouldPlaceTetris = Math.random() < 0.1 + complexity * 0.4;
-          if (tetrisPlaced === 0 && isLastFew) shouldPlaceTetris = true;
-          const maxTetrisPerRegion = tetrisPlaced === 0 && isLastFew ? 6 : 4;
+          if (tetrisPlaced === 0 && remainingRegions <= 2) shouldPlaceTetris = true;
+          const maxTetrisPerRegion = tetrisPlaced === 0 && remainingRegions <= 2 ? 6 : 4;
           if (shouldPlaceTetris && potentialCells.length > 0 && region.length <= maxTetrisPerRegion * 4 && totalTetrisArea + region.length <= maxTotalTetrisArea) {
             const tiledPieces = this.generateTiling(region, maxTetrisPerRegion, options);
             if (tiledPieces) {
@@ -1199,7 +1214,7 @@ var PuzzleGenerator = class {
         if (useEraser && erasersPlaced < 1) {
           const prob = 0.05 + complexity * 0.2;
           let shouldPlaceEraser = Math.random() < prob;
-          if (isLastFew) shouldPlaceEraser = true;
+          if (remainingRegions <= 2) shouldPlaceEraser = true;
           if (shouldPlaceEraser && potentialCells.length >= 1) {
             const errorTypes = [];
             if (useStars) errorTypes.push("star");
@@ -1290,21 +1305,24 @@ var PuzzleGenerator = class {
           }
         }
         if (useStars) {
-          for (const color of availableColors) {
-            if (potentialCells.length < 1) break;
-            if (Math.random() > 0.2 + complexity * 0.3) continue;
-            const colorCount = region.filter((p) => grid.cells[p.y][p.x].color === color).length;
-            if (colorCount === 1) {
-              const cell = potentialCells.pop();
-              grid.cells[cell.y][cell.x].type = 2 /* Star */;
-              grid.cells[cell.y][cell.x].color = color;
-              starsPlaced++;
-            } else if (colorCount === 0 && potentialCells.length >= 2) {
-              for (let i = 0; i < 2; i++) {
+          const maxPairs = Math.max(1, Math.floor(region.length / 8));
+          for (let p = 0; p < maxPairs; p++) {
+            for (const color of availableColors) {
+              if (potentialCells.length < 1) break;
+              if (Math.random() > 0.3 + complexity * 0.4) continue;
+              const colorCount = region.filter((p2) => grid.cells[p2.y][p2.x].color === color).length;
+              if (colorCount === 1) {
                 const cell = potentialCells.pop();
                 grid.cells[cell.y][cell.x].type = 2 /* Star */;
                 grid.cells[cell.y][cell.x].color = color;
                 starsPlaced++;
+              } else if (colorCount === 0 && potentialCells.length >= 2) {
+                for (let i = 0; i < 2; i++) {
+                  const cell = potentialCells.pop();
+                  grid.cells[cell.y][cell.x].type = 2 /* Star */;
+                  grid.cells[cell.y][cell.x].color = color;
+                  starsPlaced++;
+                }
               }
             }
           }

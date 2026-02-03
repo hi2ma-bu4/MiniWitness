@@ -20,7 +20,7 @@ export class PuzzleGenerator {
 		let bestScore = -1;
 
 		// 試行回数の設定
-		const maxAttempts = rows * cols > 30 ? 30 : 60;
+		const maxAttempts = rows * cols > 30 ? 50 : 80;
 
 		for (let attempt = 0; attempt < maxAttempts; attempt++) {
 			const grid = this.generateOnce(rows, cols, options);
@@ -141,7 +141,8 @@ export class PuzzleGenerator {
 		}
 
 		this.shuffleArray(unusedEdges);
-		const targetCount = Math.max(1, Math.floor(complexity * 4));
+		// 盤面サイズに応じて断線数をスケールさせる
+		const targetCount = Math.max(1, Math.floor((complexity * (grid.rows * grid.cols)) / 4));
 		let placed = 0;
 		for (const edge of unusedEdges) {
 			if (placed >= targetCount) break;
@@ -413,31 +414,47 @@ export class PuzzleGenerator {
 			this.shuffleArray(regionIndices);
 			const squareColorsUsed = new Set<number>();
 
+			// 必要な最小限の制約を分散して配置するためのフラグ
+			const needs = {
+				square: useSquares,
+				star: useStars,
+				tetris: useTetris,
+				eraser: useEraser,
+			};
+
 			for (let rIdx = 0; rIdx < regionIndices.length; rIdx++) {
 				const idx = regionIndices[rIdx];
 				const region = regions[idx];
-				const skipProb = (options.difficulty ?? 0.5) > 0.7 ? 0.4 : 0.2;
-				const isLastFew = rIdx >= regionIndices.length - 2;
-				const forceOne = (useSquares && squaresPlaced === 0) || (useStars && starsPlaced === 0) || (useTetris && tetrisPlaced === 0) || (useEraser && erasersPlaced === 0);
-				if ((!forceOne || !isLastFew) && Math.random() > skipProb + complexity * 0.5) continue;
+
+				// 盤面が大きく区画が多い場合、後半に偏るのを防ぐため確率を調整
+				const remainingRegions = regionIndices.length - rIdx;
+				const forceOne = (needs.square && squaresPlaced === 0) || (needs.star && starsPlaced === 0) || (needs.tetris && tetrisPlaced === 0) || (needs.eraser && erasersPlaced === 0);
+
+				// 必須なものがまだ配置されていない場合、残り区画数が少なくなってきたら確率を上げる
+				let placementProb = 0.2 + complexity * 0.6;
+				if (forceOne && remainingRegions <= 3) placementProb = 1.0;
+				else if (forceOne && remainingRegions <= 6) placementProb = 0.7;
+
+				if (Math.random() > placementProb) continue;
 
 				const potentialCells = [...region];
 				this.shuffleArray(potentialCells);
 
 				// 四角形の配置
 				let squareColor = availableColors[Math.floor(Math.random() * availableColors.length)];
-				if (useSquares && !useStars && isLastFew && squareColorsUsed.size === 1) {
+				if (useSquares && !useStars && remainingRegions <= 2 && squareColorsUsed.size === 1) {
 					const otherColors = availableColors.filter((c) => !squareColorsUsed.has(c));
 					if (otherColors.length > 0) squareColor = otherColors[Math.floor(Math.random() * otherColors.length)];
 				}
 
 				let shouldPlaceSquare = useSquares && Math.random() < 0.5 + complexity * 0.3;
-				if (useSquares && squaresPlaced === 0 && isLastFew) shouldPlaceSquare = true;
-				if (useSquares && !useStars && isLastFew && squareColorsUsed.size < 2 && squaresPlaced > 0) shouldPlaceSquare = true;
+				if (useSquares && squaresPlaced === 0 && remainingRegions <= 2) shouldPlaceSquare = true;
+				if (useSquares && !useStars && remainingRegions <= 2 && squareColorsUsed.size < 2 && squaresPlaced > 0) shouldPlaceSquare = true;
 
 				if (shouldPlaceSquare && potentialCells.length > 0) {
-					const maxSquares = Math.min(potentialCells.length, 4);
-					const numSquares = Math.floor(Math.random() * maxSquares) + 1;
+					// 区域の大きさに応じて配置する数を増やす
+					const maxSquares = Math.min(potentialCells.length, Math.max(4, Math.floor(region.length / 4)));
+					const numSquares = Math.floor(Math.random() * (maxSquares / 2)) + Math.ceil(maxSquares / 2);
 					for (let i = 0; i < numSquares; i++) {
 						if (potentialCells.length === 0) break;
 						const cell = potentialCells.pop()!;
@@ -451,8 +468,8 @@ export class PuzzleGenerator {
 				// テトリスの配置
 				if (useTetris && totalTetrisArea < maxTotalTetrisArea) {
 					let shouldPlaceTetris = Math.random() < 0.1 + complexity * 0.4;
-					if (tetrisPlaced === 0 && isLastFew) shouldPlaceTetris = true;
-					const maxTetrisPerRegion = tetrisPlaced === 0 && isLastFew ? 6 : 4;
+					if (tetrisPlaced === 0 && remainingRegions <= 2) shouldPlaceTetris = true;
+					const maxTetrisPerRegion = tetrisPlaced === 0 && remainingRegions <= 2 ? 6 : 4;
 					if (shouldPlaceTetris && potentialCells.length > 0 && region.length <= maxTetrisPerRegion * 4 && totalTetrisArea + region.length <= maxTotalTetrisArea) {
 						const tiledPieces = this.generateTiling(region, maxTetrisPerRegion, options);
 						if (tiledPieces) {
@@ -479,7 +496,7 @@ export class PuzzleGenerator {
 				if (useEraser && erasersPlaced < 1) {
 					const prob = 0.05 + complexity * 0.2;
 					let shouldPlaceEraser = Math.random() < prob;
-					if (isLastFew) shouldPlaceEraser = true;
+					if (remainingRegions <= 2) shouldPlaceEraser = true;
 
 					if (shouldPlaceEraser && potentialCells.length >= 1) {
 						const errorTypes: string[] = [];
@@ -584,21 +601,25 @@ export class PuzzleGenerator {
 
 				// 星の配置
 				if (useStars) {
-					for (const color of availableColors) {
-						if (potentialCells.length < 1) break;
-						if (Math.random() > 0.2 + complexity * 0.3) continue;
-						const colorCount = region.filter((p) => grid.cells[p.y][p.x].color === color).length;
-						if (colorCount === 1) {
-							const cell = potentialCells.pop()!;
-							grid.cells[cell.y][cell.x].type = CellType.Star;
-							grid.cells[cell.y][cell.x].color = color;
-							starsPlaced++;
-						} else if (colorCount === 0 && potentialCells.length >= 2) {
-							for (let i = 0; i < 2; i++) {
+					// 区域が十分に大きければ、複数ペアの配置を検討する
+					const maxPairs = Math.max(1, Math.floor(region.length / 8));
+					for (let p = 0; p < maxPairs; p++) {
+						for (const color of availableColors) {
+							if (potentialCells.length < 1) break;
+							if (Math.random() > 0.3 + complexity * 0.4) continue;
+							const colorCount = region.filter((p) => grid.cells[p.y][p.x].color === color).length;
+							if (colorCount === 1) {
 								const cell = potentialCells.pop()!;
 								grid.cells[cell.y][cell.x].type = CellType.Star;
 								grid.cells[cell.y][cell.x].color = color;
 								starsPlaced++;
+							} else if (colorCount === 0 && potentialCells.length >= 2) {
+								for (let i = 0; i < 2; i++) {
+									const cell = potentialCells.pop()!;
+									grid.cells[cell.y][cell.x].type = CellType.Star;
+									grid.cells[cell.y][cell.x].color = color;
+									starsPlaced++;
+								}
 							}
 						}
 					}
