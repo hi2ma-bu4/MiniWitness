@@ -461,7 +461,13 @@ export class PuzzleGenerator {
 								const cell = potentialCells.pop()!;
 								grid.cells[cell.y][cell.x].type = p.isRotated ? CellType.TetrisRotated : CellType.Tetris;
 								grid.cells[cell.y][cell.x].shape = p.isRotated ? p.displayShape : p.shape;
-								grid.cells[cell.y][cell.x].color = Color.None;
+
+								let tetrisColor = Color.None;
+								if (useStars && Math.random() < 0.5) {
+									const colors = availableColors.filter((c) => c !== Color.Blue);
+									tetrisColor = colors[Math.floor(Math.random() * colors.length)];
+								}
+								grid.cells[cell.y][cell.x].color = tetrisColor;
 								tetrisPlaced++;
 							}
 							totalTetrisArea += region.length;
@@ -537,7 +543,13 @@ export class PuzzleGenerator {
 									const cell = potentialCells.pop()!;
 									grid.cells[cell.y][cell.x].type = p.isRotated ? CellType.TetrisRotated : CellType.Tetris;
 									grid.cells[cell.y][cell.x].shape = p.isRotated ? p.displayShape : p.shape;
-									grid.cells[cell.y][cell.x].color = Color.None;
+
+									let tetrisColor = Color.None;
+									if (useStars && Math.random() < 0.3) {
+										const colors = availableColors.filter((c) => c !== Color.Blue);
+										tetrisColor = colors[Math.floor(Math.random() * colors.length)];
+									}
+									grid.cells[cell.y][cell.x].color = tetrisColor;
 									tetrisPlaced++;
 								}
 								errorPlaced = true;

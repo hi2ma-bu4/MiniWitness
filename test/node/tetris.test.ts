@@ -28,6 +28,33 @@ test("Tetris validation - single 1x1", () => {
 	assert.strictEqual(result.isValid, true, `Should be valid: ${result.errorReason}`);
 });
 
+test("Tetris generator - colored pieces when Stars enabled", () => {
+	const generator = new PuzzleGenerator();
+	const options = {
+		useTetris: true,
+		useStars: true,
+		complexity: 1.0,
+	};
+
+	let foundColoredTetris = false;
+	for (let i = 0; i < 50; i++) {
+		const grid = generator.generate(4, 4, options);
+		for (let r = 0; r < grid.rows; r++) {
+			for (let c = 0; c < grid.cols; c++) {
+				const cell = grid.cells[r][c];
+				if ((cell.type === CellType.Tetris || cell.type === CellType.TetrisRotated) && cell.color !== Color.None) {
+					foundColoredTetris = true;
+					assert.notStrictEqual(cell.color, Color.Blue, "Colored Tetris piece should not be Blue");
+					break;
+				}
+			}
+			if (foundColoredTetris) break;
+		}
+		if (foundColoredTetris) break;
+	}
+	assert.ok(foundColoredTetris, "Generator should have placed at least one colored Tetris piece when useStars is true");
+});
+
 test("Tetris validation - disconnected pieces tiling 2x2", () => {
 	const puzzle = createBasicGrid(2, 2);
 	// Region: all cells. Area 4.
