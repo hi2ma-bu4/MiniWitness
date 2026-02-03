@@ -1,6 +1,6 @@
 import assert from "node:assert";
 import { test } from "node:test";
-import { CellType, Color, NodeType, PuzzleData, PuzzleGenerator, SolutionPath, WitnessCore } from "../../dist/MiniWitness.js";
+import { CellType, Color, EdgeType, NodeType, type PuzzleData, PuzzleGenerator, type SolutionPath, WitnessCore } from "../../dist/MiniWitness.js";
 
 const core = new WitnessCore();
 
@@ -150,4 +150,29 @@ test("Generation independence - Tetris and Eraser without Squares/Stars", () => 
 	}
 	assert.ok(hasTetris, "Should generate Tetris even if Squares/Stars are off");
 	assert.ok(hasEraser, "Should generate Eraser even if Squares/Stars are off");
+});
+
+test("Eraser validation - erase hexagon violation", () => {
+	const puzzle = createBasicGrid(1, 2);
+	// Hexagon on H(0,0) -> between (0,0) and (1,0)
+	puzzle.hEdges[0][0].type = EdgeType.Hexagon;
+	puzzle.cells[0][0] = { type: CellType.Eraser, color: Color.None };
+
+	// Path: (0,1) -> (1,1) -> (2,1) -> (2,0)
+	// This path does NOT pass through H(0,0)
+	const path: SolutionPath = {
+		points: [
+			{ x: 0, y: 1 },
+			{ x: 1, y: 1 },
+			{ x: 2, y: 1 },
+			{ x: 2, y: 0 },
+		],
+	};
+
+	const result = core.validateSolution(puzzle, path);
+	assert.strictEqual(result.isValid, true, `Should be valid: eraser negates missed hexagon. Error: ${result.errorReason}`);
+	assert.strictEqual(result.invalidatedEdges?.length, 1, "One hexagon should be invalidated");
+	assert.strictEqual(result.invalidatedEdges[0].type, "h");
+	assert.strictEqual(result.invalidatedEdges[0].r, 0);
+	assert.strictEqual(result.invalidatedEdges[0].c, 0);
 });

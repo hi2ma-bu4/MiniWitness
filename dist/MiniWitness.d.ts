@@ -145,6 +145,10 @@ export declare class PuzzleGenerator {
 	 */
 	private calculateRegions;
 	private isAbsentEdge;
+	/**
+	 * 区画の境界エッジのうち、解パスが通っていないものを取得する
+	 */
+	private getRegionBoundaryEdges;
 	private setEdgeHexagon;
 	/**
 	 * 要求された制約が全て含まれているか確認する

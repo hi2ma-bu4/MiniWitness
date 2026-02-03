@@ -186,7 +186,8 @@ export class PuzzleValidator {
 						const negatedCells = negatedItems.filter((it) => it.type === "cell").map((it) => it.pos as Point);
 						const negatedHexIndices = negatedItems.filter((it) => it.type === "hex").map((it) => it.index as number);
 
-						if (this.checkRegionValid(grid, region, [...negatedCells, ...negatedErasers], activeErasers)) {
+						const isValid = this.checkRegionValid(grid, region, [...negatedCells, ...negatedErasers], activeErasers);
+						if (isValid) {
 							let isUseful = true;
 							if (initiallyValid) {
 								// 初期状態で有効なら、テトラポッド同士で完全に消し合うしかない（K=0、かつNによってすべて消える）
@@ -196,7 +197,10 @@ export class PuzzleValidator {
 								for (let i = 0; i < negatedItems.length; i++) {
 									const subset = [...negatedItems.slice(0, i), ...negatedItems.slice(i + 1)];
 									const subsetCells = subset.filter((it) => it.type === "cell").map((it) => it.pos as Point);
-									if (this.checkRegionValid(grid, region, subsetCells, activeErasers)) {
+									const subsetHexIndices = new Set(subset.filter((it) => it.type === "hex").map((it) => it.index as number));
+									const allHexSatisfied = adjacentMissedHexagons.every((idx) => subsetHexIndices.has(idx));
+
+									if (this.checkRegionValid(grid, region, subsetCells, activeErasers) && allHexSatisfied) {
 										isUseful = false;
 										break;
 									}

@@ -1,6 +1,6 @@
 import assert from "node:assert";
 import { test } from "node:test";
-import { CellType, Color, EdgeType, Grid, NodeType, PuzzleData, PuzzleGenerator, PuzzleValidator, SolutionPath, WitnessCore } from "../../dist/MiniWitness.js";
+import { CellType, Color, EdgeType, Grid, NodeType, type PuzzleData, PuzzleGenerator, PuzzleValidator, type SolutionPath, WitnessCore } from "../../dist/MiniWitness.js";
 
 const core = new WitnessCore();
 

@@ -470,22 +470,103 @@ export class PuzzleGenerator {
 				}
 
 				// テトラポッド（エラー削除）の配置
-				if (useEraser) {
-					let shouldPlaceEraser = Math.random() < 0.05 + complexity * 0.2;
-					if (erasersPlaced === 0 && isLastFew) shouldPlaceEraser = true;
-					if (shouldPlaceEraser && potentialCells.length >= 2) {
-						const cell = potentialCells.pop()!;
-						grid.cells[cell.y][cell.x].type = CellType.Eraser;
-						let eraserColor = Color.None;
-						if (useStars && Math.random() < 0.4) eraserColor = availableColors[Math.floor(Math.random() * availableColors.length)];
-						grid.cells[cell.y][cell.x].color = eraserColor;
-						erasersPlaced++;
+				if (useEraser && erasersPlaced < 1) {
+					const prob = 0.05 + complexity * 0.2;
+					let shouldPlaceEraser = Math.random() < prob;
+					if (isLastFew) shouldPlaceEraser = true;
 
-						// エラー（削除対象）を意図的に作成
-						const errCell = potentialCells.pop()!;
-						grid.cells[errCell.y][errCell.x].type = CellType.Star;
-						grid.cells[errCell.y][errCell.x].color = availableColors.find((c) => c !== eraserColor) || Color.Red;
-						starsPlaced++;
+					if (shouldPlaceEraser && potentialCells.length >= 1) {
+						const errorTypes: string[] = [];
+						if (useStars) errorTypes.push("star");
+						if (useSquares) errorTypes.push("square");
+						let boundaryEdges: { type: "h" | "v"; r: number; c: number }[] = [];
+						if (useHexagons) {
+							boundaryEdges = this.getRegionBoundaryEdges(grid, region, path);
+							if (boundaryEdges.length > 0) errorTypes.push("hexagon");
+						}
+						if (useTetris) errorTypes.push("tetris");
+
+						let errorType = errorTypes.length > 0 ? errorTypes[Math.floor(Math.random() * errorTypes.length)] : null;
+
+						// eraser同士の打ち消し合いは超低確率にする
+						if (potentialCells.length >= 2 && (!errorType || Math.random() < 0.01)) errorType = "eraser";
+
+						let errorPlaced = false;
+
+						if (errorType === "hexagon") {
+							const edge = boundaryEdges[Math.floor(Math.random() * boundaryEdges.length)];
+							if (edge.type === "h") grid.hEdges[edge.r][edge.c].type = EdgeType.Hexagon;
+							else grid.vEdges[edge.r][edge.c].type = EdgeType.Hexagon;
+							hexagonsPlaced++;
+							errorPlaced = true;
+						} else if (errorType === "square" && potentialCells.length >= 2) {
+							const errCell = potentialCells.pop()!;
+							grid.cells[errCell.y][errCell.x].type = CellType.Square;
+							const existingSquare = region.find((p) => grid.cells[p.y][p.x].type === CellType.Square);
+							const existingSquareColor = existingSquare ? grid.cells[existingSquare.y][existingSquare.x].color : undefined;
+							grid.cells[errCell.y][errCell.x].color = availableColors.find((c) => c !== existingSquareColor) || Color.Red;
+							squaresPlaced++;
+							errorPlaced = true;
+						} else if (errorType === "star" && potentialCells.length >= 2) {
+							const errCell = potentialCells.pop()!;
+							grid.cells[errCell.y][errCell.x].type = CellType.Star;
+							grid.cells[errCell.y][errCell.x].color = availableColors[Math.floor(Math.random() * availableColors.length)];
+							starsPlaced++;
+							errorPlaced = true;
+						} else if (errorType === "tetris" && potentialCells.length >= 2) {
+							const tiledPieces = this.generateTiling(region, 4, options);
+							let piecesToPlace = [];
+							if (tiledPieces && tiledPieces.length > 0) {
+								let currentArea = 0;
+								for (const p of tiledPieces) {
+									const area = this.getShapeArea(p.shape);
+									if (currentArea + area < region.length) {
+										piecesToPlace.push(p);
+										currentArea += area;
+									} else break;
+								}
+							}
+							if (piecesToPlace.length === 0 && region.length > 1) {
+								// 面積不一致のエラーを確実に作成
+								piecesToPlace = [{ shape: [[1]], displayShape: [[1]], isRotated: false }];
+							}
+
+							if (piecesToPlace.length > 0) {
+								for (const p of piecesToPlace) {
+									if (potentialCells.length < 2) break;
+									const cell = potentialCells.pop()!;
+									grid.cells[cell.y][cell.x].type = p.isRotated ? CellType.TetrisRotated : CellType.Tetris;
+									grid.cells[cell.y][cell.x].shape = p.isRotated ? p.displayShape : p.shape;
+									grid.cells[cell.y][cell.x].color = Color.None;
+									tetrisPlaced++;
+								}
+								errorPlaced = true;
+							}
+						} else if (errorType === "eraser" && potentialCells.length >= 2) {
+							const errCell = potentialCells.pop()!;
+							grid.cells[errCell.y][errCell.x].type = CellType.Eraser;
+							grid.cells[errCell.y][errCell.x].color = Color.None;
+							erasersPlaced++;
+							errorPlaced = true;
+						}
+
+						// それでもエラーが配置できなかった場合はテトラポッド同士の打ち消しを試みる
+						if (!errorPlaced && potentialCells.length >= 2) {
+							const errCell = potentialCells.pop()!;
+							grid.cells[errCell.y][errCell.x].type = CellType.Eraser;
+							grid.cells[errCell.y][errCell.x].color = Color.None;
+							erasersPlaced++;
+							errorPlaced = true;
+						}
+
+						if (errorPlaced) {
+							const cell = potentialCells.pop()!;
+							grid.cells[cell.y][cell.x].type = CellType.Eraser;
+							let eraserColor = Color.None;
+							if (useStars && Math.random() < 0.4) eraserColor = availableColors[Math.floor(Math.random() * availableColors.length)];
+							grid.cells[cell.y][cell.x].color = eraserColor;
+							erasersPlaced++;
+						}
 					}
 				}
 
@@ -577,6 +658,36 @@ export class PuzzleGenerator {
 			const x = Math.min(p1.x, p2.x);
 			return grid.hEdges[p1.y][x].type === EdgeType.Absent;
 		}
+	}
+
+	/**
+	 * 区画の境界エッジのうち、解パスが通っていないものを取得する
+	 */
+	private getRegionBoundaryEdges(grid: Grid, region: Point[], path: Point[]): { type: "h" | "v"; r: number; c: number }[] {
+		const pathEdges = new Set<string>();
+		for (let i = 0; i < path.length - 1; i++) pathEdges.add(this.getEdgeKey(path[i], path[i + 1]));
+
+		const boundary: { type: "h" | "v"; r: number; c: number }[] = [];
+		for (const cell of region) {
+			const edges = [
+				{ type: "h" as const, r: cell.y, c: cell.x },
+				{ type: "h" as const, r: cell.y + 1, c: cell.x },
+				{ type: "v" as const, r: cell.y, c: cell.x },
+				{ type: "v" as const, r: cell.y, c: cell.x + 1 },
+			];
+			for (const e of edges) {
+				const p1 = e.type === "h" ? { x: e.c, y: e.r } : { x: e.c, y: e.r };
+				const p2 = e.type === "h" ? { x: e.c + 1, y: e.r } : { x: e.c, y: e.r + 1 };
+				const key = this.getEdgeKey(p1, p2);
+				if (!pathEdges.has(key) && !this.isAbsentEdge(grid, p1, p2)) {
+					boundary.push(e);
+				}
+			}
+		}
+		// 重複を削除
+		const unique = new Map<string, { type: "h" | "v"; r: number; c: number }>();
+		for (const e of boundary) unique.set(`${e.type},${e.r},${e.c}`, e);
+		return Array.from(unique.values());
 	}
 
 	private setEdgeHexagon(grid: Grid, p1: Point, p2: Point) {

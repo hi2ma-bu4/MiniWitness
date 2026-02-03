@@ -234,7 +234,8 @@ var PuzzleValidator = class {
           for (const negatedItems of itemCombinations) {
             const negatedCells = negatedItems.filter((it) => it.type === "cell").map((it) => it.pos);
             const negatedHexIndices = negatedItems.filter((it) => it.type === "hex").map((it) => it.index);
-            if (this.checkRegionValid(grid, region, [...negatedCells, ...negatedErasers], activeErasers)) {
+            const isValid = this.checkRegionValid(grid, region, [...negatedCells, ...negatedErasers], activeErasers);
+            if (isValid) {
               let isUseful = true;
               if (initiallyValid) {
                 if (K > 0) isUseful = false;
@@ -242,7 +243,9 @@ var PuzzleValidator = class {
                 for (let i = 0; i < negatedItems.length; i++) {
                   const subset = [...negatedItems.slice(0, i), ...negatedItems.slice(i + 1)];
                   const subsetCells = subset.filter((it) => it.type === "cell").map((it) => it.pos);
-                  if (this.checkRegionValid(grid, region, subsetCells, activeErasers)) {
+                  const subsetHexIndices = new Set(subset.filter((it) => it.type === "hex").map((it) => it.index));
+                  const allHexSatisfied = adjacentMissedHexagons.every((idx) => subsetHexIndices.has(idx));
+                  if (this.checkRegionValid(grid, region, subsetCells, activeErasers) && allHexSatisfied) {
                     isUseful = false;
                     break;
                   }
@@ -1188,20 +1191,92 @@ var PuzzleGenerator = class {
             }
           }
         }
-        if (useEraser) {
-          let shouldPlaceEraser = Math.random() < 0.05 + complexity * 0.2;
-          if (erasersPlaced === 0 && isLastFew) shouldPlaceEraser = true;
-          if (shouldPlaceEraser && potentialCells.length >= 2) {
-            const cell = potentialCells.pop();
-            grid.cells[cell.y][cell.x].type = 5 /* Eraser */;
-            let eraserColor = 0 /* None */;
-            if (useStars && Math.random() < 0.4) eraserColor = availableColors[Math.floor(Math.random() * availableColors.length)];
-            grid.cells[cell.y][cell.x].color = eraserColor;
-            erasersPlaced++;
-            const errCell = potentialCells.pop();
-            grid.cells[errCell.y][errCell.x].type = 2 /* Star */;
-            grid.cells[errCell.y][errCell.x].color = availableColors.find((c) => c !== eraserColor) || 3 /* Red */;
-            starsPlaced++;
+        if (useEraser && erasersPlaced < 1) {
+          const prob = 0.05 + complexity * 0.2;
+          let shouldPlaceEraser = Math.random() < prob;
+          if (isLastFew) shouldPlaceEraser = true;
+          if (shouldPlaceEraser && potentialCells.length >= 1) {
+            const errorTypes = [];
+            if (useStars) errorTypes.push("star");
+            if (useSquares) errorTypes.push("square");
+            let boundaryEdges = [];
+            if (useHexagons) {
+              boundaryEdges = this.getRegionBoundaryEdges(grid, region, path);
+              if (boundaryEdges.length > 0) errorTypes.push("hexagon");
+            }
+            if (useTetris) errorTypes.push("tetris");
+            let errorType = errorTypes.length > 0 ? errorTypes[Math.floor(Math.random() * errorTypes.length)] : null;
+            if (potentialCells.length >= 2 && (!errorType || Math.random() < 0.01)) errorType = "eraser";
+            let errorPlaced = false;
+            if (errorType === "hexagon") {
+              const edge = boundaryEdges[Math.floor(Math.random() * boundaryEdges.length)];
+              if (edge.type === "h") grid.hEdges[edge.r][edge.c].type = 3 /* Hexagon */;
+              else grid.vEdges[edge.r][edge.c].type = 3 /* Hexagon */;
+              hexagonsPlaced++;
+              errorPlaced = true;
+            } else if (errorType === "square" && potentialCells.length >= 2) {
+              const errCell = potentialCells.pop();
+              grid.cells[errCell.y][errCell.x].type = 1 /* Square */;
+              const existingSquare = region.find((p) => grid.cells[p.y][p.x].type === 1 /* Square */);
+              const existingSquareColor = existingSquare ? grid.cells[existingSquare.y][existingSquare.x].color : void 0;
+              grid.cells[errCell.y][errCell.x].color = availableColors.find((c) => c !== existingSquareColor) || 3 /* Red */;
+              squaresPlaced++;
+              errorPlaced = true;
+            } else if (errorType === "star" && potentialCells.length >= 2) {
+              const errCell = potentialCells.pop();
+              grid.cells[errCell.y][errCell.x].type = 2 /* Star */;
+              grid.cells[errCell.y][errCell.x].color = availableColors[Math.floor(Math.random() * availableColors.length)];
+              starsPlaced++;
+              errorPlaced = true;
+            } else if (errorType === "tetris" && potentialCells.length >= 2) {
+              const tiledPieces = this.generateTiling(region, 4, options);
+              let piecesToPlace = [];
+              if (tiledPieces && tiledPieces.length > 0) {
+                let currentArea = 0;
+                for (const p of tiledPieces) {
+                  const area = this.getShapeArea(p.shape);
+                  if (currentArea + area < region.length) {
+                    piecesToPlace.push(p);
+                    currentArea += area;
+                  } else break;
+                }
+              }
+              if (piecesToPlace.length === 0 && region.length > 1) {
+                piecesToPlace = [{ shape: [[1]], displayShape: [[1]], isRotated: false }];
+              }
+              if (piecesToPlace.length > 0) {
+                for (const p of piecesToPlace) {
+                  if (potentialCells.length < 2) break;
+                  const cell = potentialCells.pop();
+                  grid.cells[cell.y][cell.x].type = p.isRotated ? 4 /* TetrisRotated */ : 3 /* Tetris */;
+                  grid.cells[cell.y][cell.x].shape = p.isRotated ? p.displayShape : p.shape;
+                  grid.cells[cell.y][cell.x].color = 0 /* None */;
+                  tetrisPlaced++;
+                }
+                errorPlaced = true;
+              }
+            } else if (errorType === "eraser" && potentialCells.length >= 2) {
+              const errCell = potentialCells.pop();
+              grid.cells[errCell.y][errCell.x].type = 5 /* Eraser */;
+              grid.cells[errCell.y][errCell.x].color = 0 /* None */;
+              erasersPlaced++;
+              errorPlaced = true;
+            }
+            if (!errorPlaced && potentialCells.length >= 2) {
+              const errCell = potentialCells.pop();
+              grid.cells[errCell.y][errCell.x].type = 5 /* Eraser */;
+              grid.cells[errCell.y][errCell.x].color = 0 /* None */;
+              erasersPlaced++;
+              errorPlaced = true;
+            }
+            if (errorPlaced) {
+              const cell = potentialCells.pop();
+              grid.cells[cell.y][cell.x].type = 5 /* Eraser */;
+              let eraserColor = 0 /* None */;
+              if (useStars && Math.random() < 0.4) eraserColor = availableColors[Math.floor(Math.random() * availableColors.length)];
+              grid.cells[cell.y][cell.x].color = eraserColor;
+              erasersPlaced++;
+            }
           }
         }
         if (useStars) {
@@ -1287,6 +1362,33 @@ var PuzzleGenerator = class {
       const x = Math.min(p1.x, p2.x);
       return grid.hEdges[p1.y][x].type === 2 /* Absent */;
     }
+  }
+  /**
+   * 区画の境界エッジのうち、解パスが通っていないものを取得する
+   */
+  getRegionBoundaryEdges(grid, region, path) {
+    const pathEdges = /* @__PURE__ */ new Set();
+    for (let i = 0; i < path.length - 1; i++) pathEdges.add(this.getEdgeKey(path[i], path[i + 1]));
+    const boundary = [];
+    for (const cell of region) {
+      const edges = [
+        { type: "h", r: cell.y, c: cell.x },
+        { type: "h", r: cell.y + 1, c: cell.x },
+        { type: "v", r: cell.y, c: cell.x },
+        { type: "v", r: cell.y, c: cell.x + 1 }
+      ];
+      for (const e of edges) {
+        const p1 = e.type === "h" ? { x: e.c, y: e.r } : { x: e.c, y: e.r };
+        const p2 = e.type === "h" ? { x: e.c + 1, y: e.r } : { x: e.c, y: e.r + 1 };
+        const key = this.getEdgeKey(p1, p2);
+        if (!pathEdges.has(key) && !this.isAbsentEdge(grid, p1, p2)) {
+          boundary.push(e);
+        }
+      }
+    }
+    const unique = /* @__PURE__ */ new Map();
+    for (const e of boundary) unique.set(`${e.type},${e.r},${e.c}`, e);
+    return Array.from(unique.values());
   }
   setEdgeHexagon(grid, p1, p2) {
     if (p1.x === p2.x) grid.vEdges[Math.min(p1.y, p2.y)][p1.x].type = 3 /* Hexagon */;
