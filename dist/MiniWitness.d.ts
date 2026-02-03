@@ -25,6 +25,9 @@ export declare enum NodeType {
 	Start = 1,
 	End = 2
 }
+/**
+ * 使用可能色
+ */
 export declare enum Color {
 	None = 0,
 	Black = 1,

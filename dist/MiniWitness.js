@@ -1,3 +1,10 @@
+/*!
+ * MiniWitness 1.0.2
+ * Copyright 2026 hi2ma-bu4
+ * Licensed under the Apache License, Version 2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
+ */
+
 // src/types.ts
 var Direction = /* @__PURE__ */ ((Direction2) => {
   Direction2[Direction2["Up"] = 0] = "Up";

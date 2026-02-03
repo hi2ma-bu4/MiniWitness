@@ -3,6 +3,8 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
+
+import pkg from "../package.json" with { type: "json" };
 /* -------------------------------------------------------------------------- */
 /* 設定値 */
 /* -------------------------------------------------------------------------- */
@@ -77,6 +79,15 @@ const ESBUILD_COMMON = {
 
 	supported: {
 		"import-meta": true,
+	},
+
+	banner: {
+		js: `/*!
+ * MiniWitness ${pkg.version}
+ * Copyright ${new Date().getFullYear()} ${pkg.author}
+ * Licensed under the Apache License, Version 2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
+ */`,
 	},
 };
 

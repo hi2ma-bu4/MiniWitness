@@ -27,6 +27,9 @@ export enum NodeType {
 	End = 2,
 }
 
+/**
+ * 使用可能色
+ */
 export enum Color {
 	None = 0,
 	Black = 1,
