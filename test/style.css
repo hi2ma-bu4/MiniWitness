@@ -57,7 +57,7 @@ button:hover {
 }
 
 #game-container {
-    background-color: #bfc3c2;
+    background-color: #222;
     border-radius: 12px;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
     padding: 20px;

@@ -27,7 +27,7 @@ test("Eraser validation - erase star violation", () => {
 	puzzle3.cells[0][0] = { type: CellType.Star, color: Color.Black };
 	puzzle3.cells[0][1] = { type: CellType.Star, color: Color.Black };
 	puzzle3.cells[0][2] = { type: CellType.Star, color: Color.Black };
-	puzzle3.cells[0][3] = { type: CellType.Eraser, color: Color.None };
+	puzzle3.cells[0][3] = { type: CellType.Eraser, color: Color.White };
 
 	const result = core.validateSolution(puzzle3, getPath(4));
 	assert.strictEqual(result.isValid, true, `Should be valid with eraser: ${result.errorReason}`);
@@ -37,7 +37,7 @@ test("Eraser validation - eraser in already valid region", () => {
 	const puzzle = createBasicGrid(1, 3);
 	puzzle.cells[0][0] = { type: CellType.Star, color: Color.Black };
 	puzzle.cells[0][1] = { type: CellType.Star, color: Color.Black };
-	puzzle.cells[0][2] = { type: CellType.Eraser, color: Color.None };
+	puzzle.cells[0][2] = { type: CellType.Eraser, color: Color.White };
 
 	const result = core.validateSolution(puzzle, getPath(3));
 	assert.strictEqual(result.isValid, false, "Should be invalid: eraser has nothing to erase and not needed as mark");
@@ -47,7 +47,7 @@ test("Eraser validation - erase square violation", () => {
 	const puzzle = createBasicGrid(1, 3);
 	puzzle.cells[0][0] = { type: CellType.Square, color: Color.Black };
 	puzzle.cells[0][1] = { type: CellType.Square, color: Color.White };
-	puzzle.cells[0][2] = { type: CellType.Eraser, color: Color.None };
+	puzzle.cells[0][2] = { type: CellType.Eraser, color: Color.White };
 
 	const result = core.validateSolution(puzzle, getPath(3));
 	assert.strictEqual(result.isValid, true, "Should be valid: eraser removes white square");
@@ -55,8 +55,8 @@ test("Eraser validation - erase square violation", () => {
 
 test("Eraser validation - two erasers erasing each other in valid region", () => {
 	const puzzle = createBasicGrid(1, 2);
-	puzzle.cells[0][0] = { type: CellType.Eraser, color: Color.None };
-	puzzle.cells[0][1] = { type: CellType.Eraser, color: Color.None };
+	puzzle.cells[0][0] = { type: CellType.Eraser, color: Color.White };
+	puzzle.cells[0][1] = { type: CellType.Eraser, color: Color.White };
 
 	const result = core.validateSolution(puzzle, getPath(2));
 	assert.strictEqual(result.isValid, true, "Should be valid: two erasers negate each other");
@@ -65,8 +65,8 @@ test("Eraser validation - two erasers erasing each other in valid region", () =>
 test("Eraser validation - one star and two erasers (invalid)", () => {
 	const puzzle = createBasicGrid(1, 3);
 	puzzle.cells[0][0] = { type: CellType.Star, color: Color.Black };
-	puzzle.cells[0][1] = { type: CellType.Eraser, color: Color.None };
-	puzzle.cells[0][2] = { type: CellType.Eraser, color: Color.None };
+	puzzle.cells[0][1] = { type: CellType.Eraser, color: Color.White };
+	puzzle.cells[0][2] = { type: CellType.Eraser, color: Color.White };
 
 	const result = core.validateSolution(puzzle, getPath(3));
 	assert.strictEqual(result.isValid, false, "1 Star + 2 Erasers should be INVALID");
@@ -152,11 +152,21 @@ test("Generation independence - Tetris and Eraser without Squares/Stars", () => 
 	assert.ok(hasEraser, "Should generate Eraser even if Squares/Stars are off");
 });
 
+test("Eraser validation - white eraser completing white star pair (valid if error exists)", () => {
+	const puzzle = createBasicGrid(1, 3);
+	puzzle.cells[0][0] = { type: CellType.Star, color: Color.White };
+	puzzle.cells[0][1] = { type: CellType.Eraser, color: Color.White };
+	puzzle.cells[0][2] = { type: CellType.Star, color: Color.Black }; // Missing pair for Black Star
+
+	const result = core.validateSolution(puzzle, getPath(3));
+	assert.strictEqual(result.isValid, true, "1 White Star + 1 White Eraser + 1 lone Black Star should be VALID");
+});
+
 test("Eraser validation - erase hexagon violation", () => {
 	const puzzle = createBasicGrid(1, 2);
 	// Hexagon on H(0,0) -> between (0,0) and (1,0)
 	puzzle.hEdges[0][0].type = EdgeType.Hexagon;
-	puzzle.cells[0][0] = { type: CellType.Eraser, color: Color.None };
+	puzzle.cells[0][0] = { type: CellType.Eraser, color: Color.White };
 
 	// Path: (0,1) -> (1,1) -> (2,1) -> (2,0)
 	// This path does NOT pass through H(0,0)

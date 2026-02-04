@@ -574,7 +574,7 @@ export class PuzzleGenerator {
 						} else if (errorType === "eraser" && potentialCells.length >= 2) {
 							const errCell = potentialCells.pop()!;
 							grid.cells[errCell.y][errCell.x].type = CellType.Eraser;
-							grid.cells[errCell.y][errCell.x].color = Color.None;
+							grid.cells[errCell.y][errCell.x].color = Color.White;
 							erasersPlaced++;
 							errorPlaced = true;
 						}
@@ -583,7 +583,7 @@ export class PuzzleGenerator {
 						if (!errorPlaced && potentialCells.length >= 2) {
 							const errCell = potentialCells.pop()!;
 							grid.cells[errCell.y][errCell.x].type = CellType.Eraser;
-							grid.cells[errCell.y][errCell.x].color = Color.None;
+							grid.cells[errCell.y][errCell.x].color = Color.White;
 							erasersPlaced++;
 							errorPlaced = true;
 						}
@@ -591,7 +591,7 @@ export class PuzzleGenerator {
 						if (errorPlaced) {
 							const cell = potentialCells.pop()!;
 							grid.cells[cell.y][cell.x].type = CellType.Eraser;
-							let eraserColor = Color.None;
+							let eraserColor = Color.White;
 							if (useStars && Math.random() < 0.4) eraserColor = availableColors[Math.floor(Math.random() * availableColors.length)];
 							grid.cells[cell.y][cell.x].color = eraserColor;
 							erasersPlaced++;

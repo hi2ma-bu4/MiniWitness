@@ -1,5 +1,5 @@
 /*!
- * MiniWitness 1.0.2
+ * MiniWitness 1.1.1
  * Copyright 2026 hi2ma-bu4
  * Licensed under the Apache License, Version 2.0
  * http://www.apache.org/licenses/LICENSE-2.0
@@ -1290,21 +1290,21 @@ var PuzzleGenerator = class {
             } else if (errorType === "eraser" && potentialCells.length >= 2) {
               const errCell = potentialCells.pop();
               grid.cells[errCell.y][errCell.x].type = 5 /* Eraser */;
-              grid.cells[errCell.y][errCell.x].color = 0 /* None */;
+              grid.cells[errCell.y][errCell.x].color = 2 /* White */;
               erasersPlaced++;
               errorPlaced = true;
             }
             if (!errorPlaced && potentialCells.length >= 2) {
               const errCell = potentialCells.pop();
               grid.cells[errCell.y][errCell.x].type = 5 /* Eraser */;
-              grid.cells[errCell.y][errCell.x].color = 0 /* None */;
+              grid.cells[errCell.y][errCell.x].color = 2 /* White */;
               erasersPlaced++;
               errorPlaced = true;
             }
             if (errorPlaced) {
               const cell = potentialCells.pop();
               grid.cells[cell.y][cell.x].type = 5 /* Eraser */;
-              let eraserColor = 0 /* None */;
+              let eraserColor = 2 /* White */;
               if (useStars && Math.random() < 0.4) eraserColor = availableColors[Math.floor(Math.random() * availableColors.length)];
               grid.cells[cell.y][cell.x].color = eraserColor;
               erasersPlaced++;
@@ -1663,21 +1663,21 @@ var WitnessUI = class {
       gridPadding: options.gridPadding ?? 60,
       cellSize: options.cellSize ?? 80,
       nodeRadius: options.nodeRadius ?? 6,
-      startNodeRadius: options.startNodeRadius ?? 24,
+      startNodeRadius: options.startNodeRadius ?? 22,
       pathWidth: options.pathWidth ?? 18,
       exitLength: options.exitLength ?? 25,
       autoResize: options.autoResize ?? true,
       colors: {
         path: options.colors?.path ?? "#ffcc00",
-        grid: options.colors?.grid ?? "#444",
-        node: options.colors?.node ?? "#444",
+        grid: options.colors?.grid ?? "#555",
+        node: options.colors?.node ?? "#555",
         hexagon: options.colors?.hexagon ?? "#ffcc00",
         colorMap: options.colors?.colorMap ?? {
           [1 /* Black */]: "#000",
           [2 /* White */]: "#fff",
           [3 /* Red */]: "#f00",
           [4 /* Blue */]: "#00f",
-          [0 /* None */]: "#666"
+          [0 /* None */]: "#f0f"
         }
       },
       onPathComplete: options.onPathComplete ?? (() => {
