@@ -82,6 +82,8 @@ export interface ValidationResult {
 	errorReason?: string;
 	invalidatedCells?: Point[];
 	invalidatedEdges?: { type: "h" | "v"; r: number; c: number }[];
+	errorCells?: Point[];
+	errorEdges?: { type: "h" | "v"; r: number; c: number }[];
 }
 
 /**

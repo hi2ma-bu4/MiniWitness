@@ -18,10 +18,25 @@ export interface WitnessUIOptions {
 	exitLength?: number;
 	/** パズルのサイズに合わせてCanvasサイズを自動調整するか */
 	autoResize?: boolean;
+	/** アニメーション設定 */
+	animations?: {
+		/** 点滅・前アニメーションの時間(ms) */
+		blinkDuration: number;
+		/** 無効化フェードの時間(ms) */
+		fadeDuration: number;
+		/** 点滅の周期(ms) */
+		blinkPeriod: number;
+	};
 	/** 色設定 */
 	colors?: {
 		/** 通常のパスの色 */
 		path?: string;
+		/** エラー時の色 */
+		error?: string;
+		/** 成功時のフラッシュ/アニメーション用 */
+		success?: string;
+		/** 途中で離した際のフェード色 */
+		interrupted?: string;
 		/** グリッドの色 */
 		grid?: string;
 		/** ノードの色 */
@@ -53,6 +68,9 @@ export class WitnessUI {
 	// アニメーション・状態表示用
 	private invalidatedCells: Point[] = [];
 	private invalidatedEdges: { type: "h" | "v"; r: number; c: number }[] = [];
+	private errorCells: Point[] = [];
+	private errorEdges: { type: "h" | "v"; r: number; c: number }[] = [];
+	private eraserAnimationStartTime = 0;
 	private isFading = false;
 	private fadeOpacity = 1.0;
 	private fadeColor = "#ff4444";
@@ -110,8 +128,16 @@ export class WitnessUI {
 			pathWidth: options.pathWidth ?? 18,
 			exitLength: options.exitLength ?? 25,
 			autoResize: options.autoResize ?? true,
+			animations: {
+				blinkDuration: options.animations?.blinkDuration ?? 1000,
+				fadeDuration: options.animations?.fadeDuration ?? 1000,
+				blinkPeriod: options.animations?.blinkPeriod ?? 800,
+			},
 			colors: {
 				path: options.colors?.path ?? "#ffcc00",
+				error: options.colors?.error ?? "#ff4444",
+				success: options.colors?.success ?? "#ffcc00",
+				interrupted: options.colors?.interrupted ?? "#ffcc00",
 				grid: options.colors?.grid ?? "#555",
 				node: options.colors?.node ?? "#555",
 				hexagon: options.colors?.hexagon ?? "#ffcc00",
@@ -137,6 +163,8 @@ export class WitnessUI {
 		this.exitTipPos = null;
 		this.invalidatedCells = [];
 		this.invalidatedEdges = [];
+		this.errorCells = [];
+		this.errorEdges = [];
 		this.cancelFade();
 
 		if (this.options.autoResize) {
@@ -159,9 +187,12 @@ export class WitnessUI {
 	/**
 	 * 検証結果を反映させる（不正解時の赤点滅や、消しゴムによる無効化の表示）
 	 */
-	public setValidationResult(isValid: boolean, invalidatedCells: Point[] = [], invalidatedEdges: { type: "h" | "v"; r: number; c: number }[] = []) {
+	public setValidationResult(isValid: boolean, invalidatedCells: Point[] = [], invalidatedEdges: { type: "h" | "v"; r: number; c: number }[] = [], errorCells: Point[] = [], errorEdges: { type: "h" | "v"; r: number; c: number }[] = []) {
 		this.invalidatedCells = invalidatedCells;
 		this.invalidatedEdges = invalidatedEdges;
+		this.errorCells = errorCells;
+		this.errorEdges = errorEdges;
+		this.eraserAnimationStartTime = Date.now();
 
 		if (isValid) {
 			this.isSuccessFading = true;
@@ -230,11 +261,6 @@ export class WitnessUI {
 
 	private handleStart(e: { clientX: number; clientY: number }) {
 		if (!this.puzzle) return;
-		this.cancelFade();
-		this.isSuccessFading = false;
-		this.isInvalidPath = false;
-		this.invalidatedCells = [];
-		this.invalidatedEdges = [];
 
 		const rect = this.canvas.getBoundingClientRect();
 		const mouseX = e.clientX - rect.left;
@@ -246,6 +272,15 @@ export class WitnessUI {
 					const nodePos = this.getCanvasCoords(c, r);
 					const dist = Math.hypot(nodePos.x - mouseX, nodePos.y - mouseY);
 					if (dist < this.options.startNodeRadius) {
+						// スタート地点がクリックされた場合のみ、前回の状態をリセットして開始する
+						this.cancelFade();
+						this.isSuccessFading = false;
+						this.isInvalidPath = false;
+						this.invalidatedCells = [];
+						this.invalidatedEdges = [];
+						this.errorCells = [];
+						this.errorEdges = [];
+
 						this.isDrawing = true;
 						this.path = [{ x: c, y: r }];
 						this.currentMousePos = nodePos;
@@ -359,7 +394,7 @@ export class WitnessUI {
 		}
 
 		this.exitTipPos = exitDir ? { ...this.currentMousePos } : null;
-		this.startFade("#ffcc00"); // 途中で離した場合は黄色で消える
+		this.startFade(this.options.colors.interrupted); // 途中で離した場合は指定されたフェード色で消える
 	}
 
 	private getEdgeType(p1: Point, p2: Point): EdgeType {
@@ -393,7 +428,9 @@ export class WitnessUI {
 		this.draw();
 
 		if (this.isFading) {
-			this.fadeOpacity -= 0.015;
+			// フェード速度を fadeDuration に基づいて計算
+			const step = 1000 / (this.options.animations.fadeDuration * 60); // 60FPS想定
+			this.fadeOpacity -= step;
 			if (this.fadeOpacity <= 0) {
 				this.isFading = false;
 				this.fadeOpacity = 0;
@@ -409,6 +446,7 @@ export class WitnessUI {
 		if (!this.puzzle || !this.ctx) return;
 
 		const ctx = this.ctx;
+		const now = Date.now();
 		ctx.globalAlpha = 1.0;
 		ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
@@ -423,7 +461,29 @@ export class WitnessUI {
 		if (this.isFading) {
 			this.drawPath(ctx, this.fadingPath, false, this.fadeColor, this.fadeOpacity, this.fadingTipPos);
 		} else if (this.path.length > 0) {
-			const color = this.isInvalidPath ? "#ff4444" : this.options.colors.path;
+			let color = this.isInvalidPath ? (this.options.colors.error as string) : (this.options.colors.path as string);
+
+			// Eraser無効化前の点滅時は線の色も赤くする
+			if (!this.isDrawing && this.exitTipPos && !this.isInvalidPath) {
+				const elapsed = now - (this.isSuccessFading ? this.successFadeStartTime : this.eraserAnimationStartTime);
+				const blinkDuration = this.options.animations.blinkDuration!;
+				if (elapsed < blinkDuration) {
+					// 開始と終了を滑らかにする
+					const transitionIn = Math.min(1.0, elapsed / 200);
+					const transitionOut = elapsed > blinkDuration * 0.8 ? (blinkDuration - elapsed) / (blinkDuration * 0.2) : 1.0;
+					const transitionFactor = Math.min(transitionIn, transitionOut);
+
+					if (this.isSuccessFading) {
+						// 成功時は点滅させず、ただ赤くする
+						color = this.lerpColor(this.options.colors.path as string, this.options.colors.error as string, transitionFactor);
+					} else {
+						// 失敗時（Eraserあり）は点滅させるが、全体の色の強さは transitionFactor で制御
+						const blinkFactor = (Math.sin((now * Math.PI * 2) / this.options.animations.blinkPeriod!) + 1) / 2;
+						color = this.lerpColor(this.options.colors.path as string, this.options.colors.error as string, blinkFactor * transitionFactor);
+					}
+				}
+			}
+
 			this.drawPath(ctx, this.path, this.isDrawing, color, 1.0, this.isDrawing ? this.currentMousePos : this.exitTipPos);
 		}
 	}
@@ -511,25 +571,45 @@ export class WitnessUI {
 	private drawConstraints(ctx: CanvasRenderingContext2D) {
 		if (!this.puzzle) return;
 		const now = Date.now();
+		const blinkFactor = (Math.sin((now * Math.PI * 2) / this.options.animations.blinkPeriod!) + 1) / 2;
+
 		for (let r = 0; r < this.puzzle.rows; r++) {
 			for (let c = 0; c < this.puzzle.cols; c++) {
 				const cell = this.puzzle.cells[r][c];
 				const pos = this.getCanvasCoords(c + 0.5, r + 0.5);
 
 				const isInvalidated = this.invalidatedCells.some((p) => p.x === c && p.y === r);
+				const isError = this.errorCells.some((p) => p.x === c && p.y === r);
+
 				let opacity = 1.0;
+				let overrideColor: string | undefined = undefined;
+
+				const originalColor = this.getColorCode(cell.color);
+				const errorColor = this.options.colors.error as string;
+
+				if (isError) {
+					overrideColor = this.lerpColor(originalColor, errorColor, blinkFactor);
+				}
+
 				if (isInvalidated) {
+					const elapsed = now - (this.isSuccessFading ? this.successFadeStartTime : this.eraserAnimationStartTime);
+					const blinkDuration = this.options.animations.blinkDuration!;
+
 					if (this.isFading) {
 						opacity = this.fadeOpacity;
-					} else if (this.isSuccessFading) {
-						const elapsed = now - this.successFadeStartTime;
-						opacity = Math.max(0.3, 1.0 - elapsed / 1000);
+					} else if (elapsed < blinkDuration) {
+						const transitionIn = Math.min(1.0, elapsed / 200);
+						const transitionOut = elapsed > blinkDuration * 0.8 ? (blinkDuration - elapsed) / (blinkDuration * 0.2) : 1.0;
+						const transitionFactor = Math.min(transitionIn, transitionOut);
+						overrideColor = this.lerpColor(originalColor, errorColor, blinkFactor * transitionFactor);
+					} else {
+						opacity = Math.max(0.3, 1.0 - (elapsed - blinkDuration) / this.options.animations.fadeDuration!);
 					}
 				}
 
-				if (opacity < 1.0) {
+				if (opacity < 1.0 || overrideColor) {
 					const { canvas: tempCanvas, ctx: tempCtx } = this.prepareOffscreen();
-					this.drawConstraintItem(tempCtx, cell, pos);
+					this.drawConstraintItem(tempCtx, cell, pos, overrideColor);
 					ctx.save();
 					ctx.globalAlpha = opacity;
 					ctx.drawImage(tempCanvas, 0, 0);
@@ -548,14 +628,28 @@ export class WitnessUI {
 					const pos = this.getCanvasCoords(c + 0.5, r);
 					ctx.save();
 					const isInvalidated = this.invalidatedEdges.some((e) => e.type === "h" && e.r === r && e.c === c);
-					if (isInvalidated) {
+					const isError = this.errorEdges.some((e) => e.type === "h" && e.r === r && e.c === c);
+
+					if (isError) {
+						const color = this.lerpColor(this.options.colors.hexagon as string, this.options.colors.error as string, blinkFactor);
+						this.drawHexagon(ctx, pos.x, pos.y, hexRadius, color);
+					} else if (isInvalidated) {
+						const elapsed = now - (this.isSuccessFading ? this.successFadeStartTime : this.eraserAnimationStartTime);
+						const blinkDuration = this.options.animations.blinkDuration!;
 						if (this.isFading) ctx.globalAlpha *= this.fadeOpacity;
-						else if (this.isSuccessFading) {
-							const elapsed = now - this.successFadeStartTime;
-							ctx.globalAlpha *= Math.max(0.3, 1.0 - elapsed / 1000);
+						else if (elapsed < blinkDuration) {
+							const transitionIn = Math.min(1.0, elapsed / 200);
+							const transitionOut = elapsed > blinkDuration * 0.8 ? (blinkDuration - elapsed) / (blinkDuration * 0.2) : 1.0;
+							const transitionFactor = Math.min(transitionIn, transitionOut);
+							const color = this.lerpColor(this.options.colors.hexagon as string, this.options.colors.error as string, blinkFactor * transitionFactor);
+							this.drawHexagon(ctx, pos.x, pos.y, hexRadius, color);
+						} else {
+							ctx.globalAlpha *= Math.max(0.3, 1.0 - (elapsed - blinkDuration) / this.options.animations.fadeDuration!);
+							this.drawHexagon(ctx, pos.x, pos.y, hexRadius);
 						}
+					} else {
+						this.drawHexagon(ctx, pos.x, pos.y, hexRadius);
 					}
-					this.drawHexagon(ctx, pos.x, pos.y, hexRadius);
 					ctx.restore();
 				}
 			}
@@ -566,14 +660,28 @@ export class WitnessUI {
 					const pos = this.getCanvasCoords(c, r + 0.5);
 					ctx.save();
 					const isInvalidated = this.invalidatedEdges.some((e) => e.type === "v" && e.r === r && e.c === c);
-					if (isInvalidated) {
+					const isError = this.errorEdges.some((e) => e.type === "v" && e.r === r && e.c === c);
+
+					if (isError) {
+						const color = this.lerpColor(this.options.colors.hexagon as string, this.options.colors.error as string, blinkFactor);
+						this.drawHexagon(ctx, pos.x, pos.y, hexRadius, color);
+					} else if (isInvalidated) {
+						const elapsed = now - (this.isSuccessFading ? this.successFadeStartTime : this.eraserAnimationStartTime);
+						const blinkDuration = this.options.animations.blinkDuration!;
 						if (this.isFading) ctx.globalAlpha *= this.fadeOpacity;
-						else if (this.isSuccessFading) {
-							const elapsed = now - this.successFadeStartTime;
-							ctx.globalAlpha *= Math.max(0.3, 1.0 - elapsed / 1000);
+						else if (elapsed < blinkDuration) {
+							const transitionIn = Math.min(1.0, elapsed / 200);
+							const transitionOut = elapsed > blinkDuration * 0.8 ? (blinkDuration - elapsed) / (blinkDuration * 0.2) : 1.0;
+							const transitionFactor = Math.min(transitionIn, transitionOut);
+							const color = this.lerpColor(this.options.colors.hexagon as string, this.options.colors.error as string, blinkFactor * transitionFactor);
+							this.drawHexagon(ctx, pos.x, pos.y, hexRadius, color);
+						} else {
+							ctx.globalAlpha *= Math.max(0.3, 1.0 - (elapsed - blinkDuration) / this.options.animations.fadeDuration!);
+							this.drawHexagon(ctx, pos.x, pos.y, hexRadius);
 						}
+					} else {
+						this.drawHexagon(ctx, pos.x, pos.y, hexRadius);
 					}
-					this.drawHexagon(ctx, pos.x, pos.y, hexRadius);
 					ctx.restore();
 				}
 			}
@@ -583,18 +691,18 @@ export class WitnessUI {
 	/**
 	 * 単一の制約アイテムを描画（座標はキャンバス全体に対する絶対座標）
 	 */
-	private drawConstraintItem(ctx: CanvasRenderingContext2D, cell: any, pos: Point) {
+	private drawConstraintItem(ctx: CanvasRenderingContext2D, cell: any, pos: Point, overrideColor?: string) {
 		if (cell.type === CellType.Square) {
 			const size = 26;
 			const radius = 8;
-			ctx.fillStyle = this.getColorCode(cell.color);
+			ctx.fillStyle = overrideColor || this.getColorCode(cell.color);
 			this.drawRoundedRect(ctx, pos.x - size / 2, pos.y - size / 2, size, size, radius);
 		} else if (cell.type === CellType.Star) {
-			this.drawStar(ctx, pos.x, pos.y, 12, 16, 8, cell.color);
+			this.drawStar(ctx, pos.x, pos.y, 12, 16, 8, cell.color, overrideColor);
 		} else if (cell.type === CellType.Tetris || cell.type === CellType.TetrisRotated) {
-			this.drawTetris(ctx, pos.x, pos.y, cell.shape || [], cell.type === CellType.TetrisRotated, cell.color);
+			this.drawTetris(ctx, pos.x, pos.y, cell.shape || [], cell.type === CellType.TetrisRotated, cell.color, overrideColor);
 		} else if (cell.type === CellType.Eraser) {
-			this.drawEraser(ctx, pos.x, pos.y, 14, 3, cell.color);
+			this.drawEraser(ctx, pos.x, pos.y, 14, 3, cell.color, overrideColor);
 		}
 	}
 
@@ -707,9 +815,9 @@ export class WitnessUI {
 		ctx.fill();
 	}
 
-	private drawHexagon(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number) {
-		if (!this.options.colors.hexagon) return;
-		ctx.fillStyle = this.options.colors.hexagon;
+	private drawHexagon(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, overrideColor?: string) {
+		if (!this.options.colors.hexagon && !overrideColor) return;
+		ctx.fillStyle = (overrideColor || this.options.colors.hexagon) as string;
 		ctx.beginPath();
 		for (let i = 0; i < 6; i++) {
 			const angle = (Math.PI / 3) * i;
@@ -722,8 +830,8 @@ export class WitnessUI {
 		ctx.fill();
 	}
 
-	private drawEraser(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, points: number, colorEnum: Color) {
-		ctx.strokeStyle = this.getColorCode(colorEnum);
+	private drawEraser(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, points: number, colorEnum: Color, overrideColor?: string) {
+		ctx.strokeStyle = overrideColor || this.getColorCode(colorEnum);
 		ctx.lineWidth = radius * 0.5;
 		ctx.lineCap = "butt";
 		const rotation = 0.5;
@@ -739,8 +847,8 @@ export class WitnessUI {
 		ctx.stroke();
 	}
 
-	private drawStar(ctx: CanvasRenderingContext2D, x: number, y: number, innerRadius: number, outerRadius: number, points: number, colorEnum: Color) {
-		ctx.fillStyle = this.getColorCode(colorEnum);
+	private drawStar(ctx: CanvasRenderingContext2D, x: number, y: number, innerRadius: number, outerRadius: number, points: number, colorEnum: Color, overrideColor?: string) {
+		ctx.fillStyle = overrideColor || this.getColorCode(colorEnum);
 		ctx.beginPath();
 		for (let i = 0; i < points * 2; i++) {
 			const radius = i % 2 === 0 ? outerRadius : innerRadius;
@@ -754,7 +862,7 @@ export class WitnessUI {
 		ctx.fill();
 	}
 
-	private drawTetris(ctx: CanvasRenderingContext2D, x: number, y: number, shape: number[][], rotated: boolean, colorEnum: Color) {
+	private drawTetris(ctx: CanvasRenderingContext2D, x: number, y: number, shape: number[][], rotated: boolean, colorEnum: Color, overrideColor?: string) {
 		if (!shape || shape.length === 0) return;
 		const cellSize = 12;
 		const gap = 2;
@@ -766,7 +874,7 @@ export class WitnessUI {
 		if (rotated) {
 			ctx.rotate(Math.PI / 8);
 		}
-		ctx.fillStyle = colorEnum === Color.None ? "#ffcc00" : this.getColorCode(colorEnum);
+		ctx.fillStyle = overrideColor || (colorEnum === Color.None ? "#ffcc00" : this.getColorCode(colorEnum));
 
 		for (let r = 0; r < shape.length; r++) {
 			for (let c = 0; c < shape[r].length; c++) {
@@ -782,6 +890,36 @@ export class WitnessUI {
 
 	private getColorCode(colorEnum: Color): string {
 		return (this.options.colors.colorMap && this.options.colors.colorMap[colorEnum]) || "#666";
+	}
+
+	private hexToRgb(hex: string): { r: number; g: number; b: number } {
+		let c = hex.startsWith("#") ? hex.slice(1) : hex;
+		if (c.length === 3) {
+			c = c
+				.split("")
+				.map((s) => s + s)
+				.join("");
+		}
+		const i = parseInt(c, 16);
+		return {
+			r: (i >> 16) & 255,
+			g: (i >> 8) & 255,
+			b: i & 255,
+		};
+	}
+
+	private rgbToHex(r: number, g: number, b: number): string {
+		return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+	}
+
+	private lerpColor(c1: string, c2: string, t: number): string {
+		try {
+			const rgb1 = this.hexToRgb(c1);
+			const rgb2 = this.hexToRgb(c2);
+			return this.rgbToHex(Math.round(rgb1.r + (rgb2.r - rgb1.r) * t), Math.round(rgb1.g + (rgb2.g - rgb1.g) * t), Math.round(rgb1.b + (rgb2.b - rgb1.b) * t));
+		} catch (e) {
+			return c1;
+		}
 	}
 
 	private prepareOffscreen() {

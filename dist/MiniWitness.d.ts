@@ -76,6 +76,12 @@ export interface ValidationResult {
 		r: number;
 		c: number;
 	}[];
+	errorCells?: Point[];
+	errorEdges?: {
+		type: "h" | "v";
+		r: number;
+		c: number;
+	}[];
 }
 /**
  * パズル生成のオプション
@@ -197,10 +203,25 @@ export interface WitnessUIOptions {
 	exitLength?: number;
 	/** パズルのサイズに合わせてCanvasサイズを自動調整するか */
 	autoResize?: boolean;
+	/** アニメーション設定 */
+	animations?: {
+		/** 点滅・前アニメーションの時間(ms) */
+		blinkDuration: number;
+		/** 無効化フェードの時間(ms) */
+		fadeDuration: number;
+		/** 点滅の周期(ms) */
+		blinkPeriod: number;
+	};
 	/** 色設定 */
 	colors?: {
 		/** 通常のパスの色 */
 		path?: string;
+		/** エラー時の色 */
+		error?: string;
+		/** 成功時のフラッシュ/アニメーション用 */
+		success?: string;
+		/** 途中で離した際のフェード色 */
+		interrupted?: string;
 		/** グリッドの色 */
 		grid?: string;
 		/** ノードの色 */
@@ -228,6 +249,9 @@ export declare class WitnessUI {
 	private isInvalidPath;
 	private invalidatedCells;
 	private invalidatedEdges;
+	private errorCells;
+	private errorEdges;
+	private eraserAnimationStartTime;
 	private isFading;
 	private fadeOpacity;
 	private fadeColor;
@@ -252,6 +276,10 @@ export declare class WitnessUI {
 	 * 検証結果を反映させる（不正解時の赤点滅や、消しゴムによる無効化の表示）
 	 */
 	setValidationResult(isValid: boolean, invalidatedCells?: Point[], invalidatedEdges?: {
+		type: "h" | "v";
+		r: number;
+		c: number;
+	}[], errorCells?: Point[], errorEdges?: {
 		type: "h" | "v";
 		r: number;
 		c: number;
@@ -284,6 +312,9 @@ export declare class WitnessUI {
 	private drawStar;
 	private drawTetris;
 	private getColorCode;
+	private hexToRgb;
+	private rgbToHex;
+	private lerpColor;
 	private prepareOffscreen;
 }
 /**
@@ -322,6 +353,10 @@ export declare class PuzzleValidator {
 	 */
 	private getPossibleErasures;
 	/**
+	 * エラーが解消できなかった場合のベストエフォートな削除（ランダムに一つ削除）を取得する
+	 */
+	private getBestEffortErasures;
+	/**
 	 * 配列からN個選ぶ組み合わせを取得する
 	 */
 	private getNCombinations;
@@ -329,6 +364,10 @@ export declare class PuzzleValidator {
 	 * 特定の削除・無効化を適用した状態で、区画内の制約が満たされているか検証する
 	 */
 	private checkRegionValid;
+	/**
+	 * 区画内のエラーとなっているセルを特定する
+	 */
+	private getRegionErrors;
 	/**
 	 * グローバルな制約（六角形）の割り当てをバックトラッキングで探索する
 	 */

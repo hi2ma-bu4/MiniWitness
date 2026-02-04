@@ -1,5 +1,5 @@
 /*!
- * MiniWitness 1.1.2
+ * MiniWitness 1.1.3
  * Copyright 2026 hi2ma-bu4
  * Licensed under the Apache License, Version 2.0
  * http://www.apache.org/licenses/LICENSE-2.0
@@ -177,6 +177,7 @@ var PuzzleValidator = class {
    */
   validateWithErasers(grid, regions, missedHexagons) {
     const regionResults = [];
+    let allRegionsPossiblyValid = true;
     for (let i = 0; i < regions.length; i++) {
       const region = regions[i];
       const erasers = region.filter((p) => grid.cells[p.y][p.x].type === 5 /* Eraser */);
@@ -186,20 +187,51 @@ var PuzzleValidator = class {
         if (this.isHexagonAdjacentToRegion(grid, missedHexagons[j], region)) adjacentMissedHexagons.push(j);
       }
       const possible = this.getPossibleErasures(grid, region, erasers, otherMarks, adjacentMissedHexagons);
-      if (possible.length === 0) return { isValid: false, errorReason: `Constraints failed in region ${i}` };
-      possible.sort((a, b) => {
-        const costA = a.invalidatedCells.length + a.invalidatedHexagons.length;
-        const costB = b.invalidatedCells.length + b.invalidatedHexagons.length;
-        return costA - costB;
-      });
-      regionResults.push(possible);
+      if (possible.length === 0) {
+        allRegionsPossiblyValid = false;
+        const bestEffort = this.getBestEffortErasures(grid, region, erasers, otherMarks, adjacentMissedHexagons);
+        regionResults.push([bestEffort]);
+      } else {
+        possible.sort((a, b) => {
+          const costA = a.invalidatedCells.length + a.invalidatedHexagons.length;
+          const costB = b.invalidatedCells.length + b.invalidatedHexagons.length;
+          return costA - costB;
+        });
+        regionResults.push(possible);
+      }
     }
-    const assignment = this.findGlobalAssignment(regionResults, missedHexagons.length);
-    if (!assignment) return { isValid: false, errorReason: "Could not satisfy all constraints with available erasers" };
+    if (allRegionsPossiblyValid) {
+      const assignment = this.findGlobalAssignment(regionResults, missedHexagons.length);
+      if (assignment) {
+        return {
+          isValid: true,
+          invalidatedCells: assignment.invalidatedCells,
+          invalidatedEdges: assignment.invalidatedHexIndices.map((idx) => missedHexagons[idx])
+        };
+      }
+    }
+    const errorCells = [];
+    const invalidatedCells = [];
+    const invalidatedHexIndices = /* @__PURE__ */ new Set();
+    for (const options of regionResults) {
+      const best = options[0];
+      errorCells.push(...best.errorCells);
+      invalidatedCells.push(...best.invalidatedCells);
+      for (const idx of best.invalidatedHexagons) invalidatedHexIndices.add(idx);
+    }
+    const errorEdges = [];
+    for (let i = 0; i < missedHexagons.length; i++) {
+      if (!invalidatedHexIndices.has(i)) {
+        errorEdges.push(missedHexagons[i]);
+      }
+    }
     return {
-      isValid: true,
-      invalidatedCells: assignment.invalidatedCells,
-      invalidatedEdges: assignment.invalidatedHexIndices.map((idx) => missedHexagons[idx])
+      isValid: false,
+      errorReason: "Constraints failed",
+      errorCells,
+      errorEdges,
+      invalidatedCells,
+      invalidatedEdges: Array.from(invalidatedHexIndices).map((idx) => missedHexagons[idx])
     };
   }
   /**
@@ -223,13 +255,14 @@ var PuzzleValidator = class {
     const results = [];
     const numErasers = erasers.length;
     if (numErasers === 0) {
-      if (this.checkRegionValid(grid, region, [], [])) {
-        results.push({ invalidatedCells: [], invalidatedHexagons: [], isValid: true });
+      const errorCells = this.getRegionErrors(grid, region, [], []);
+      if (errorCells.length === 0 && adjacentMissedHexagons.length === 0) {
+        results.push({ invalidatedCells: [], invalidatedHexagons: [], isValid: true, errorCells: [] });
       }
       return results;
     }
     const itemsToNegate = [...otherMarks.map((p) => ({ type: "cell", pos: p })), ...adjacentMissedHexagons.map((idx) => ({ type: "hex", index: idx }))];
-    const initiallyValid = this.checkRegionValid(grid, region, [], []) && adjacentMissedHexagons.length === 0;
+    const initiallyValid = this.getRegionErrors(grid, region, [], []).length === 0 && adjacentMissedHexagons.length === 0;
     for (let N = 0; N <= numErasers; N++) {
       const negatedEraserCombinations = this.getNCombinations(erasers, N);
       for (const negatedErasers of negatedEraserCombinations) {
@@ -241,7 +274,8 @@ var PuzzleValidator = class {
           for (const negatedItems of itemCombinations) {
             const negatedCells = negatedItems.filter((it) => it.type === "cell").map((it) => it.pos);
             const negatedHexIndices = negatedItems.filter((it) => it.type === "hex").map((it) => it.index);
-            const isValid = this.checkRegionValid(grid, region, [...negatedCells, ...negatedErasers], activeErasers);
+            const errorCells = this.getRegionErrors(grid, region, [...negatedCells, ...negatedErasers], activeErasers);
+            const isValid = errorCells.length === 0;
             if (isValid) {
               let isUseful = true;
               if (initiallyValid) {
@@ -252,7 +286,7 @@ var PuzzleValidator = class {
                   const subsetCells = subset.filter((it) => it.type === "cell").map((it) => it.pos);
                   const subsetHexIndices = new Set(subset.filter((it) => it.type === "hex").map((it) => it.index));
                   const allHexSatisfied = adjacentMissedHexagons.every((idx) => subsetHexIndices.has(idx));
-                  if (this.checkRegionValid(grid, region, subsetCells, activeErasers) && allHexSatisfied) {
+                  if (this.getRegionErrors(grid, region, subsetCells, activeErasers).length === 0 && allHexSatisfied) {
                     isUseful = false;
                     break;
                   }
@@ -262,7 +296,8 @@ var PuzzleValidator = class {
                 results.push({
                   invalidatedCells: [...negatedCells, ...negatedErasers],
                   invalidatedHexagons: negatedHexIndices,
-                  isValid: true
+                  isValid: true,
+                  errorCells: []
                 });
               }
             }
@@ -271,6 +306,52 @@ var PuzzleValidator = class {
       }
     }
     return results;
+  }
+  /**
+   * エラーが解消できなかった場合のベストエフォートな削除（ランダムに一つ削除）を取得する
+   */
+  getBestEffortErasures(grid, region, erasers, otherMarks, adjacentMissedHexagons) {
+    const itemsToNegate = [...otherMarks.map((p) => ({ type: "cell", pos: p })), ...adjacentMissedHexagons.map((idx) => ({ type: "hex", index: idx }))];
+    const naturalErrors = this.getRegionErrors(grid, region, [], []);
+    const initiallyValid = naturalErrors.length === 0 && adjacentMissedHexagons.length === 0;
+    if (initiallyValid) {
+      return {
+        invalidatedCells: [],
+        invalidatedHexagons: [],
+        isValid: false,
+        errorCells: [...erasers]
+      };
+    }
+    if (erasers.length > 0 && itemsToNegate.length > 0) {
+      let itemToNegate = itemsToNegate[0];
+      if (naturalErrors.length > 0) {
+        const firstError = naturalErrors[0];
+        const found = itemsToNegate.find((it) => it.type === "cell" && it.pos.x === firstError.x && it.pos.y === firstError.y);
+        if (found) itemToNegate = found;
+      } else if (adjacentMissedHexagons.length > 0) {
+        const found = itemsToNegate.find((it) => it.type === "hex" && it.index === adjacentMissedHexagons[0]);
+        if (found) itemToNegate = found;
+      }
+      const negatedCells = itemToNegate.type === "cell" ? [itemToNegate.pos] : [];
+      const negatedHexagons = itemToNegate.type === "hex" ? [itemToNegate.index] : [];
+      const errorCells2 = this.getRegionErrors(grid, region, negatedCells, []);
+      for (const e of erasers) {
+        errorCells2.push(e);
+      }
+      return {
+        invalidatedCells: negatedCells,
+        invalidatedHexagons: negatedHexagons,
+        isValid: false,
+        errorCells: errorCells2
+      };
+    }
+    const errorCells = [...naturalErrors, ...erasers];
+    return {
+      invalidatedCells: [],
+      invalidatedHexagons: [],
+      isValid: false,
+      errorCells
+    };
   }
   /**
    * 配列からN個選ぶ組み合わせを取得する
@@ -295,9 +376,16 @@ var PuzzleValidator = class {
    * 特定の削除・無効化を適用した状態で、区画内の制約が満たされているか検証する
    */
   checkRegionValid(grid, region, erasedCells, erasersAsMarks) {
+    return this.getRegionErrors(grid, region, erasedCells, erasersAsMarks).length === 0;
+  }
+  /**
+   * 区画内のエラーとなっているセルを特定する
+   */
+  getRegionErrors(grid, region, erasedCells, erasersAsMarks) {
     const erasedSet = new Set(erasedCells.map((p) => `${p.x},${p.y}`));
     const erasersAsMarksSet = new Set(erasersAsMarks.map((p) => `${p.x},${p.y}`));
     const colorCounts = /* @__PURE__ */ new Map();
+    const colorCells = /* @__PURE__ */ new Map();
     const starColors = /* @__PURE__ */ new Set();
     const squareColors = /* @__PURE__ */ new Set();
     const tetrisPieces = [];
@@ -309,19 +397,43 @@ var PuzzleValidator = class {
       const isOtherMark = constraint.type !== 5 /* Eraser */;
       if (!isEraserAsMark && !isOtherMark) continue;
       const color = constraint.color;
-      if (color !== 0 /* None */) colorCounts.set(color, (colorCounts.get(color) || 0) + 1);
+      if (color !== 0 /* None */) {
+        colorCounts.set(color, (colorCounts.get(color) || 0) + 1);
+        if (!colorCells.has(color)) colorCells.set(color, []);
+        colorCells.get(color).push(cell);
+      }
       if (constraint.type === 1 /* Square */) squareColors.add(color);
       else if (constraint.type === 2 /* Star */) starColors.add(color);
       else if (constraint.type === 3 /* Tetris */ || constraint.type === 4 /* TetrisRotated */) {
-        if (constraint.shape) tetrisPieces.push({ shape: constraint.shape, rotatable: constraint.type === 4 /* TetrisRotated */ });
+        if (constraint.shape) tetrisPieces.push({ shape: constraint.shape, rotatable: constraint.type === 4 /* TetrisRotated */, pos: cell });
       }
     }
-    if (squareColors.size > 1) return false;
-    for (const color of starColors) if (colorCounts.get(color) !== 2) return false;
-    if (tetrisPieces.length > 0) {
-      if (!this.checkTetrisConstraint(region, tetrisPieces)) return false;
+    const errorCells = [];
+    if (squareColors.size > 1) {
+      for (const cell of region) {
+        if (erasedSet.has(`${cell.x},${cell.y}`)) continue;
+        if (grid.cells[cell.y][cell.x].type === 1 /* Square */) errorCells.push(cell);
+      }
     }
-    return true;
+    for (const color of starColors) {
+      if (colorCounts.get(color) !== 2) {
+        const cells = colorCells.get(color) || [];
+        for (const p of cells) {
+          if (grid.cells[p.y][p.x].type === 2 /* Star */ || erasersAsMarksSet.has(`${p.x},${p.y}`)) {
+            errorCells.push(p);
+          }
+        }
+      }
+    }
+    if (tetrisPieces.length > 0) {
+      if (!this.checkTetrisConstraint(
+        region,
+        tetrisPieces.map((p) => ({ shape: p.shape, rotatable: p.rotatable }))
+      )) {
+        for (const p of tetrisPieces) errorCells.push(p.pos);
+      }
+    }
+    return errorCells;
   }
   /**
    * グローバルな制約（六角形）の割り当てをバックトラッキングで探索する
@@ -1665,6 +1777,9 @@ var WitnessUI = class {
   // アニメーション・状態表示用
   invalidatedCells = [];
   invalidatedEdges = [];
+  errorCells = [];
+  errorEdges = [];
+  eraserAnimationStartTime = 0;
   isFading = false;
   fadeOpacity = 1;
   fadeColor = "#ff4444";
@@ -1712,8 +1827,16 @@ var WitnessUI = class {
       pathWidth: options.pathWidth ?? 18,
       exitLength: options.exitLength ?? 25,
       autoResize: options.autoResize ?? true,
+      animations: {
+        blinkDuration: options.animations?.blinkDuration ?? 1e3,
+        fadeDuration: options.animations?.fadeDuration ?? 1e3,
+        blinkPeriod: options.animations?.blinkPeriod ?? 800
+      },
       colors: {
         path: options.colors?.path ?? "#ffcc00",
+        error: options.colors?.error ?? "#ff4444",
+        success: options.colors?.success ?? "#ffcc00",
+        interrupted: options.colors?.interrupted ?? "#ffcc00",
         grid: options.colors?.grid ?? "#555",
         node: options.colors?.node ?? "#555",
         hexagon: options.colors?.hexagon ?? "#ffcc00",
@@ -1739,6 +1862,8 @@ var WitnessUI = class {
     this.exitTipPos = null;
     this.invalidatedCells = [];
     this.invalidatedEdges = [];
+    this.errorCells = [];
+    this.errorEdges = [];
     this.cancelFade();
     if (this.options.autoResize) {
       this.resizeCanvas();
@@ -1758,9 +1883,12 @@ var WitnessUI = class {
   /**
    * 検証結果を反映させる（不正解時の赤点滅や、消しゴムによる無効化の表示）
    */
-  setValidationResult(isValid, invalidatedCells = [], invalidatedEdges = []) {
+  setValidationResult(isValid, invalidatedCells = [], invalidatedEdges = [], errorCells = [], errorEdges = []) {
     this.invalidatedCells = invalidatedCells;
     this.invalidatedEdges = invalidatedEdges;
+    this.errorCells = errorCells;
+    this.errorEdges = errorEdges;
+    this.eraserAnimationStartTime = Date.now();
     if (isValid) {
       this.isSuccessFading = true;
       this.successFadeStartTime = Date.now();
@@ -1820,11 +1948,6 @@ var WitnessUI = class {
   // --- イベントハンドラ ---
   handleStart(e) {
     if (!this.puzzle) return;
-    this.cancelFade();
-    this.isSuccessFading = false;
-    this.isInvalidPath = false;
-    this.invalidatedCells = [];
-    this.invalidatedEdges = [];
     const rect = this.canvas.getBoundingClientRect();
     const mouseX = e.clientX - rect.left;
     const mouseY = e.clientY - rect.top;
@@ -1834,6 +1957,13 @@ var WitnessUI = class {
           const nodePos = this.getCanvasCoords(c, r);
           const dist = Math.hypot(nodePos.x - mouseX, nodePos.y - mouseY);
           if (dist < this.options.startNodeRadius) {
+            this.cancelFade();
+            this.isSuccessFading = false;
+            this.isInvalidPath = false;
+            this.invalidatedCells = [];
+            this.invalidatedEdges = [];
+            this.errorCells = [];
+            this.errorEdges = [];
             this.isDrawing = true;
             this.path = [{ x: c, y: r }];
             this.currentMousePos = nodePos;
@@ -1931,7 +2061,7 @@ var WitnessUI = class {
       }
     }
     this.exitTipPos = exitDir ? { ...this.currentMousePos } : null;
-    this.startFade("#ffcc00");
+    this.startFade(this.options.colors.interrupted);
   }
   getEdgeType(p1, p2) {
     if (!this.puzzle) return 2 /* Absent */;
@@ -1960,7 +2090,8 @@ var WitnessUI = class {
     if (typeof window === "undefined") return;
     this.draw();
     if (this.isFading) {
-      this.fadeOpacity -= 0.015;
+      const step = 1e3 / (this.options.animations.fadeDuration * 60);
+      this.fadeOpacity -= step;
       if (this.fadeOpacity <= 0) {
         this.isFading = false;
         this.fadeOpacity = 0;
@@ -1972,6 +2103,7 @@ var WitnessUI = class {
   draw() {
     if (!this.puzzle || !this.ctx) return;
     const ctx = this.ctx;
+    const now = Date.now();
     ctx.globalAlpha = 1;
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     this.drawGrid(ctx);
@@ -1983,7 +2115,22 @@ var WitnessUI = class {
     if (this.isFading) {
       this.drawPath(ctx, this.fadingPath, false, this.fadeColor, this.fadeOpacity, this.fadingTipPos);
     } else if (this.path.length > 0) {
-      const color = this.isInvalidPath ? "#ff4444" : this.options.colors.path;
+      let color = this.isInvalidPath ? this.options.colors.error : this.options.colors.path;
+      if (!this.isDrawing && this.exitTipPos && !this.isInvalidPath) {
+        const elapsed = now - (this.isSuccessFading ? this.successFadeStartTime : this.eraserAnimationStartTime);
+        const blinkDuration = this.options.animations.blinkDuration;
+        if (elapsed < blinkDuration) {
+          const transitionIn = Math.min(1, elapsed / 200);
+          const transitionOut = elapsed > blinkDuration * 0.8 ? (blinkDuration - elapsed) / (blinkDuration * 0.2) : 1;
+          const transitionFactor = Math.min(transitionIn, transitionOut);
+          if (this.isSuccessFading) {
+            color = this.lerpColor(this.options.colors.path, this.options.colors.error, transitionFactor);
+          } else {
+            const blinkFactor = (Math.sin(now * Math.PI * 2 / this.options.animations.blinkPeriod) + 1) / 2;
+            color = this.lerpColor(this.options.colors.path, this.options.colors.error, blinkFactor * transitionFactor);
+          }
+        }
+      }
       this.drawPath(ctx, this.path, this.isDrawing, color, 1, this.isDrawing ? this.currentMousePos : this.exitTipPos);
     }
   }
@@ -2059,23 +2206,37 @@ var WitnessUI = class {
   drawConstraints(ctx) {
     if (!this.puzzle) return;
     const now = Date.now();
+    const blinkFactor = (Math.sin(now * Math.PI * 2 / this.options.animations.blinkPeriod) + 1) / 2;
     for (let r = 0; r < this.puzzle.rows; r++) {
       for (let c = 0; c < this.puzzle.cols; c++) {
         const cell = this.puzzle.cells[r][c];
         const pos = this.getCanvasCoords(c + 0.5, r + 0.5);
         const isInvalidated = this.invalidatedCells.some((p) => p.x === c && p.y === r);
+        const isError = this.errorCells.some((p) => p.x === c && p.y === r);
         let opacity = 1;
+        let overrideColor = void 0;
+        const originalColor = this.getColorCode(cell.color);
+        const errorColor = this.options.colors.error;
+        if (isError) {
+          overrideColor = this.lerpColor(originalColor, errorColor, blinkFactor);
+        }
         if (isInvalidated) {
+          const elapsed = now - (this.isSuccessFading ? this.successFadeStartTime : this.eraserAnimationStartTime);
+          const blinkDuration = this.options.animations.blinkDuration;
           if (this.isFading) {
             opacity = this.fadeOpacity;
-          } else if (this.isSuccessFading) {
-            const elapsed = now - this.successFadeStartTime;
-            opacity = Math.max(0.3, 1 - elapsed / 1e3);
+          } else if (elapsed < blinkDuration) {
+            const transitionIn = Math.min(1, elapsed / 200);
+            const transitionOut = elapsed > blinkDuration * 0.8 ? (blinkDuration - elapsed) / (blinkDuration * 0.2) : 1;
+            const transitionFactor = Math.min(transitionIn, transitionOut);
+            overrideColor = this.lerpColor(originalColor, errorColor, blinkFactor * transitionFactor);
+          } else {
+            opacity = Math.max(0.3, 1 - (elapsed - blinkDuration) / this.options.animations.fadeDuration);
           }
         }
-        if (opacity < 1) {
+        if (opacity < 1 || overrideColor) {
           const { canvas: tempCanvas, ctx: tempCtx } = this.prepareOffscreen();
-          this.drawConstraintItem(tempCtx, cell, pos);
+          this.drawConstraintItem(tempCtx, cell, pos, overrideColor);
           ctx.save();
           ctx.globalAlpha = opacity;
           ctx.drawImage(tempCanvas, 0, 0);
@@ -2093,14 +2254,27 @@ var WitnessUI = class {
           const pos = this.getCanvasCoords(c + 0.5, r);
           ctx.save();
           const isInvalidated = this.invalidatedEdges.some((e) => e.type === "h" && e.r === r && e.c === c);
-          if (isInvalidated) {
+          const isError = this.errorEdges.some((e) => e.type === "h" && e.r === r && e.c === c);
+          if (isError) {
+            const color = this.lerpColor(this.options.colors.hexagon, this.options.colors.error, blinkFactor);
+            this.drawHexagon(ctx, pos.x, pos.y, hexRadius, color);
+          } else if (isInvalidated) {
+            const elapsed = now - (this.isSuccessFading ? this.successFadeStartTime : this.eraserAnimationStartTime);
+            const blinkDuration = this.options.animations.blinkDuration;
             if (this.isFading) ctx.globalAlpha *= this.fadeOpacity;
-            else if (this.isSuccessFading) {
-              const elapsed = now - this.successFadeStartTime;
-              ctx.globalAlpha *= Math.max(0.3, 1 - elapsed / 1e3);
+            else if (elapsed < blinkDuration) {
+              const transitionIn = Math.min(1, elapsed / 200);
+              const transitionOut = elapsed > blinkDuration * 0.8 ? (blinkDuration - elapsed) / (blinkDuration * 0.2) : 1;
+              const transitionFactor = Math.min(transitionIn, transitionOut);
+              const color = this.lerpColor(this.options.colors.hexagon, this.options.colors.error, blinkFactor * transitionFactor);
+              this.drawHexagon(ctx, pos.x, pos.y, hexRadius, color);
+            } else {
+              ctx.globalAlpha *= Math.max(0.3, 1 - (elapsed - blinkDuration) / this.options.animations.fadeDuration);
+              this.drawHexagon(ctx, pos.x, pos.y, hexRadius);
             }
+          } else {
+            this.drawHexagon(ctx, pos.x, pos.y, hexRadius);
           }
-          this.drawHexagon(ctx, pos.x, pos.y, hexRadius);
           ctx.restore();
         }
       }
@@ -2111,14 +2285,27 @@ var WitnessUI = class {
           const pos = this.getCanvasCoords(c, r + 0.5);
           ctx.save();
           const isInvalidated = this.invalidatedEdges.some((e) => e.type === "v" && e.r === r && e.c === c);
-          if (isInvalidated) {
+          const isError = this.errorEdges.some((e) => e.type === "v" && e.r === r && e.c === c);
+          if (isError) {
+            const color = this.lerpColor(this.options.colors.hexagon, this.options.colors.error, blinkFactor);
+            this.drawHexagon(ctx, pos.x, pos.y, hexRadius, color);
+          } else if (isInvalidated) {
+            const elapsed = now - (this.isSuccessFading ? this.successFadeStartTime : this.eraserAnimationStartTime);
+            const blinkDuration = this.options.animations.blinkDuration;
             if (this.isFading) ctx.globalAlpha *= this.fadeOpacity;
-            else if (this.isSuccessFading) {
-              const elapsed = now - this.successFadeStartTime;
-              ctx.globalAlpha *= Math.max(0.3, 1 - elapsed / 1e3);
+            else if (elapsed < blinkDuration) {
+              const transitionIn = Math.min(1, elapsed / 200);
+              const transitionOut = elapsed > blinkDuration * 0.8 ? (blinkDuration - elapsed) / (blinkDuration * 0.2) : 1;
+              const transitionFactor = Math.min(transitionIn, transitionOut);
+              const color = this.lerpColor(this.options.colors.hexagon, this.options.colors.error, blinkFactor * transitionFactor);
+              this.drawHexagon(ctx, pos.x, pos.y, hexRadius, color);
+            } else {
+              ctx.globalAlpha *= Math.max(0.3, 1 - (elapsed - blinkDuration) / this.options.animations.fadeDuration);
+              this.drawHexagon(ctx, pos.x, pos.y, hexRadius);
             }
+          } else {
+            this.drawHexagon(ctx, pos.x, pos.y, hexRadius);
           }
-          this.drawHexagon(ctx, pos.x, pos.y, hexRadius);
           ctx.restore();
         }
       }
@@ -2127,18 +2314,18 @@ var WitnessUI = class {
   /**
    * 単一の制約アイテムを描画（座標はキャンバス全体に対する絶対座標）
    */
-  drawConstraintItem(ctx, cell, pos) {
+  drawConstraintItem(ctx, cell, pos, overrideColor) {
     if (cell.type === 1 /* Square */) {
       const size = 26;
       const radius = 8;
-      ctx.fillStyle = this.getColorCode(cell.color);
+      ctx.fillStyle = overrideColor || this.getColorCode(cell.color);
       this.drawRoundedRect(ctx, pos.x - size / 2, pos.y - size / 2, size, size, radius);
     } else if (cell.type === 2 /* Star */) {
-      this.drawStar(ctx, pos.x, pos.y, 12, 16, 8, cell.color);
+      this.drawStar(ctx, pos.x, pos.y, 12, 16, 8, cell.color, overrideColor);
     } else if (cell.type === 3 /* Tetris */ || cell.type === 4 /* TetrisRotated */) {
-      this.drawTetris(ctx, pos.x, pos.y, cell.shape || [], cell.type === 4 /* TetrisRotated */, cell.color);
+      this.drawTetris(ctx, pos.x, pos.y, cell.shape || [], cell.type === 4 /* TetrisRotated */, cell.color, overrideColor);
     } else if (cell.type === 5 /* Eraser */) {
-      this.drawEraser(ctx, pos.x, pos.y, 14, 3, cell.color);
+      this.drawEraser(ctx, pos.x, pos.y, 14, 3, cell.color, overrideColor);
     }
   }
   drawNodes(ctx) {
@@ -2236,9 +2423,9 @@ var WitnessUI = class {
     ctx.closePath();
     ctx.fill();
   }
-  drawHexagon(ctx, x, y, radius) {
-    if (!this.options.colors.hexagon) return;
-    ctx.fillStyle = this.options.colors.hexagon;
+  drawHexagon(ctx, x, y, radius, overrideColor) {
+    if (!this.options.colors.hexagon && !overrideColor) return;
+    ctx.fillStyle = overrideColor || this.options.colors.hexagon;
     ctx.beginPath();
     for (let i = 0; i < 6; i++) {
       const angle = Math.PI / 3 * i;
@@ -2250,8 +2437,8 @@ var WitnessUI = class {
     ctx.closePath();
     ctx.fill();
   }
-  drawEraser(ctx, x, y, radius, points, colorEnum) {
-    ctx.strokeStyle = this.getColorCode(colorEnum);
+  drawEraser(ctx, x, y, radius, points, colorEnum, overrideColor) {
+    ctx.strokeStyle = overrideColor || this.getColorCode(colorEnum);
     ctx.lineWidth = radius * 0.5;
     ctx.lineCap = "butt";
     const rotation = 0.5;
@@ -2265,8 +2452,8 @@ var WitnessUI = class {
     }
     ctx.stroke();
   }
-  drawStar(ctx, x, y, innerRadius, outerRadius, points, colorEnum) {
-    ctx.fillStyle = this.getColorCode(colorEnum);
+  drawStar(ctx, x, y, innerRadius, outerRadius, points, colorEnum, overrideColor) {
+    ctx.fillStyle = overrideColor || this.getColorCode(colorEnum);
     ctx.beginPath();
     for (let i = 0; i < points * 2; i++) {
       const radius = i % 2 === 0 ? outerRadius : innerRadius;
@@ -2279,7 +2466,7 @@ var WitnessUI = class {
     ctx.closePath();
     ctx.fill();
   }
-  drawTetris(ctx, x, y, shape, rotated, colorEnum) {
+  drawTetris(ctx, x, y, shape, rotated, colorEnum, overrideColor) {
     if (!shape || shape.length === 0) return;
     const cellSize = 12;
     const gap = 2;
@@ -2290,7 +2477,7 @@ var WitnessUI = class {
     if (rotated) {
       ctx.rotate(Math.PI / 8);
     }
-    ctx.fillStyle = colorEnum === 0 /* None */ ? "#ffcc00" : this.getColorCode(colorEnum);
+    ctx.fillStyle = overrideColor || (colorEnum === 0 /* None */ ? "#ffcc00" : this.getColorCode(colorEnum));
     for (let r = 0; r < shape.length; r++) {
       for (let c = 0; c < shape[r].length; c++) {
         if (shape[r][c]) {
@@ -2304,6 +2491,30 @@ var WitnessUI = class {
   }
   getColorCode(colorEnum) {
     return this.options.colors.colorMap && this.options.colors.colorMap[colorEnum] || "#666";
+  }
+  hexToRgb(hex) {
+    let c = hex.startsWith("#") ? hex.slice(1) : hex;
+    if (c.length === 3) {
+      c = c.split("").map((s) => s + s).join("");
+    }
+    const i = parseInt(c, 16);
+    return {
+      r: i >> 16 & 255,
+      g: i >> 8 & 255,
+      b: i & 255
+    };
+  }
+  rgbToHex(r, g, b) {
+    return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+  }
+  lerpColor(c1, c2, t) {
+    try {
+      const rgb1 = this.hexToRgb(c1);
+      const rgb2 = this.hexToRgb(c2);
+      return this.rgbToHex(Math.round(rgb1.r + (rgb2.r - rgb1.r) * t), Math.round(rgb1.g + (rgb2.g - rgb1.g) * t), Math.round(rgb1.b + (rgb2.b - rgb1.b) * t));
+    } catch (e) {
+      return c1;
+    }
   }
   prepareOffscreen() {
     if (typeof document === "undefined") {
