@@ -174,6 +174,112 @@ export declare class PuzzleGenerator {
 	private shuffleArray;
 }
 /**
+ * UI表示設定
+ */
+export interface WitnessUIOptions {
+	/** グリッド周囲の余白 */
+	gridPadding?: number;
+	/** セル1辺のサイズ */
+	cellSize?: number;
+	/** 通常ノードの半径 */
+	nodeRadius?: number;
+	/** 開始ノードの半径 */
+	startNodeRadius?: number;
+	/** パスの太さ */
+	pathWidth?: number;
+	/** 出口の長さ */
+	exitLength?: number;
+	/** パズルのサイズに合わせてCanvasサイズを自動調整するか */
+	autoResize?: boolean;
+	/** 色設定 */
+	colors?: {
+		/** 通常のパスの色 */
+		path?: string;
+		/** グリッドの色 */
+		grid?: string;
+		/** ノードの色 */
+		node?: string;
+		/** 六角形（通過必須）の色 */
+		hexagon?: string;
+		/** 各色のカラーコードマップ */
+		colorMap?: Record<number, string>;
+	};
+	/** パスが完了（出口に到達）した際のコールバック */
+	onPathComplete?: (path: Point[]) => void;
+}
+/**
+ * the witnessパズルの描画とユーザー操作を管理するクラス
+ */
+export declare class WitnessUI {
+	private canvas;
+	private ctx;
+	private puzzle;
+	private options;
+	private path;
+	private isDrawing;
+	private currentMousePos;
+	private exitTipPos;
+	private invalidatedCells;
+	private invalidatedEdges;
+	private isFading;
+	private fadeOpacity;
+	private fadeColor;
+	private fadingPath;
+	private fadingTipPos;
+	private isSuccessFading;
+	private successFadeStartTime;
+	private startTime;
+	private offscreenCanvas;
+	private offscreenCtx;
+	constructor(canvasOrId: HTMLCanvasElement | string, puzzle?: PuzzleData, options?: WitnessUIOptions);
+	private mergeOptions;
+	/**
+	 * パズルデータを設定し、再描画する
+	 */
+	setPuzzle(puzzle: PuzzleData): void;
+	/**
+	 * 表示オプションを更新する
+	 */
+	setOptions(options: WitnessUIOptions): void;
+	/**
+	 * 検証結果を反映させる（不正解時の赤点滅や、消しゴムによる無効化の表示）
+	 */
+	setValidationResult(isValid: boolean, invalidatedCells?: Point[], invalidatedEdges?: {
+		type: "h" | "v";
+		r: number;
+		c: number;
+	}[]): void;
+	private resizeCanvas;
+	private initEvents;
+	private getCanvasCoords;
+	private getExitDir;
+	private handleStart;
+	private handleMove;
+	private handleEnd;
+	private getEdgeType;
+	private startFade;
+	private cancelFade;
+	private animate;
+	draw(): void;
+	private drawRipples;
+	private drawGrid;
+	private drawConstraints;
+	/**
+	 * 単一の制約アイテムを描画（座標はキャンバス全体に対する絶対座標）
+	 */
+	private drawConstraintItem;
+	private drawNodes;
+	private drawPath;
+	private drawPathInternal;
+	private drawRoundedRect;
+	private drawHexagon;
+	private drawEraser;
+	private drawStar;
+	private drawTetris;
+	private getColorCode;
+	private prepareOffscreen;
+}
+/**
  * パズルの回答を検証するクラス
  */
 export declare class PuzzleValidator {
