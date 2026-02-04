@@ -1,5 +1,5 @@
 /*!
- * MiniWitness 1.1.1
+ * MiniWitness 1.1.2
  * Copyright 2026 hi2ma-bu4
  * Licensed under the Apache License, Version 2.0
  * http://www.apache.org/licenses/LICENSE-2.0
@@ -812,8 +812,15 @@ var PuzzleGenerator = class {
     let bestGrid = null;
     let bestScore = -1;
     const maxAttempts = rows * cols > 30 ? 50 : 80;
+    const markAttemptsPerPath = 5;
+    const startPoint = { x: 0, y: rows };
+    const endPoint = { x: cols, y: 0 };
+    let currentPath = null;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      const grid = this.generateOnce(rows, cols, options);
+      if (attempt % markAttemptsPerPath === 0) {
+        currentPath = this.generateRandomPath(new Grid(rows, cols), startPoint, endPoint, options.pathLength);
+      }
+      const grid = this.generateFromPath(rows, cols, currentPath, options);
       if (!this.checkAllRequestedConstraintsPresent(grid, options)) continue;
       const difficulty = validator.calculateDifficulty(grid);
       if (difficulty === 0) continue;
@@ -826,20 +833,20 @@ var PuzzleGenerator = class {
       if (diffFromTarget < 0.05) break;
     }
     if (!bestGrid) {
-      return this.generateOnce(rows, cols, options);
+      const path = this.generateRandomPath(new Grid(rows, cols), startPoint, endPoint, options.pathLength);
+      return this.generateFromPath(rows, cols, path, options);
     }
     return bestGrid;
   }
   /**
-   * 1回の試行でパズルを構築する
+   * 指定されたパスに基づいてパズルを構築する
    */
-  generateOnce(rows, cols, options) {
+  generateFromPath(rows, cols, solutionPath, options) {
     const grid = new Grid(rows, cols);
     const startPoint = { x: 0, y: rows };
     const endPoint = { x: cols, y: 0 };
     grid.nodes[startPoint.y][startPoint.x].type = 1 /* Start */;
     grid.nodes[endPoint.y][endPoint.x].type = 2 /* End */;
-    const solutionPath = this.generateRandomPath(grid, startPoint, endPoint);
     this.applyConstraintsBasedOnPath(grid, solutionPath, options);
     if (options.useBrokenEdges) {
       this.applyBrokenEdges(grid, solutionPath, options);
@@ -849,8 +856,34 @@ var PuzzleGenerator = class {
   }
   /**
    * ランダムな正解パスを生成する
+   * @param targetLengthFactor 0.0 (最短) - 1.0 (最長)
    */
-  generateRandomPath(grid, start, end) {
+  generateRandomPath(grid, start, end, targetLengthFactor) {
+    if (targetLengthFactor === void 0) {
+      return this.generateSingleRandomPath(grid, start, end);
+    }
+    const minLen = grid.rows + grid.cols;
+    const maxLen = (grid.rows + 1) * (grid.cols + 1) - 1;
+    const targetLen = minLen + targetLengthFactor * (maxLen - minLen);
+    let bestPath = [];
+    let bestDiff = Infinity;
+    const attempts = 50;
+    for (let i = 0; i < attempts; i++) {
+      const currentPath = this.generateSingleRandomPath(grid, start, end, targetLengthFactor);
+      const currentLen = currentPath.length - 1;
+      const diff = Math.abs(currentLen - targetLen);
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        bestPath = currentPath;
+      }
+      if (bestDiff <= 1) break;
+    }
+    return bestPath;
+  }
+  /**
+   * 1本のランダムパスを生成する
+   */
+  generateSingleRandomPath(grid, start, end, biasFactor) {
     const visited = /* @__PURE__ */ new Set();
     const path = [];
     const findPath = (current) => {
@@ -858,8 +891,19 @@ var PuzzleGenerator = class {
       path.push(current);
       if (current.x === end.x && current.y === end.y) return true;
       const neighbors = this.getValidNeighbors(grid, current, visited);
-      this.shuffleArray(neighbors);
-      for (const next of neighbors) if (findPath(next)) return true;
+      if (biasFactor !== void 0) {
+        neighbors.sort((a, b) => {
+          const da = Math.abs(a.x - end.x) + Math.abs(a.y - end.y);
+          const db = Math.abs(b.x - end.x) + Math.abs(b.y - end.y);
+          const score = (da - db) * (1 - biasFactor * 2);
+          return score + (Math.random() - 0.5) * 1.5;
+        });
+      } else {
+        this.shuffleArray(neighbors);
+      }
+      for (const next of neighbors) {
+        if (findPath(next)) return true;
+      }
       path.pop();
       return false;
     };
@@ -1617,6 +1661,7 @@ var WitnessUI = class {
   isDrawing = false;
   currentMousePos = { x: 0, y: 0 };
   exitTipPos = null;
+  isInvalidPath = false;
   // アニメーション・状態表示用
   invalidatedCells = [];
   invalidatedEdges = [];
@@ -1720,7 +1765,7 @@ var WitnessUI = class {
       this.isSuccessFading = true;
       this.successFadeStartTime = Date.now();
     } else {
-      this.startFade("#ff4444");
+      this.isInvalidPath = true;
     }
   }
   resizeCanvas() {
@@ -1777,6 +1822,7 @@ var WitnessUI = class {
     if (!this.puzzle) return;
     this.cancelFade();
     this.isSuccessFading = false;
+    this.isInvalidPath = false;
     this.invalidatedCells = [];
     this.invalidatedEdges = [];
     const rect = this.canvas.getBoundingClientRect();
@@ -1937,7 +1983,8 @@ var WitnessUI = class {
     if (this.isFading) {
       this.drawPath(ctx, this.fadingPath, false, this.fadeColor, this.fadeOpacity, this.fadingTipPos);
     } else if (this.path.length > 0) {
-      this.drawPath(ctx, this.path, this.isDrawing, this.options.colors.path, 1, this.isDrawing ? this.currentMousePos : this.exitTipPos);
+      const color = this.isInvalidPath ? "#ff4444" : this.options.colors.path;
+      this.drawPath(ctx, this.path, this.isDrawing, color, 1, this.isDrawing ? this.currentMousePos : this.exitTipPos);
     }
   }
   drawRipples(ctx) {

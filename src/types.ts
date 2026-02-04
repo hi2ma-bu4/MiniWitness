@@ -96,4 +96,5 @@ export interface GenerationOptions {
 	useBrokenEdges?: boolean;
 	complexity?: number; // 0.0 - 1.0 (制約の密度)
 	difficulty?: number; // 0.0 (Easy) - 1.0 (Hard) (解パターンの数に基づく)
+	pathLength?: number; // 0.0 (Shortest) - 1.0 (Longest)
 }

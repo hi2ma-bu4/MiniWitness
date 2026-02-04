@@ -89,6 +89,7 @@ export interface GenerationOptions {
 	useBrokenEdges?: boolean;
 	complexity?: number;
 	difficulty?: number;
+	pathLength?: number;
 }
 export declare class Grid {
 	readonly rows: number;
@@ -115,13 +116,18 @@ export declare class PuzzleGenerator {
 	 */
 	generate(rows: number, cols: number, options?: GenerationOptions): Grid;
 	/**
-	 * 1回の試行でパズルを構築する
+	 * 指定されたパスに基づいてパズルを構築する
 	 */
-	private generateOnce;
+	private generateFromPath;
 	/**
 	 * ランダムな正解パスを生成する
+	 * @param targetLengthFactor 0.0 (最短) - 1.0 (最長)
 	 */
 	private generateRandomPath;
+	/**
+	 * 1本のランダムパスを生成する
+	 */
+	private generateSingleRandomPath;
 	private getValidNeighbors;
 	/**
 	 * 解パスが通っていない場所にランダムに断線（Broken/Absent）を配置する
@@ -219,6 +225,7 @@ export declare class WitnessUI {
 	private isDrawing;
 	private currentMousePos;
 	private exitTipPos;
+	private isInvalidPath;
 	private invalidatedCells;
 	private invalidatedEdges;
 	private isFading;

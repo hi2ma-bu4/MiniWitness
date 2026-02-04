@@ -48,6 +48,7 @@ export class WitnessUI {
 	private isDrawing = false;
 	private currentMousePos: Point = { x: 0, y: 0 };
 	private exitTipPos: Point | null = null;
+	private isInvalidPath = false;
 
 	// アニメーション・状態表示用
 	private invalidatedCells: Point[] = [];
@@ -166,7 +167,7 @@ export class WitnessUI {
 			this.isSuccessFading = true;
 			this.successFadeStartTime = Date.now();
 		} else {
-			this.startFade("#ff4444");
+			this.isInvalidPath = true;
 		}
 	}
 
@@ -231,6 +232,7 @@ export class WitnessUI {
 		if (!this.puzzle) return;
 		this.cancelFade();
 		this.isSuccessFading = false;
+		this.isInvalidPath = false;
 		this.invalidatedCells = [];
 		this.invalidatedEdges = [];
 
@@ -421,7 +423,8 @@ export class WitnessUI {
 		if (this.isFading) {
 			this.drawPath(ctx, this.fadingPath, false, this.fadeColor, this.fadeOpacity, this.fadingTipPos);
 		} else if (this.path.length > 0) {
-			this.drawPath(ctx, this.path, this.isDrawing, this.options.colors.path, 1.0, this.isDrawing ? this.currentMousePos : this.exitTipPos);
+			const color = this.isInvalidPath ? "#ff4444" : this.options.colors.path;
+			this.drawPath(ctx, this.path, this.isDrawing, color, 1.0, this.isDrawing ? this.currentMousePos : this.exitTipPos);
 		}
 	}
 

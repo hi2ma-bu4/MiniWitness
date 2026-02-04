@@ -21,9 +21,19 @@ export class PuzzleGenerator {
 
 		// 試行回数の設定
 		const maxAttempts = rows * cols > 30 ? 50 : 80;
+		const markAttemptsPerPath = 5;
+
+		const startPoint: Point = { x: 0, y: rows };
+		const endPoint: Point = { x: cols, y: 0 };
+		let currentPath: Point[] | null = null;
 
 		for (let attempt = 0; attempt < maxAttempts; attempt++) {
-			const grid = this.generateOnce(rows, cols, options);
+			// 一定回数ごとに新しいパスを生成する
+			if (attempt % markAttemptsPerPath === 0) {
+				currentPath = this.generateRandomPath(new Grid(rows, cols), startPoint, endPoint, options.pathLength);
+			}
+
+			const grid = this.generateFromPath(rows, cols, currentPath!, options);
 
 			// 必須制約が含まれているか確認
 			if (!this.checkAllRequestedConstraintsPresent(grid, options)) continue;
@@ -45,15 +55,16 @@ export class PuzzleGenerator {
 
 		// 見つからなかった場合は最後に生成したものを返す（通常はありえない）
 		if (!bestGrid) {
-			return this.generateOnce(rows, cols, options);
+			const path = this.generateRandomPath(new Grid(rows, cols), startPoint, endPoint, options.pathLength);
+			return this.generateFromPath(rows, cols, path, options);
 		}
 		return bestGrid;
 	}
 
 	/**
-	 * 1回の試行でパズルを構築する
+	 * 指定されたパスに基づいてパズルを構築する
 	 */
-	private generateOnce(rows: number, cols: number, options: GenerationOptions): Grid {
+	private generateFromPath(rows: number, cols: number, solutionPath: Point[], options: GenerationOptions): Grid {
 		const grid = new Grid(rows, cols);
 		const startPoint: Point = { x: 0, y: rows };
 		const endPoint: Point = { x: cols, y: 0 };
@@ -61,8 +72,6 @@ export class PuzzleGenerator {
 		grid.nodes[startPoint.y][startPoint.x].type = NodeType.Start;
 		grid.nodes[endPoint.y][endPoint.x].type = NodeType.End;
 
-		// 正解パスの生成
-		const solutionPath = this.generateRandomPath(grid, startPoint, endPoint);
 		// パスに基づいて制約（記号）を配置
 		this.applyConstraintsBasedOnPath(grid, solutionPath, options);
 
@@ -78,8 +87,44 @@ export class PuzzleGenerator {
 
 	/**
 	 * ランダムな正解パスを生成する
+	 * @param targetLengthFactor 0.0 (最短) - 1.0 (最長)
 	 */
-	private generateRandomPath(grid: Grid, start: Point, end: Point): Point[] {
+	private generateRandomPath(grid: Grid, start: Point, end: Point, targetLengthFactor?: number): Point[] {
+		if (targetLengthFactor === undefined) {
+			return this.generateSingleRandomPath(grid, start, end);
+		}
+
+		// 指定された長さに近いパスを探す
+		const minLen = grid.rows + grid.cols;
+		const maxLen = (grid.rows + 1) * (grid.cols + 1) - 1;
+		const targetLen = minLen + targetLengthFactor * (maxLen - minLen);
+
+		let bestPath: Point[] = [];
+		let bestDiff = Infinity;
+
+		const attempts = 50;
+		for (let i = 0; i < attempts; i++) {
+			// 最初の方の試行はバイアスを強めにかける
+			const currentPath = this.generateSingleRandomPath(grid, start, end, targetLengthFactor);
+			const currentLen = currentPath.length - 1;
+			const diff = Math.abs(currentLen - targetLen);
+
+			if (diff < bestDiff) {
+				bestDiff = diff;
+				bestPath = currentPath;
+			}
+
+			// 十分に近いパスが見つかったら終了
+			if (bestDiff <= 1) break;
+		}
+
+		return bestPath;
+	}
+
+	/**
+	 * 1本のランダムパスを生成する
+	 */
+	private generateSingleRandomPath(grid: Grid, start: Point, end: Point, biasFactor?: number): Point[] {
 		const visited = new Set<string>();
 		const path: Point[] = [];
 		const findPath = (current: Point): boolean => {
@@ -88,8 +133,22 @@ export class PuzzleGenerator {
 			if (current.x === end.x && current.y === end.y) return true;
 
 			const neighbors = this.getValidNeighbors(grid, current, visited);
-			this.shuffleArray(neighbors);
-			for (const next of neighbors) if (findPath(next)) return true;
+			if (biasFactor !== undefined) {
+				neighbors.sort((a, b) => {
+					const da = Math.abs(a.x - end.x) + Math.abs(a.y - end.y);
+					const db = Math.abs(b.x - end.x) + Math.abs(b.y - end.y);
+					// biasFactor = 0 (Shortest) -> da - db (昇順)
+					// biasFactor = 1 (Longest) -> db - da (降順)
+					const score = (da - db) * (1 - biasFactor * 2);
+					return score + (Math.random() - 0.5) * 1.5; // 揺らぎ
+				});
+			} else {
+				this.shuffleArray(neighbors);
+			}
+
+			for (const next of neighbors) {
+				if (findPath(next)) return true;
+			}
 
 			path.pop();
 			return false;

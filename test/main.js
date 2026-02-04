@@ -32,6 +32,7 @@ class WitnessGame {
 			useBrokenEdges: document.getElementById("use-broken-edges").checked,
 			complexity: parseFloat(document.getElementById("complexity-slider").value),
 			difficulty: parseFloat(document.getElementById("difficulty-slider").value),
+			pathLength: parseFloat(document.getElementById("path-length-slider").value),
 		};
 
 		this.updateStatus("Generating puzzle... (Searching for optimal difficulty)");
