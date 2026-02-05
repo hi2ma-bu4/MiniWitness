@@ -100,3 +100,22 @@ ul {
 li {
     margin-bottom: 5px;
 }
+
+#copyright {
+    margin-top: 12px;
+    font-size: 12px;
+    opacity: 0.35;
+    user-select: none;
+}
+
+#copyright a {
+    color: #aaa;
+    text-decoration: none;
+    transition: opacity 0.2s ease, color 0.2s ease;
+}
+
+#copyright a:hover {
+    opacity: 1;
+    color: #4db8ff;
+    text-decoration: underline;
+}
