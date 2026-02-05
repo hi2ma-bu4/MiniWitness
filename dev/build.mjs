@@ -47,7 +47,6 @@ function runCommand(command, args, cwd, errMes) {
 	const result = spawnSync(command, args, {
 		cwd,
 		stdio: "inherit",
-		shell: process.platform === "win32", // Windows 対策
 	});
 
 	if (result.status !== 0) {

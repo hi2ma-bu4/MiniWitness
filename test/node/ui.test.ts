@@ -11,3 +11,11 @@ test("WitnessUI instantiation in Node (should not crash)", () => {
 	const ui = new WitnessUI("dummy-id");
 	assert.ok(ui instanceof WitnessUI);
 });
+
+test("WitnessUI setValidationResult updates internal state", () => {
+	const ui = new WitnessUI("dummy-id") as any;
+	ui.setValidationResult(true, [{ x: 0, y: 0 }]);
+	assert.strictEqual(ui.isSuccessFading, true, "isSuccessFading should be true on valid result");
+	assert.ok(ui.successFadeStartTime > 0, "successFadeStartTime should be set");
+	assert.strictEqual(ui.invalidatedCells.length, 1, "invalidatedCells should be updated");
+});

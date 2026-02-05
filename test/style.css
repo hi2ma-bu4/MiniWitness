@@ -7,7 +7,6 @@ body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     margin: 0;
     padding: 20px;
-    touch-action: none;
 }
 
 #ui-overlay {
@@ -33,6 +32,8 @@ h1 {
     display: flex;
     gap: 15px;
     align-items: center;
+    flex-wrap: wrap;
+    justify-content: center;
 }
 
 select,
@@ -64,17 +65,22 @@ button:hover {
     display: flex;
     justify-content: center;
     align-items: center;
+    max-width: 95vw;
+    margin: 0 auto;
+    overflow: hidden;
 }
 
 #game-canvas {
     cursor: crosshair;
     display: block;
+    max-width: 100%;
+    height: auto;
 }
 
 .instructions {
     margin-top: 30px;
     max-width: 600px;
-    text-align: center;
+    text-align: left;
     background: #2a2a2a;
     padding: 20px;
     border-radius: 8px;
@@ -88,6 +94,7 @@ button:hover {
 
 ul {
     padding-left: 20px;
+    margin-top: 10px;
 }
 
 li {

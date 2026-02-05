@@ -1,5 +1,5 @@
 /*!
- * MiniWitness 1.1.3
+ * MiniWitness 1.1.4
  * Copyright 2026 hi2ma-bu4
  * Licensed under the Apache License, Version 2.0
  * http://www.apache.org/licenses/LICENSE-2.0
@@ -1923,14 +1923,18 @@ var WitnessUI = class {
     this.canvas.addEventListener(
       "touchstart",
       (e) => {
-        e.preventDefault();
-        this.handleStart(e.touches[0]);
+        if (this.handleStart(e.touches[0])) {
+          e.preventDefault();
+        }
       },
       { passive: false }
     );
     window.addEventListener(
       "touchmove",
       (e) => {
+        if (this.isDrawing) {
+          e.preventDefault();
+        }
         this.handleMove(e.touches[0]);
       },
       { passive: false }
@@ -1938,6 +1942,9 @@ var WitnessUI = class {
     window.addEventListener(
       "touchend",
       (e) => {
+        if (this.isDrawing) {
+          e.preventDefault();
+        }
         this.handleEnd(e.changedTouches[0]);
       },
       { passive: false }
@@ -1961,10 +1968,10 @@ var WitnessUI = class {
   }
   // --- イベントハンドラ ---
   handleStart(e) {
-    if (!this.puzzle) return;
+    if (!this.puzzle) return false;
     const rect = this.canvas.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
+    const mouseX = (e.clientX - rect.left) * (this.canvas.width / rect.width);
+    const mouseY = (e.clientY - rect.top) * (this.canvas.height / rect.height);
     for (let r = 0; r <= this.puzzle.rows; r++) {
       for (let c = 0; c <= this.puzzle.cols; c++) {
         if (this.puzzle.nodes[r][c].type === 1 /* Start */) {
@@ -1983,17 +1990,18 @@ var WitnessUI = class {
             this.currentMousePos = nodePos;
             this.exitTipPos = null;
             this.draw();
-            return;
+            return true;
           }
         }
       }
     }
+    return false;
   }
   handleMove(e) {
     if (!this.puzzle || !this.isDrawing) return;
     const rect = this.canvas.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
+    const mouseX = (e.clientX - rect.left) * (this.canvas.width / rect.width);
+    const mouseY = (e.clientY - rect.top) * (this.canvas.height / rect.height);
     const lastPoint = this.path[this.path.length - 1];
     const lastPos = this.getCanvasCoords(lastPoint.x, lastPoint.y);
     const dx = mouseX - lastPos.x;
@@ -2130,16 +2138,22 @@ var WitnessUI = class {
       this.drawPath(ctx, this.fadingPath, false, this.fadeColor, this.fadeOpacity, this.fadingTipPos);
     } else if (this.path.length > 0) {
       let color = this.isInvalidPath ? this.options.colors.error : this.options.colors.path;
+      if (this.isSuccessFading) {
+        color = this.options.colors.success;
+      }
       if (!this.isDrawing && this.exitTipPos && !this.isInvalidPath) {
         const elapsed = now - (this.isSuccessFading ? this.successFadeStartTime : this.eraserAnimationStartTime);
         const blinkDuration = this.options.animations.blinkDuration;
         if (elapsed < blinkDuration) {
-          const transitionIn = Math.min(1, elapsed / 200);
-          const transitionOut = elapsed > blinkDuration * 0.8 ? (blinkDuration - elapsed) / (blinkDuration * 0.2) : 1;
-          const transitionFactor = Math.min(transitionIn, transitionOut);
           if (this.isSuccessFading) {
-            color = this.lerpColor(this.options.colors.path, this.options.colors.error, transitionFactor);
+            const hasNegation = this.invalidatedCells.length > 0 || this.invalidatedEdges.length > 0;
+            if (hasNegation) {
+              color = this.options.colors.error;
+            }
           } else {
+            const transitionIn = Math.min(1, elapsed / 200);
+            const transitionOut = elapsed > blinkDuration * 0.8 ? (blinkDuration - elapsed) / (blinkDuration * 0.2) : 1;
+            const transitionFactor = Math.min(transitionIn, transitionOut);
             const blinkFactor = (Math.sin(now * Math.PI * 2 / this.options.animations.blinkPeriod) + 1) / 2;
             color = this.lerpColor(this.options.colors.path, this.options.colors.error, blinkFactor * transitionFactor);
           }
