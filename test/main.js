@@ -23,6 +23,20 @@ class WitnessGame {
 
 	startNewGame() {
 		const size = parseInt(this.sizeSelect.value);
+		const useCustomTheme = document.getElementById("custom-theme").checked;
+
+		// カスタムテーマ用の設定
+		const colorList = useCustomTheme
+			? [
+					"#444444", // 0: Background/None
+					"#00ff00", // 1: Green (was Black)
+					"#ff00ff", // 2: Magenta (was White)
+					"#00ffff", // 3: Cyan (was Red)
+					"#ffffff", // 4: White (was Blue)
+					"#ffff00", // 5: Yellow (Default for custom tetris)
+				]
+			: undefined;
+
 		const options = {
 			useHexagons: document.getElementById("use-hexagons").checked,
 			useSquares: document.getElementById("use-squares").checked,
@@ -33,12 +47,27 @@ class WitnessGame {
 			complexity: parseFloat(document.getElementById("complexity-slider").value),
 			difficulty: parseFloat(document.getElementById("difficulty-slider").value),
 			pathLength: parseFloat(document.getElementById("path-length-slider").value),
+			// カスタムカラーを使用する場合
+			availableColors: useCustomTheme ? [1, 2, 3, 4] : undefined,
+			defaultColors: useCustomTheme
+				? {
+						Tetris: 5, // String key for better readability
+					}
+				: undefined,
 		};
 
 		this.updateStatus("Generating puzzle... (Searching for optimal difficulty)");
 		setTimeout(() => {
 			this.puzzle = this.core.createPuzzle(size, size, options);
 			const diff = this.core.calculateDifficulty(this.puzzle);
+
+			// UIのオプションも更新
+			this.ui.setOptions({
+				colors: {
+					colorList: colorList,
+					// colorListが指定された場合、従来のcolorMapより優先されます
+				},
+			});
 
 			this.ui.setPuzzle(this.puzzle);
 			this.updateStatus(`New puzzle generated! (Difficulty: ${diff.toFixed(2)})`);

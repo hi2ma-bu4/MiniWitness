@@ -468,7 +468,14 @@ export class PuzzleGenerator {
 		// 区画ルールの配置
 		if (useSquares || useStars || useTetris || useEraser) {
 			const regions = this.calculateRegions(grid, path);
-			const availableColors = [Color.Black, Color.White, Color.Red, Color.Blue];
+			const availableColors = options.availableColors ?? [Color.Black, Color.White, Color.Red, Color.Blue];
+			const defaultColors = (options.defaultColors ?? {}) as any;
+			const getDefColor = (type: CellType, fallback: Color): Color => {
+				if (defaultColors[type] !== undefined) return defaultColors[type];
+				const name = CellType[type];
+				if (name && defaultColors[name] !== undefined) return defaultColors[name];
+				return fallback;
+			};
 			const regionIndices = Array.from({ length: regions.length }, (_, i) => i);
 			this.shuffleArray(regionIndices);
 			const squareColorsUsed = new Set<number>();
@@ -538,10 +545,12 @@ export class PuzzleGenerator {
 								grid.cells[cell.y][cell.x].type = p.isRotated ? CellType.TetrisRotated : CellType.Tetris;
 								grid.cells[cell.y][cell.x].shape = p.isRotated ? p.displayShape : p.shape;
 
-								let tetrisColor = Color.None;
+								let tetrisColor = getDefColor(CellType.Tetris, Color.None);
 								if (useStars && Math.random() < 0.5) {
-									const colors = availableColors.filter((c) => c !== Color.Blue);
-									tetrisColor = colors[Math.floor(Math.random() * colors.length)];
+									const colors = availableColors.filter((c) => c !== Color.Blue && c !== tetrisColor);
+									if (colors.length > 0) {
+										tetrisColor = colors[Math.floor(Math.random() * colors.length)];
+									}
 								}
 								grid.cells[cell.y][cell.x].color = tetrisColor;
 								tetrisPlaced++;
@@ -633,7 +642,7 @@ export class PuzzleGenerator {
 						} else if (errorType === "eraser" && potentialCells.length >= 2) {
 							const errCell = potentialCells.pop()!;
 							grid.cells[errCell.y][errCell.x].type = CellType.Eraser;
-							grid.cells[errCell.y][errCell.x].color = Color.White;
+							grid.cells[errCell.y][errCell.x].color = getDefColor(CellType.Eraser, Color.White);
 							erasersPlaced++;
 							errorPlaced = true;
 						}
@@ -642,7 +651,7 @@ export class PuzzleGenerator {
 						if (!errorPlaced && potentialCells.length >= 2) {
 							const errCell = potentialCells.pop()!;
 							grid.cells[errCell.y][errCell.x].type = CellType.Eraser;
-							grid.cells[errCell.y][errCell.x].color = Color.White;
+							grid.cells[errCell.y][errCell.x].color = getDefColor(CellType.Eraser, Color.White);
 							erasersPlaced++;
 							errorPlaced = true;
 						}
@@ -650,8 +659,13 @@ export class PuzzleGenerator {
 						if (errorPlaced) {
 							const cell = potentialCells.pop()!;
 							grid.cells[cell.y][cell.x].type = CellType.Eraser;
-							let eraserColor = Color.White;
-							if (useStars && Math.random() < 0.4) eraserColor = availableColors[Math.floor(Math.random() * availableColors.length)];
+							let eraserColor = getDefColor(CellType.Eraser, Color.White);
+							if (useStars && Math.random() < 0.4) {
+								const colors = availableColors.filter((c) => c !== eraserColor);
+								if (colors.length > 0) {
+									eraserColor = colors[Math.floor(Math.random() * colors.length)];
+								}
+							}
 							grid.cells[cell.y][cell.x].color = eraserColor;
 							erasersPlaced++;
 						}

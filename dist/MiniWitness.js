@@ -35,14 +35,13 @@ var NodeType = /* @__PURE__ */ ((NodeType2) => {
   NodeType2[NodeType2["End"] = 2] = "End";
   return NodeType2;
 })(NodeType || {});
-var Color = /* @__PURE__ */ ((Color2) => {
-  Color2[Color2["None"] = 0] = "None";
-  Color2[Color2["Black"] = 1] = "Black";
-  Color2[Color2["White"] = 2] = "White";
-  Color2[Color2["Red"] = 3] = "Red";
-  Color2[Color2["Blue"] = 4] = "Blue";
-  return Color2;
-})(Color || {});
+var Color = {
+  None: 0,
+  Black: 1,
+  White: 2,
+  Red: 3,
+  Blue: 4
+};
 
 // src/grid.ts
 var Grid = class _Grid {
@@ -61,7 +60,7 @@ var Grid = class _Grid {
     this.initializeGrid();
   }
   initializeGrid() {
-    this.cells = Array.from({ length: this.rows }, () => Array.from({ length: this.cols }, () => ({ type: 0 /* None */, color: 0 /* None */ })));
+    this.cells = Array.from({ length: this.rows }, () => Array.from({ length: this.cols }, () => ({ type: 0 /* None */, color: Color.None })));
     this.hEdges = Array.from({ length: this.rows + 1 }, () => Array.from({ length: this.cols }, () => ({ type: 0 /* Normal */ })));
     this.vEdges = Array.from({ length: this.rows }, () => Array.from({ length: this.cols + 1 }, () => ({ type: 0 /* Normal */ })));
     this.nodes = Array.from({ length: this.rows + 1 }, () => Array.from({ length: this.cols + 1 }, () => ({ type: 0 /* Normal */ })));
@@ -397,7 +396,7 @@ var PuzzleValidator = class {
       const isOtherMark = constraint.type !== 5 /* Eraser */;
       if (!isEraserAsMark && !isOtherMark) continue;
       const color = constraint.color;
-      if (color !== 0 /* None */) {
+      if (color !== Color.None) {
         colorCounts.set(color, (colorCounts.get(color) || 0) + 1);
         if (!colorCells.has(color)) colorCells.set(color, []);
         colorCells.get(color).push(cell);
@@ -1309,7 +1308,14 @@ var PuzzleGenerator = class {
     }
     if (useSquares || useStars || useTetris || useEraser) {
       const regions = this.calculateRegions(grid, path);
-      const availableColors = [1 /* Black */, 2 /* White */, 3 /* Red */, 4 /* Blue */];
+      const availableColors = options.availableColors ?? [Color.Black, Color.White, Color.Red, Color.Blue];
+      const defaultColors = options.defaultColors ?? {};
+      const getDefColor = (type, fallback) => {
+        if (defaultColors[type] !== void 0) return defaultColors[type];
+        const name = CellType[type];
+        if (name && defaultColors[name] !== void 0) return defaultColors[name];
+        return fallback;
+      };
       const regionIndices = Array.from({ length: regions.length }, (_, i) => i);
       this.shuffleArray(regionIndices);
       const squareColorsUsed = /* @__PURE__ */ new Set();
@@ -1362,10 +1368,12 @@ var PuzzleGenerator = class {
                 const cell = potentialCells.pop();
                 grid.cells[cell.y][cell.x].type = p.isRotated ? 4 /* TetrisRotated */ : 3 /* Tetris */;
                 grid.cells[cell.y][cell.x].shape = p.isRotated ? p.displayShape : p.shape;
-                let tetrisColor = 0 /* None */;
+                let tetrisColor = getDefColor(3 /* Tetris */, Color.None);
                 if (useStars && Math.random() < 0.5) {
-                  const colors = availableColors.filter((c) => c !== 4 /* Blue */);
-                  tetrisColor = colors[Math.floor(Math.random() * colors.length)];
+                  const colors = availableColors.filter((c) => c !== Color.Blue && c !== tetrisColor);
+                  if (colors.length > 0) {
+                    tetrisColor = colors[Math.floor(Math.random() * colors.length)];
+                  }
                 }
                 grid.cells[cell.y][cell.x].color = tetrisColor;
                 tetrisPlaced++;
@@ -1402,7 +1410,7 @@ var PuzzleGenerator = class {
               grid.cells[errCell.y][errCell.x].type = 1 /* Square */;
               const existingSquare = region.find((p) => grid.cells[p.y][p.x].type === 1 /* Square */);
               const existingSquareColor = existingSquare ? grid.cells[existingSquare.y][existingSquare.x].color : void 0;
-              grid.cells[errCell.y][errCell.x].color = availableColors.find((c) => c !== existingSquareColor) || 3 /* Red */;
+              grid.cells[errCell.y][errCell.x].color = availableColors.find((c) => c !== existingSquareColor) || Color.Red;
               squaresPlaced++;
               errorPlaced = true;
             } else if (errorType === "star" && potentialCells.length >= 2) {
@@ -1433,9 +1441,9 @@ var PuzzleGenerator = class {
                   const cell = potentialCells.pop();
                   grid.cells[cell.y][cell.x].type = p.isRotated ? 4 /* TetrisRotated */ : 3 /* Tetris */;
                   grid.cells[cell.y][cell.x].shape = p.isRotated ? p.displayShape : p.shape;
-                  let tetrisColor = 0 /* None */;
+                  let tetrisColor = Color.None;
                   if (useStars && Math.random() < 0.3) {
-                    const colors = availableColors.filter((c) => c !== 4 /* Blue */);
+                    const colors = availableColors.filter((c) => c !== Color.Blue);
                     tetrisColor = colors[Math.floor(Math.random() * colors.length)];
                   }
                   grid.cells[cell.y][cell.x].color = tetrisColor;
@@ -1446,22 +1454,27 @@ var PuzzleGenerator = class {
             } else if (errorType === "eraser" && potentialCells.length >= 2) {
               const errCell = potentialCells.pop();
               grid.cells[errCell.y][errCell.x].type = 5 /* Eraser */;
-              grid.cells[errCell.y][errCell.x].color = 2 /* White */;
+              grid.cells[errCell.y][errCell.x].color = getDefColor(5 /* Eraser */, Color.White);
               erasersPlaced++;
               errorPlaced = true;
             }
             if (!errorPlaced && potentialCells.length >= 2) {
               const errCell = potentialCells.pop();
               grid.cells[errCell.y][errCell.x].type = 5 /* Eraser */;
-              grid.cells[errCell.y][errCell.x].color = 2 /* White */;
+              grid.cells[errCell.y][errCell.x].color = getDefColor(5 /* Eraser */, Color.White);
               erasersPlaced++;
               errorPlaced = true;
             }
             if (errorPlaced) {
               const cell = potentialCells.pop();
               grid.cells[cell.y][cell.x].type = 5 /* Eraser */;
-              let eraserColor = 2 /* White */;
-              if (useStars && Math.random() < 0.4) eraserColor = availableColors[Math.floor(Math.random() * availableColors.length)];
+              let eraserColor = getDefColor(5 /* Eraser */, Color.White);
+              if (useStars && Math.random() < 0.4) {
+                const colors = availableColors.filter((c) => c !== eraserColor);
+                if (colors.length > 0) {
+                  eraserColor = colors[Math.floor(Math.random() * colors.length)];
+                }
+              }
               grid.cells[cell.y][cell.x].color = eraserColor;
               erasersPlaced++;
             }
@@ -1494,7 +1507,7 @@ var PuzzleGenerator = class {
       if (useSquares && !useStars && squareColorsUsed.size < 2) {
         for (const region of regions) {
           if (region.every((p) => grid.cells[p.y][p.x].type === 0 /* None */)) {
-            const otherColor = availableColors.find((c) => !squareColorsUsed.has(c)) || 2 /* White */;
+            const otherColor = availableColors.find((c) => !squareColorsUsed.has(c)) || Color.White;
             const cell = region[Math.floor(Math.random() * region.length)];
             grid.cells[cell.y][cell.x].type = 1 /* Square */;
             grid.cells[cell.y][cell.x].color = otherColor;
@@ -1841,12 +1854,13 @@ var WitnessUI = class {
         node: options.colors?.node ?? "#555",
         hexagon: options.colors?.hexagon ?? "#ffcc00",
         colorMap: options.colors?.colorMap ?? {
-          [1 /* Black */]: "#000",
-          [2 /* White */]: "#fff",
-          [3 /* Red */]: "#f00",
-          [4 /* Blue */]: "#00f",
-          [0 /* None */]: "#f0f"
-        }
+          [Color.Black]: "#000",
+          [Color.White]: "#fff",
+          [Color.Red]: "#f00",
+          [Color.Blue]: "#00f",
+          [Color.None]: "#ffcc00"
+        },
+        colorList: options.colors?.colorList
       },
       onPathComplete: options.onPathComplete ?? (() => {
       })
@@ -2477,7 +2491,7 @@ var WitnessUI = class {
     if (rotated) {
       ctx.rotate(Math.PI / 8);
     }
-    ctx.fillStyle = overrideColor || (colorEnum === 0 /* None */ ? "#ffcc00" : this.getColorCode(colorEnum));
+    ctx.fillStyle = overrideColor || this.getColorCode(colorEnum, "#ffcc00");
     for (let r = 0; r < shape.length; r++) {
       for (let c = 0; c < shape[r].length; c++) {
         if (shape[r][c]) {
@@ -2489,8 +2503,14 @@ var WitnessUI = class {
     }
     ctx.restore();
   }
-  getColorCode(colorEnum) {
-    return this.options.colors.colorMap && this.options.colors.colorMap[colorEnum] || "#666";
+  getColorCode(colorEnum, defaultFallback = "#666") {
+    if (this.options.colors.colorList && this.options.colors.colorList[colorEnum] !== void 0) {
+      return this.options.colors.colorList[colorEnum];
+    }
+    if (this.options.colors.colorMap && this.options.colors.colorMap[colorEnum] !== void 0) {
+      return this.options.colors.colorMap[colorEnum];
+    }
+    return defaultFallback;
   }
   hexToRgb(hex) {
     let c = hex.startsWith("#") ? hex.slice(1) : hex;

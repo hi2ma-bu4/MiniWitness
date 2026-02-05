@@ -45,6 +45,8 @@ export interface WitnessUIOptions {
 		hexagon?: string;
 		/** 各色のカラーコードマップ */
 		colorMap?: Record<number, string>;
+		/** 各色のカラーコードリスト（インデックスがColor値に対応） */
+		colorList?: string[];
 	};
 	/** パスが完了（出口に到達）した際のコールバック */
 	onPathComplete?: (path: Point[]) => void;
@@ -146,8 +148,9 @@ export class WitnessUI {
 					[Color.White]: "#fff",
 					[Color.Red]: "#f00",
 					[Color.Blue]: "#00f",
-					[Color.None]: "#f0f",
+					[Color.None]: "#ffcc00",
 				},
+				colorList: options.colors?.colorList,
 			},
 			onPathComplete: options.onPathComplete ?? (() => {}),
 		};
@@ -874,7 +877,8 @@ export class WitnessUI {
 		if (rotated) {
 			ctx.rotate(Math.PI / 8);
 		}
-		ctx.fillStyle = overrideColor || (colorEnum === Color.None ? "#ffcc00" : this.getColorCode(colorEnum));
+		// overrideColorがある場合はそれを優先、なければColor.Noneかつデフォルトカラー設定がない場合は黄色(#ffcc00)
+		ctx.fillStyle = overrideColor || this.getColorCode(colorEnum, "#ffcc00");
 
 		for (let r = 0; r < shape.length; r++) {
 			for (let c = 0; c < shape[r].length; c++) {
@@ -888,8 +892,14 @@ export class WitnessUI {
 		ctx.restore();
 	}
 
-	private getColorCode(colorEnum: Color): string {
-		return (this.options.colors.colorMap && this.options.colors.colorMap[colorEnum]) || "#666";
+	private getColorCode(colorEnum: Color, defaultFallback = "#666"): string {
+		if (this.options.colors.colorList && this.options.colors.colorList[colorEnum] !== undefined) {
+			return this.options.colors.colorList[colorEnum];
+		}
+		if (this.options.colors.colorMap && this.options.colors.colorMap[colorEnum] !== undefined) {
+			return this.options.colors.colorMap[colorEnum];
+		}
+		return defaultFallback;
 	}
 
 	private hexToRgb(hex: string): { r: number; g: number; b: number } {

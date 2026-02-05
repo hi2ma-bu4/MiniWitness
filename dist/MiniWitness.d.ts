@@ -27,14 +27,16 @@ export declare enum NodeType {
 }
 /**
  * 使用可能色
+ * Core内部では数値で管理し、UIで実際の色（文字列）と紐付ける
  */
-export declare enum Color {
-	None = 0,
-	Black = 1,
-	White = 2,
-	Red = 3,
-	Blue = 4
-}
+export type Color = number;
+export declare const Color: {
+	readonly None: Color;
+	readonly Black: Color;
+	readonly White: Color;
+	readonly Red: Color;
+	readonly Blue: Color;
+};
 export interface Point {
 	x: number;
 	y: number;
@@ -96,6 +98,12 @@ export interface GenerationOptions {
 	complexity?: number;
 	difficulty?: number;
 	pathLength?: number;
+	/** 四角形や星などの記号に使用可能な色のリスト。指定がない場合はデフォルト（黒・白・赤・青）が使用される。 */
+	availableColors?: Color[];
+	/** 各記号タイプのデフォルトカラー。指定がない場合はそれぞれの記号の標準色が使用される。
+	 * キーには CellType の数値、または "Square", "Tetris" などの文字列が使用可能です。
+	 */
+	defaultColors?: Partial<Record<CellType | keyof typeof CellType, Color>>;
 }
 export declare class Grid {
 	readonly rows: number;
@@ -230,6 +238,8 @@ export interface WitnessUIOptions {
 		hexagon?: string;
 		/** 各色のカラーコードマップ */
 		colorMap?: Record<number, string>;
+		/** 各色のカラーコードリスト（インデックスがColor値に対応） */
+		colorList?: string[];
 	};
 	/** パスが完了（出口に到達）した際のコールバック */
 	onPathComplete?: (path: Point[]) => void;

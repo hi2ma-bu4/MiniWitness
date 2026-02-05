@@ -29,15 +29,16 @@ export enum NodeType {
 
 /**
  * 使用可能色
+ * Core内部では数値で管理し、UIで実際の色（文字列）と紐付ける
  */
-export enum Color {
-	None = 0,
-	Black = 1,
-	White = 2,
-	Red = 3,
-	Blue = 4,
-	// 拡張可能
-}
+export type Color = number;
+export const Color = {
+	None: 0 as Color,
+	Black: 1 as Color,
+	White: 2 as Color,
+	Red: 3 as Color,
+	Blue: 4 as Color,
+} as const;
 
 export interface Point {
 	x: number;
@@ -99,4 +100,10 @@ export interface GenerationOptions {
 	complexity?: number; // 0.0 - 1.0 (制約の密度)
 	difficulty?: number; // 0.0 (Easy) - 1.0 (Hard) (解パターンの数に基づく)
 	pathLength?: number; // 0.0 (Shortest) - 1.0 (Longest)
+	/** 四角形や星などの記号に使用可能な色のリスト。指定がない場合はデフォルト（黒・白・赤・青）が使用される。 */
+	availableColors?: Color[];
+	/** 各記号タイプのデフォルトカラー。指定がない場合はそれぞれの記号の標準色が使用される。
+	 * キーには CellType の数値、または "Square", "Tetris" などの文字列が使用可能です。
+	 */
+	defaultColors?: Partial<Record<CellType | keyof typeof CellType, Color>>;
 }
