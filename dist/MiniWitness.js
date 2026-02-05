@@ -254,14 +254,14 @@ var PuzzleValidator = class {
     const results = [];
     const numErasers = erasers.length;
     if (numErasers === 0) {
-      const errorCells = this.getRegionErrors(grid, region, [], []);
+      const errorCells = this.getRegionErrors(grid, region, []);
       if (errorCells.length === 0 && adjacentMissedHexagons.length === 0) {
         results.push({ invalidatedCells: [], invalidatedHexagons: [], isValid: true, errorCells: [] });
       }
       return results;
     }
     const itemsToNegate = [...otherMarks.map((p) => ({ type: "cell", pos: p })), ...adjacentMissedHexagons.map((idx) => ({ type: "hex", index: idx }))];
-    const initiallyValid = this.getRegionErrors(grid, region, [], []).length === 0 && adjacentMissedHexagons.length === 0;
+    const initiallyValid = this.getRegionErrors(grid, region, []).length === 0 && adjacentMissedHexagons.length === 0;
     for (let N = 0; N <= numErasers; N++) {
       const negatedEraserCombinations = this.getNCombinations(erasers, N);
       for (const negatedErasers of negatedEraserCombinations) {
@@ -273,7 +273,7 @@ var PuzzleValidator = class {
           for (const negatedItems of itemCombinations) {
             const negatedCells = negatedItems.filter((it) => it.type === "cell").map((it) => it.pos);
             const negatedHexIndices = negatedItems.filter((it) => it.type === "hex").map((it) => it.index);
-            const errorCells = this.getRegionErrors(grid, region, [...negatedCells, ...negatedErasers], activeErasers);
+            const errorCells = this.getRegionErrors(grid, region, [...negatedCells, ...negatedErasers]);
             const isValid = errorCells.length === 0;
             if (isValid) {
               let isUseful = true;
@@ -285,7 +285,7 @@ var PuzzleValidator = class {
                   const subsetCells = subset.filter((it) => it.type === "cell").map((it) => it.pos);
                   const subsetHexIndices = new Set(subset.filter((it) => it.type === "hex").map((it) => it.index));
                   const allHexSatisfied = adjacentMissedHexagons.every((idx) => subsetHexIndices.has(idx));
-                  if (this.getRegionErrors(grid, region, subsetCells, activeErasers).length === 0 && allHexSatisfied) {
+                  if (this.getRegionErrors(grid, region, subsetCells).length === 0 && allHexSatisfied) {
                     isUseful = false;
                     break;
                   }
@@ -311,7 +311,7 @@ var PuzzleValidator = class {
    */
   getBestEffortErasures(grid, region, erasers, otherMarks, adjacentMissedHexagons) {
     const itemsToNegate = [...otherMarks.map((p) => ({ type: "cell", pos: p })), ...adjacentMissedHexagons.map((idx) => ({ type: "hex", index: idx }))];
-    const naturalErrors = this.getRegionErrors(grid, region, [], []);
+    const naturalErrors = this.getRegionErrors(grid, region, []);
     const initiallyValid = naturalErrors.length === 0 && adjacentMissedHexagons.length === 0;
     if (initiallyValid) {
       return {
@@ -333,7 +333,7 @@ var PuzzleValidator = class {
       }
       const negatedCells = itemToNegate.type === "cell" ? [itemToNegate.pos] : [];
       const negatedHexagons = itemToNegate.type === "hex" ? [itemToNegate.index] : [];
-      const errorCells2 = this.getRegionErrors(grid, region, negatedCells, []);
+      const errorCells2 = this.getRegionErrors(grid, region, negatedCells);
       for (const e of erasers) {
         errorCells2.push(e);
       }
@@ -374,15 +374,14 @@ var PuzzleValidator = class {
   /**
    * 特定の削除・無効化を適用した状態で、区画内の制約が満たされているか検証する
    */
-  checkRegionValid(grid, region, erasedCells, erasersAsMarks) {
-    return this.getRegionErrors(grid, region, erasedCells, erasersAsMarks).length === 0;
+  checkRegionValid(grid, region, erasedCells) {
+    return this.getRegionErrors(grid, region, erasedCells).length === 0;
   }
   /**
    * 区画内のエラーとなっているセルを特定する
    */
-  getRegionErrors(grid, region, erasedCells, erasersAsMarks) {
+  getRegionErrors(grid, region, erasedCells) {
     const erasedSet = new Set(erasedCells.map((p) => `${p.x},${p.y}`));
-    const erasersAsMarksSet = new Set(erasersAsMarks.map((p) => `${p.x},${p.y}`));
     const colorCounts = /* @__PURE__ */ new Map();
     const colorCells = /* @__PURE__ */ new Map();
     const starColors = /* @__PURE__ */ new Set();
@@ -392,9 +391,6 @@ var PuzzleValidator = class {
       if (erasedSet.has(`${cell.x},${cell.y}`)) continue;
       const constraint = grid.cells[cell.y][cell.x];
       if (constraint.type === 0 /* None */) continue;
-      const isEraserAsMark = constraint.type === 5 /* Eraser */ && erasersAsMarksSet.has(`${cell.x},${cell.y}`);
-      const isOtherMark = constraint.type !== 5 /* Eraser */;
-      if (!isEraserAsMark && !isOtherMark) continue;
       const color = constraint.color;
       if (color !== Color.None) {
         colorCounts.set(color, (colorCounts.get(color) || 0) + 1);
@@ -418,7 +414,8 @@ var PuzzleValidator = class {
       if (colorCounts.get(color) !== 2) {
         const cells = colorCells.get(color) || [];
         for (const p of cells) {
-          if (grid.cells[p.y][p.x].type === 2 /* Star */ || erasersAsMarksSet.has(`${p.x},${p.y}`)) {
+          const type = grid.cells[p.y][p.x].type;
+          if (type === 2 /* Star */ || type === 5 /* Eraser */) {
             errorCells.push(p);
           }
         }

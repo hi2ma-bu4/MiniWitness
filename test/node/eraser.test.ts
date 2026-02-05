@@ -88,7 +88,7 @@ test("Eraser validation - colored eraser redundant pair", () => {
 	puzzle.cells[0][2] = { type: CellType.Eraser, color: Color.Black };
 
 	const result = core.validateSolution(puzzle, getPath(3));
-	assert.strictEqual(result.isValid, false, "2 Stars + 1 Eraser of same color should be INVALID");
+	assert.strictEqual(result.isValid, true, "2 Stars + 1 Eraser of same color should be VALID (Eraser can negate one Star to form a pair)");
 });
 
 test("Eraser validation - complex scenario (2 White Sq, 1 White Star, 1 Black Star, 1 Black Eraser)", () => {
@@ -185,4 +185,34 @@ test("Eraser validation - erase hexagon violation", () => {
 	assert.strictEqual(result.invalidatedEdges[0].type, "h");
 	assert.strictEqual(result.invalidatedEdges[0].r, 0);
 	assert.strictEqual(result.invalidatedEdges[0].c, 0);
+});
+
+test("Eraser validation bug reproduction - 1 Star + 1 Eraser of same color", () => {
+	const puzzle = createBasicGrid(1, 2);
+	puzzle.cells[0][0] = { type: CellType.Star, color: Color.White };
+	puzzle.cells[0][1] = { type: CellType.Eraser, color: Color.White };
+
+	const result = core.validateSolution(puzzle, getPath(2));
+	assert.strictEqual(result.isValid, false, "Should be invalid (Eraser has no error to negate)");
+
+	const errorCells = result.errorCells || [];
+	const invalidatedCells = result.invalidatedCells || [];
+	const hasStarError = errorCells.some((p) => puzzle.cells[p.y][p.x].type === CellType.Star);
+	const hasEraserError = errorCells.some((p) => puzzle.cells[p.y][p.x].type === CellType.Eraser);
+	const isStarInvalidated = invalidatedCells.some((p) => puzzle.cells[p.y][p.x].type === CellType.Star);
+
+	console.log("Error Cells:", errorCells);
+	console.log("Invalidated Cells:", invalidatedCells);
+
+	// The user says CURRENTLY: "White Star is errored, White Eraser is errored"
+	// DESIRED: "White Star is normal, White Eraser is errored"
+
+	// We expect the bug to be present initially.
+	// If hasStarError is true, the bug is present.
+	assert.strictEqual(hasEraserError, true, "Eraser should be an error");
+
+	// This is the check that will fail if the bug is present.
+	// The user wants hasStarError to be false.
+	assert.strictEqual(hasStarError, false, "Star should NOT be an error");
+	assert.strictEqual(isStarInvalidated, false, "Star should NOT be invalidated");
 });
