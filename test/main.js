@@ -135,3 +135,4 @@ class WitnessGame {
 }
 
 window.witnessGame = new WitnessGame();
+window.PuzzleSerializer = PuzzleSerializer;
