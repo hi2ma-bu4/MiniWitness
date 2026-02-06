@@ -307,10 +307,9 @@ var PuzzleValidator = class {
     return results;
   }
   /**
-   * エラーが解消できなかった場合のベストエフォートな削除（ランダムに一つ削除）を取得する
+   * エラーが解消できなかった場合のベストエフォートな削除（可能な限り消しゴムを適用）を取得する
    */
   getBestEffortErasures(grid, region, erasers, otherMarks, adjacentMissedHexagons) {
-    const itemsToNegate = [...otherMarks.map((p) => ({ type: "cell", pos: p })), ...adjacentMissedHexagons.map((idx) => ({ type: "hex", index: idx }))];
     const naturalErrors = this.getRegionErrors(grid, region, []);
     const initiallyValid = naturalErrors.length === 0 && adjacentMissedHexagons.length === 0;
     if (initiallyValid) {
@@ -321,28 +320,46 @@ var PuzzleValidator = class {
         errorCells: [...erasers]
       };
     }
-    if (erasers.length > 0 && itemsToNegate.length > 0) {
-      let itemToNegate = itemsToNegate[0];
-      if (naturalErrors.length > 0) {
-        const firstError = naturalErrors[0];
-        const found = itemsToNegate.find((it) => it.type === "cell" && it.pos.x === firstError.x && it.pos.y === firstError.y);
-        if (found) itemToNegate = found;
-      } else if (adjacentMissedHexagons.length > 0) {
-        const found = itemsToNegate.find((it) => it.type === "hex" && it.index === adjacentMissedHexagons[0]);
-        if (found) itemToNegate = found;
-      }
-      const negatedCells = itemToNegate.type === "cell" ? [itemToNegate.pos] : [];
-      const negatedHexagons = itemToNegate.type === "hex" ? [itemToNegate.index] : [];
-      const errorCells2 = this.getRegionErrors(grid, region, negatedCells);
-      for (const e of erasers) {
-        errorCells2.push(e);
-      }
-      return {
-        invalidatedCells: negatedCells,
-        invalidatedHexagons: negatedHexagons,
-        isValid: false,
-        errorCells: errorCells2
+    if (erasers.length > 0) {
+      const itemsToNegate = [...otherMarks.map((p) => ({ type: "cell", pos: p })), ...adjacentMissedHexagons.map((idx) => ({ type: "hex", index: idx }))];
+      let bestResult = null;
+      let minErrorCount = Infinity;
+      const tryNegate = (priorityItems) => {
+        const toInvalidateCells = [];
+        const toInvalidateHexagons = [];
+        let usedErasersCount = 0;
+        for (const item of priorityItems) {
+          if (usedErasersCount < erasers.length) {
+            if (item.type === "cell") toInvalidateCells.push(item.pos);
+            else toInvalidateHexagons.push(item.index);
+            usedErasersCount++;
+          }
+        }
+        const remainingForPairs = erasers.length - usedErasersCount;
+        const N = Math.floor(remainingForPairs / 2);
+        const negatedErasers = erasers.slice(usedErasersCount, usedErasersCount + N);
+        usedErasersCount += N * 2;
+        const errorCells2 = this.getRegionErrors(grid, region, [...toInvalidateCells, ...negatedErasers]);
+        for (let i = usedErasersCount; i < erasers.length; i++) {
+          errorCells2.push(erasers[i]);
+        }
+        const errorCount = errorCells2.length;
+        if (errorCount < minErrorCount) {
+          minErrorCount = errorCount;
+          bestResult = {
+            invalidatedCells: [...toInvalidateCells, ...negatedErasers],
+            invalidatedHexagons: toInvalidateHexagons,
+            isValid: false,
+            errorCells: errorCells2
+          };
+        }
       };
+      tryNegate([...naturalErrors.map((p) => ({ type: "cell", pos: p })), ...adjacentMissedHexagons.map((idx) => ({ type: "hex", index: idx }))]);
+      tryNegate(itemsToNegate);
+      for (const errCell of naturalErrors) {
+        tryNegate([{ type: "cell", pos: errCell }]);
+      }
+      if (bestResult) return bestResult;
     }
     const errorCells = [...naturalErrors, ...erasers];
     return {

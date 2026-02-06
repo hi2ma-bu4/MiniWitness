@@ -119,3 +119,13 @@ li {
     color: #4db8ff;
     text-decoration: underline;
 }
+
+@media (max-width: 500px) {
+    body {
+        padding: 10px;
+    }
+
+    #game-container {
+        padding: 0;
+    }
+}

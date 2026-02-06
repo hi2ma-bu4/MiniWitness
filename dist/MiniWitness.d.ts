@@ -370,7 +370,7 @@ export declare class PuzzleValidator {
 	 */
 	private getPossibleErasures;
 	/**
-	 * エラーが解消できなかった場合のベストエフォートな削除（ランダムに一つ削除）を取得する
+	 * エラーが解消できなかった場合のベストエフォートな削除（可能な限り消しゴムを適用）を取得する
 	 */
 	private getBestEffortErasures;
 	/**

@@ -261,14 +261,13 @@ export class PuzzleValidator {
 	}
 
 	/**
-	 * エラーが解消できなかった場合のベストエフォートな削除（ランダムに一つ削除）を取得する
+	 * エラーが解消できなかった場合のベストエフォートな削除（可能な限り消しゴムを適用）を取得する
 	 */
 	private getBestEffortErasures(grid: Grid, region: Point[], erasers: Point[], otherMarks: Point[], adjacentMissedHexagons: number[]): { invalidatedCells: Point[]; invalidatedHexagons: number[]; isValid: boolean; errorCells: Point[] } {
-		const itemsToNegate = [...otherMarks.map((p) => ({ type: "cell" as const, pos: p })), ...adjacentMissedHexagons.map((idx) => ({ type: "hex" as const, index: idx }))];
 		const naturalErrors = this.getRegionErrors(grid, region, []);
 		const initiallyValid = naturalErrors.length === 0 && adjacentMissedHexagons.length === 0;
 
-		// 初期状態で有効なら、テトラポッド自体がエラー。何も無効化しない。
+		// 初期状態で有効なら、テトラポッド自体がエラー。
 		if (initiallyValid) {
 			return {
 				invalidatedCells: [],
@@ -278,38 +277,66 @@ export class PuzzleValidator {
 			};
 		}
 
-		if (erasers.length > 0 && itemsToNegate.length > 0) {
-			// エラーがある場合は、エラーとなっている箇所を優先して無効化を試みる
-			let itemToNegate = itemsToNegate[0];
-			if (naturalErrors.length > 0) {
-				const firstError = naturalErrors[0];
-				const found = itemsToNegate.find((it) => it.type === "cell" && it.pos.x === firstError.x && it.pos.y === firstError.y);
-				if (found) itemToNegate = found;
-			} else if (adjacentMissedHexagons.length > 0) {
-				const found = itemsToNegate.find((it) => it.type === "hex" && it.index === adjacentMissedHexagons[0]);
-				if (found) itemToNegate = found;
-			}
+		if (erasers.length > 0) {
+			const itemsToNegate = [...otherMarks.map((p) => ({ type: "cell" as const, pos: p })), ...adjacentMissedHexagons.map((idx) => ({ type: "hex" as const, index: idx }))];
 
-			const negatedCells = itemToNegate.type === "cell" ? [itemToNegate.pos] : [];
-			const negatedHexagons = itemToNegate.type === "hex" ? [itemToNegate.index] : [];
+			// エラー解消パターンをいくつか試し、最もエラーが少なくなるものを採用する
+			let bestResult: { invalidatedCells: Point[]; invalidatedHexagons: number[]; isValid: boolean; errorCells: Point[] } | null = null;
+			let minErrorCount = Infinity;
 
-			// 他のエラーを収集。テトラポッド自体もエラーとして扱う（解消しきれていないため）
-			const errorCells = this.getRegionErrors(grid, region, negatedCells);
-			for (const e of erasers) {
-				errorCells.push(e);
-			}
+			// 単純な優先順位に基づくパターン
+			const tryNegate = (priorityItems: ({ type: "cell"; pos: Point } | { type: "hex"; index: number })[]) => {
+				const toInvalidateCells: Point[] = [];
+				const toInvalidateHexagons: number[] = [];
+				let usedErasersCount = 0;
 
-			return {
-				invalidatedCells: negatedCells,
-				invalidatedHexagons: negatedHexagons,
-				isValid: false,
-				errorCells,
+				for (const item of priorityItems) {
+					if (usedErasersCount < erasers.length) {
+						if (item.type === "cell") toInvalidateCells.push(item.pos);
+						else toInvalidateHexagons.push(item.index);
+						usedErasersCount++;
+					}
+				}
+
+				// 残りの消しゴムはペアにして無効化を試みる
+				const remainingForPairs = erasers.length - usedErasersCount;
+				const N = Math.floor(remainingForPairs / 2);
+				const negatedErasers = erasers.slice(usedErasersCount, usedErasersCount + N);
+				usedErasersCount += N * 2;
+
+				// 消しゴム自身がエラーかどうかを判定するため、getRegionErrorsを呼ぶ
+				// 消しゴム自身は（消し合ったペアを除き）マークとして残る
+				const errorCells = this.getRegionErrors(grid, region, [...toInvalidateCells, ...negatedErasers]);
+				// 使われなかった消しゴムはエラー
+				for (let i = usedErasersCount; i < erasers.length; i++) {
+					errorCells.push(erasers[i]);
+				}
+
+				const errorCount = errorCells.length;
+				if (errorCount < minErrorCount) {
+					minErrorCount = errorCount;
+					bestResult = {
+						invalidatedCells: [...toInvalidateCells, ...negatedErasers],
+						invalidatedHexagons: toInvalidateHexagons,
+						isValid: false,
+						errorCells,
+					};
+				}
 			};
+
+			// パターン1: 自然発生したエラーを優先
+			tryNegate([...naturalErrors.map((p) => ({ type: "cell" as const, pos: p })), ...adjacentMissedHexagons.map((idx) => ({ type: "hex" as const, index: idx }))]);
+			// パターン2: 全てのアイテムを順番に
+			tryNegate(itemsToNegate);
+			// パターン3: 自然発生した各エラーを個別に1つずつ消してみる
+			for (const errCell of naturalErrors) {
+				tryNegate([{ type: "cell", pos: errCell }]);
+			}
+
+			if (bestResult) return bestResult;
 		}
 
-		// 消しゴムがない、または消す対象がない場合
 		const errorCells = [...naturalErrors, ...erasers];
-
 		return {
 			invalidatedCells: [],
 			invalidatedHexagons: [],
