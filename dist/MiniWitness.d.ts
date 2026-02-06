@@ -193,6 +193,13 @@ export declare class PuzzleGenerator {
 	private placePiece;
 	private shuffleArray;
 }
+export declare class PuzzleSerializer {
+	static serialize(puzzle: PuzzleData, options: GenerationOptions): Promise<string>;
+	static deserialize(str: string): Promise<{
+		puzzle: PuzzleData;
+		options: GenerationOptions;
+	}>;
+}
 /**
  * UI表示設定
  */

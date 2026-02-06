@@ -6,6 +6,7 @@ import { PuzzleValidator } from "./validator";
 // ライブラリのファサードクラス
 export { PuzzleGenerator } from "./generator";
 export { Grid } from "./grid";
+export { PuzzleSerializer } from "./serializer";
 export { WitnessUI } from "./ui";
 export { PuzzleValidator } from "./validator";
 

@@ -1,9 +1,13 @@
 import assert from "node:assert";
 import { test } from "node:test";
-import { WitnessUI } from "../../dist/MiniWitness.js";
+import { PuzzleSerializer, WitnessUI } from "../../dist/MiniWitness.js";
 
 test("WitnessUI export", () => {
 	assert.ok(WitnessUI, "WitnessUI should be exported");
+});
+
+test("PuzzleSerializer export", () => {
+	assert.ok(PuzzleSerializer, "PuzzleSerializer should be exported");
 });
 
 test("WitnessUI instantiation in Node (should not crash)", () => {
