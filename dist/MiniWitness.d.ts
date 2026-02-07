@@ -148,6 +148,10 @@ export declare class PuzzleGenerator {
 	 */
 	private applyBrokenEdges;
 	/**
+	 * エッジがAbsentに変換可能か判定する
+	 */
+	private canBecomeAbsent;
+	/**
 	 * 到達不可能なエリアをAbsent化し、外部に漏れたセルをクリアする
 	 */
 	private cleanGrid;

@@ -432,7 +432,7 @@ var PuzzleValidator = class {
         const cells = colorCells.get(color) || [];
         for (const p of cells) {
           const type = grid.cells[p.y][p.x].type;
-          if (type === 2 /* Star */ || type === 5 /* Eraser */) {
+          if (type === 2 /* Star */) {
             errorCells.push(p);
           }
         }
@@ -1079,11 +1079,33 @@ var PuzzleGenerator = class {
     let placed = 0;
     for (const edge of unusedEdges) {
       if (placed >= targetCount) break;
-      let type = Math.random() < 0.8 ? 1 /* Broken */ : 2 /* Absent */;
-      if (type === 2 /* Absent */ && this.isAdjacentToMark(grid, edge)) type = 1 /* Broken */;
-      if (edge.type === "h") grid.hEdges[edge.r][edge.c].type = type;
-      else grid.vEdges[edge.r][edge.c].type = type;
+      if (edge.type === "h") grid.hEdges[edge.r][edge.c].type = 1 /* Broken */;
+      else grid.vEdges[edge.r][edge.c].type = 1 /* Broken */;
       placed++;
+    }
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (let r = 0; r <= grid.rows; r++) {
+        for (let c = 0; c < grid.cols; c++) {
+          if (grid.hEdges[r][c].type === 1 /* Broken */) {
+            if (this.canBecomeAbsent(grid, { type: "h", r, c })) {
+              grid.hEdges[r][c].type = 2 /* Absent */;
+              changed = true;
+            }
+          }
+        }
+      }
+      for (let r = 0; r < grid.rows; r++) {
+        for (let c = 0; c <= grid.cols; c++) {
+          if (grid.vEdges[r][c].type === 1 /* Broken */) {
+            if (this.canBecomeAbsent(grid, { type: "v", r, c })) {
+              grid.vEdges[r][c].type = 2 /* Absent */;
+              changed = true;
+            }
+          }
+        }
+      }
     }
     for (let r = 0; r <= grid.rows; r++) {
       for (let c = 0; c <= grid.cols; c++) {
@@ -1092,13 +1114,49 @@ var PuzzleGenerator = class {
         if (c < grid.cols) edgesWithMeta.push({ e: grid.hEdges[r][c], type: "h", r, c });
         if (r > 0) edgesWithMeta.push({ e: grid.vEdges[r - 1][c], type: "v", r: r - 1, c });
         if (r < grid.rows) edgesWithMeta.push({ e: grid.vEdges[r][c], type: "v", r, c });
-        if (edgesWithMeta.every((m) => m.e.type === 1 /* Broken */ || m.e.type === 2 /* Absent */)) {
+        if (edgesWithMeta.length > 0 && edgesWithMeta.every((m) => m.e.type === 1 /* Broken */ || m.e.type === 2 /* Absent */)) {
           if (edgesWithMeta.every((m) => !this.isAdjacentToMark(grid, m))) {
             for (const m of edgesWithMeta) m.e.type = 2 /* Absent */;
           }
         }
       }
     }
+  }
+  /**
+   * エッジがAbsentに変換可能か判定する
+   */
+  canBecomeAbsent(grid, edge) {
+    if (this.isAdjacentToMark(grid, edge)) return false;
+    if (edge.type === "h") {
+      if (edge.r === 0 || edge.r === grid.rows) return true;
+    } else {
+      if (edge.c === 0 || edge.c === grid.cols) return true;
+    }
+    const nodes = edge.type === "h" ? [
+      { x: edge.c, y: edge.r },
+      { x: edge.c + 1, y: edge.r }
+    ] : [
+      { x: edge.c, y: edge.r },
+      { x: edge.c, y: edge.r + 1 }
+    ];
+    for (const node of nodes) {
+      const adjEdges = [
+        { type: "h", r: node.y, c: node.x - 1 },
+        { type: "h", r: node.y, c: node.x },
+        { type: "v", r: node.y - 1, c: node.x },
+        { type: "v", r: node.y, c: node.x }
+      ];
+      for (const adj of adjEdges) {
+        if (adj.c >= 0 && adj.c <= grid.cols && adj.r >= 0 && adj.r <= grid.rows) {
+          if (adj.type === "h" && adj.c < grid.cols) {
+            if (grid.hEdges[adj.r][adj.c].type === 2 /* Absent */) return true;
+          } else if (adj.type === "v" && adj.r < grid.rows) {
+            if (grid.vEdges[adj.r][adj.c].type === 2 /* Absent */) return true;
+          }
+        }
+      }
+    }
+    return false;
   }
   /**
    * 到達不可能なエリアをAbsent化し、外部に漏れたセルをクリアする

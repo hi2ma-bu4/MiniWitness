@@ -235,6 +235,6 @@ test("Eraser validation bug reproduction - 3 Star + 1 Eraser of same color", () 
 
 	assert.strictEqual(eraserError, 0, "Eraser should NOT be an error");
 
-	assert.strictEqual(starError, 3, "Star should be an 3 error");
-	assert.strictEqual(starInvalidated, 1, "Star should be 1 invalidated");
+	assert.strictEqual(starError, 2, "2 stars should be errors");
+	assert.strictEqual(starInvalidated, 1, "1 star should be invalidated (not blinking)");
 });

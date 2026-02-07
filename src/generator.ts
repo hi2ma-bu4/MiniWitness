@@ -205,15 +205,41 @@ export class PuzzleGenerator {
 		let placed = 0;
 		for (const edge of unusedEdges) {
 			if (placed >= targetCount) break;
-			let type = Math.random() < 0.8 ? EdgeType.Broken : EdgeType.Absent;
-			if (type === EdgeType.Absent && this.isAdjacentToMark(grid, edge)) type = EdgeType.Broken;
-
-			if (edge.type === "h") grid.hEdges[edge.r][edge.c].type = type;
-			else grid.vEdges[edge.r][edge.c].type = type;
+			// まずはBrokenとして配置
+			if (edge.type === "h") grid.hEdges[edge.r][edge.c].type = EdgeType.Broken;
+			else grid.vEdges[edge.r][edge.c].type = EdgeType.Broken;
 			placed++;
 		}
 
-		// 周囲が全て断線しているノードの全エッジをAbsent化する
+		// 外周またはAbsentに接触しているBrokenをAbsentに置き換える（伝播）
+		let changed = true;
+		while (changed) {
+			changed = false;
+			// Horizontal edges
+			for (let r = 0; r <= grid.rows; r++) {
+				for (let c = 0; c < grid.cols; c++) {
+					if (grid.hEdges[r][c].type === EdgeType.Broken) {
+						if (this.canBecomeAbsent(grid, { type: "h", r, c })) {
+							grid.hEdges[r][c].type = EdgeType.Absent;
+							changed = true;
+						}
+					}
+				}
+			}
+			// Vertical edges
+			for (let r = 0; r < grid.rows; r++) {
+				for (let c = 0; c <= grid.cols; c++) {
+					if (grid.vEdges[r][c].type === EdgeType.Broken) {
+						if (this.canBecomeAbsent(grid, { type: "v", r, c })) {
+							grid.vEdges[r][c].type = EdgeType.Absent;
+							changed = true;
+						}
+					}
+				}
+			}
+		}
+
+		// 周囲が全て断線しているノードの全エッジをAbsent化する（既存ロジックの維持）
 		for (let r = 0; r <= grid.rows; r++) {
 			for (let c = 0; c <= grid.cols; c++) {
 				const edgesWithMeta: { e: EdgeConstraint; type: "h" | "v"; r: number; c: number }[] = [];
@@ -222,13 +248,60 @@ export class PuzzleGenerator {
 				if (r > 0) edgesWithMeta.push({ e: grid.vEdges[r - 1][c], type: "v", r: r - 1, c });
 				if (r < grid.rows) edgesWithMeta.push({ e: grid.vEdges[r][c], type: "v", r, c });
 
-				if (edgesWithMeta.every((m) => m.e.type === EdgeType.Broken || m.e.type === EdgeType.Absent)) {
+				if (edgesWithMeta.length > 0 && edgesWithMeta.every((m) => m.e.type === EdgeType.Broken || m.e.type === EdgeType.Absent)) {
 					if (edgesWithMeta.every((m) => !this.isAdjacentToMark(grid, m))) {
 						for (const m of edgesWithMeta) m.e.type = EdgeType.Absent;
 					}
 				}
 			}
 		}
+	}
+
+	/**
+	 * エッジがAbsentに変換可能か判定する
+	 */
+	private canBecomeAbsent(grid: Grid, edge: { type: "h" | "v"; r: number; c: number }): boolean {
+		// マークに隣接している場合はAbsent禁止
+		if (this.isAdjacentToMark(grid, edge)) return false;
+
+		// 1. 外周にあるか
+		if (edge.type === "h") {
+			if (edge.r === 0 || edge.r === grid.rows) return true;
+		} else {
+			if (edge.c === 0 || edge.c === grid.cols) return true;
+		}
+
+		// 2. 他のAbsentエッジに接触（ノードを共有）しているか
+		const nodes =
+			edge.type === "h"
+				? [
+						{ x: edge.c, y: edge.r },
+						{ x: edge.c + 1, y: edge.r },
+					]
+				: [
+						{ x: edge.c, y: edge.r },
+						{ x: edge.c, y: edge.r + 1 },
+					];
+
+		for (const node of nodes) {
+			const adjEdges = [
+				{ type: "h", r: node.y, c: node.x - 1 },
+				{ type: "h", r: node.y, c: node.x },
+				{ type: "v", r: node.y - 1, c: node.x },
+				{ type: "v", r: node.y, c: node.x },
+			];
+			for (const adj of adjEdges) {
+				if (adj.c >= 0 && adj.c <= grid.cols && adj.r >= 0 && adj.r <= grid.rows) {
+					if (adj.type === "h" && adj.c < grid.cols) {
+						if (grid.hEdges[adj.r][adj.c].type === EdgeType.Absent) return true;
+					} else if (adj.type === "v" && adj.r < grid.rows) {
+						if (grid.vEdges[adj.r][adj.c].type === EdgeType.Absent) return true;
+					}
+				}
+			}
+		}
+
+		return false;
 	}
 
 	/**

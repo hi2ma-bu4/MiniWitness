@@ -315,6 +315,7 @@ export class PuzzleValidator {
 				const errorCount = errorCells.length;
 				if (errorCount < minErrorCount) {
 					minErrorCount = errorCount;
+
 					bestResult = {
 						invalidatedCells: [...toInvalidateCells, ...negatedErasers],
 						invalidatedHexagons: toInvalidateHexagons,
@@ -417,7 +418,7 @@ export class PuzzleValidator {
 				const cells = colorCells.get(color) || [];
 				for (const p of cells) {
 					const type = grid.cells[p.y][p.x].type;
-					if (type === CellType.Star || type === CellType.Eraser) {
+					if (type === CellType.Star) {
 						errorCells.push(p);
 					}
 				}
