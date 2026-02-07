@@ -1563,7 +1563,7 @@ var PuzzleGenerator = class {
     const visited = /* @__PURE__ */ new Set();
     const path = [];
     let nodesVisited = 0;
-    const limit = grid.rows * grid.cols * 20;
+    const limit = grid.rows * grid.cols * 200;
     const findPath = (current) => {
       nodesVisited++;
       if (nodesVisited > limit) return false;
@@ -1997,7 +1997,20 @@ var PuzzleGenerator = class {
       }
       if (hexagonsPlaced === 0 && path.length >= 2) {
         const idx = Math.floor(Math.random() * (path.length - 1));
-        this.setEdgeHexagon(grid, path[idx], path[idx + 1]);
+        const symmetry2 = options.symmetry || 0 /* None */;
+        let type = 3 /* Hexagon */;
+        let p1 = path[idx];
+        let p2 = path[idx + 1];
+        if (symmetry2 !== 0 /* None */) {
+          const r = Math.random();
+          if (r < 0.3) type = 4 /* HexagonMain */;
+          else if (r < 0.6) {
+            type = 5 /* HexagonSymmetry */;
+            p1 = this.getSymmetricalPoint(grid, path[idx], symmetry2);
+            p2 = this.getSymmetricalPoint(grid, path[idx + 1], symmetry2);
+          }
+        }
+        this.setEdgeHexagon(grid, p1, p2, type);
       }
     }
     if (useSquares || useStars || useTetris || useEraser) {
@@ -2411,6 +2424,7 @@ var PuzzleGenerator = class {
       let fT = false;
       let fE = false;
       const sqC = /* @__PURE__ */ new Set();
+      const stC = /* @__PURE__ */ new Set();
       for (let r = 0; r < grid.rows; r++)
         for (let c = 0; c < grid.cols; c++) {
           const type = grid.cells[r][c].type;
@@ -2418,7 +2432,10 @@ var PuzzleGenerator = class {
             fSq = true;
             sqC.add(grid.cells[r][c].color);
           }
-          if (type === 2 /* Star */) fSt = true;
+          if (type === 2 /* Star */) {
+            fSt = true;
+            stC.add(grid.cells[r][c].color);
+          }
           if (type === 3 /* Tetris */ || type === 4 /* TetrisRotated */) fT = true;
           if (type === 5 /* Eraser */) fE = true;
         }
@@ -2426,7 +2443,12 @@ var PuzzleGenerator = class {
       if (useStars && !fSt) return false;
       if (useTetris && !fT) return false;
       if (useEraser && !fE) return false;
-      if (useSquares && fSq && !fSt && sqC.size < 2) return false;
+      if (useSquares && fSq) {
+        if (sqC.size < 2) {
+          const onlyColor = sqC.values().next().value;
+          if (onlyColor === void 0 || !stC.has(onlyColor)) return false;
+        }
+      }
     }
     if (this.hasIsolatedMark(grid)) return false;
     return true;

@@ -177,7 +177,8 @@ export class PuzzleGenerator {
 		const visited = new Set<string>();
 		const path: Point[] = [];
 		let nodesVisited = 0;
-		const limit = grid.rows * grid.cols * 20;
+		// 探索リミットを大幅に引き上げ、特に対称パズルでの到達可能性を高める
+		const limit = grid.rows * grid.cols * 200;
 
 		const findPath = (current: Point): boolean => {
 			nodesVisited++;
@@ -673,7 +674,21 @@ export class PuzzleGenerator {
 
 			if (hexagonsPlaced === 0 && path.length >= 2) {
 				const idx = Math.floor(Math.random() * (path.length - 1));
-				this.setEdgeHexagon(grid, path[idx], path[idx + 1]);
+				const symmetry = options.symmetry || SymmetryType.None;
+				let type = EdgeType.Hexagon;
+				let p1 = path[idx];
+				let p2 = path[idx + 1];
+
+				if (symmetry !== SymmetryType.None) {
+					const r = Math.random();
+					if (r < 0.3) type = EdgeType.HexagonMain;
+					else if (r < 0.6) {
+						type = EdgeType.HexagonSymmetry;
+						p1 = this.getSymmetricalPoint(grid, path[idx], symmetry);
+						p2 = this.getSymmetricalPoint(grid, path[idx + 1], symmetry);
+					}
+				}
+				this.setEdgeHexagon(grid, p1, p2, type);
 			}
 		}
 
@@ -1142,6 +1157,7 @@ export class PuzzleGenerator {
 			let fT = false;
 			let fE = false;
 			const sqC = new Set<number>();
+			const stC = new Set<number>();
 			for (let r = 0; r < grid.rows; r++)
 				for (let c = 0; c < grid.cols; c++) {
 					const type = grid.cells[r][c].type;
@@ -1149,7 +1165,10 @@ export class PuzzleGenerator {
 						fSq = true;
 						sqC.add(grid.cells[r][c].color);
 					}
-					if (type === CellType.Star) fSt = true;
+					if (type === CellType.Star) {
+						fSt = true;
+						stC.add(grid.cells[r][c].color);
+					}
 					if (type === CellType.Tetris || type === CellType.TetrisRotated) fT = true;
 					if (type === CellType.Eraser) fE = true;
 				}
@@ -1157,7 +1176,14 @@ export class PuzzleGenerator {
 			if (useStars && !fSt) return false;
 			if (useTetris && !fT) return false;
 			if (useEraser && !fE) return false;
-			if (useSquares && fSq && !fSt && sqC.size < 2) return false;
+
+			// 四角形の追加制約: 他の色の四角形、または同色の星が存在しない場合は2色以上必要
+			if (useSquares && fSq) {
+				if (sqC.size < 2) {
+					const onlyColor = sqC.values().next().value;
+					if (onlyColor === undefined || !stC.has(onlyColor)) return false;
+				}
+			}
 		}
 		if (this.hasIsolatedMark(grid)) return false;
 		return true;

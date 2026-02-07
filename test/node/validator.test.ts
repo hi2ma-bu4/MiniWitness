@@ -1,6 +1,6 @@
 import assert from "node:assert";
 import { test } from "node:test";
-import { CellType, Color, EdgeType, Grid, NodeType, type PuzzleData, PuzzleGenerator, PuzzleValidator, type SolutionPath, WitnessCore } from "../../dist/MiniWitness.js";
+import { CellType, Color, EdgeType, Grid, NodeType, type PuzzleData, PuzzleGenerator, PuzzleValidator, type SolutionPath, SymmetryType, WitnessCore } from "../../dist/MiniWitness.js";
 
 const core = new WitnessCore();
 
@@ -238,6 +238,54 @@ test("Generator - Absent edges should not be adjacent to marks", () => {
 			}
 		}
 	}
+});
+
+test("Generator - square color rule with stars", () => {
+	const generator = new PuzzleGenerator();
+	const options = {
+		useSquares: true,
+		useStars: true,
+		complexity: 0.5,
+	};
+
+	let foundSingleColorSquare = false;
+	for (let i = 0; i < 50; i++) {
+		const grid = generator.generate(4, 4, options);
+		const squareColors = new Set<number>();
+		const starColors = new Set<number>();
+		for (let r = 0; r < grid.rows; r++) {
+			for (let c = 0; c < grid.cols; c++) {
+				if (grid.cells[r][c].type === CellType.Square) squareColors.add(grid.cells[r][c].color);
+				if (grid.cells[r][c].type === CellType.Star) starColors.add(grid.cells[r][c].color);
+			}
+		}
+		if (squareColors.size === 1) {
+			foundSingleColorSquare = true;
+			const onlyColor = squareColors.values().next().value as number;
+			assert.ok(starColors.has(onlyColor), "Single color square grid must contain a star of the same color");
+		}
+	}
+	assert.ok(foundSingleColorSquare, "Should have generated at least one grid with a single square color");
+});
+
+test("Generator - Hexagon generation in Rotational grid", () => {
+	const generator = new PuzzleGenerator();
+	const options = {
+		symmetry: SymmetryType.Rotational,
+		useHexagons: true,
+		difficulty: 0.5,
+		complexity: 0.5,
+	};
+
+	const grid = generator.generate(5, 5, options);
+	let hexCount = 0;
+	const isHex = (t: number) => t >= 3;
+
+	for (let r = 0; r <= grid.rows; r++) for (let c = 0; c < grid.cols; c++) if (isHex(grid.hEdges[r][c].type)) hexCount++;
+	for (let r = 0; r < grid.rows; r++) for (let c = 0; c <= grid.cols; c++) if (isHex(grid.vEdges[r][c].type)) hexCount++;
+	for (let r = 0; r <= grid.rows; r++) for (let c = 0; c <= grid.cols; c++) if (isHex(grid.nodes[r][c].type)) hexCount++;
+
+	assert.ok(hexCount > 0, "Should generate hexagons in 5x5 Rotational grid");
 });
 
 test("Generator - should not produce isolated marks", () => {
