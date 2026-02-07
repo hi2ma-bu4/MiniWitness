@@ -204,9 +204,6 @@ test("Eraser validation bug reproduction - 1 Star + 1 Eraser of same color", () 
 	console.log("Error Cells:", errorCells);
 	console.log("Invalidated Cells:", invalidatedCells);
 
-	// The user says CURRENTLY: "White Star is errored, White Eraser is errored"
-	// DESIRED: "White Star is normal, White Eraser is errored"
-
 	// We expect the bug to be present initially.
 	// If hasStarError is true, the bug is present.
 	assert.strictEqual(hasEraserError, true, "Eraser should be an error");
@@ -215,4 +212,29 @@ test("Eraser validation bug reproduction - 1 Star + 1 Eraser of same color", () 
 	// The user wants hasStarError to be false.
 	assert.strictEqual(hasStarError, false, "Star should NOT be an error");
 	assert.strictEqual(isStarInvalidated, false, "Star should NOT be invalidated");
+});
+
+test("Eraser validation bug reproduction - 3 Star + 1 Eraser of same color", () => {
+	const puzzle = createBasicGrid(1, 4);
+	puzzle.cells[0][0] = { type: CellType.Star, color: Color.White };
+	puzzle.cells[0][1] = { type: CellType.Star, color: Color.White };
+	puzzle.cells[0][2] = { type: CellType.Star, color: Color.White };
+	puzzle.cells[0][3] = { type: CellType.Eraser, color: Color.White };
+
+	const result = core.validateSolution(puzzle, getPath(4));
+	assert.strictEqual(result.isValid, false, "Should be invalid (Eraser has no error to negate)");
+
+	const errorCells = result.errorCells || [];
+	const invalidatedCells = result.invalidatedCells || [];
+	const starError = errorCells.filter((p) => puzzle.cells[p.y][p.x].type === CellType.Star).length;
+	const eraserError = errorCells.filter((p) => puzzle.cells[p.y][p.x].type === CellType.Eraser).length;
+	const starInvalidated = invalidatedCells.filter((p) => puzzle.cells[p.y][p.x].type === CellType.Star).length;
+
+	console.log("Error Cells:", errorCells);
+	console.log("Invalidated Cells:", invalidatedCells);
+
+	assert.strictEqual(eraserError, 0, "Eraser should NOT be an error");
+
+	assert.strictEqual(starError, 3, "Star should be an 3 error");
+	assert.strictEqual(starInvalidated, 1, "Star should be 1 invalidated");
 });
