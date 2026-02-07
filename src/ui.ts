@@ -1,4 +1,4 @@
-import { CellType, Color, EdgeType, NodeType, type Point, type PuzzleData } from "./types";
+import { CellType, Color, EdgeType, NodeType, SymmetryType, type Point, type PuzzleData } from "./types";
 
 /**
  * UI表示設定
@@ -35,6 +35,8 @@ export interface WitnessUIOptions {
 		error?: string;
 		/** 成功時のフラッシュ/アニメーション用 */
 		success?: string;
+		/** 対称パスの色 */
+		symmetry?: string;
 		/** 途中で離した際のフェード色 */
 		interrupted?: string;
 		/** グリッドの色 */
@@ -124,37 +126,43 @@ export class WitnessUI {
 	}
 
 	private mergeOptions(options: WitnessUIOptions): Required<WitnessUIOptions> {
-		return {
-			gridPadding: options.gridPadding ?? 60,
-			cellSize: options.cellSize ?? 80,
-			nodeRadius: options.nodeRadius ?? 6,
-			startNodeRadius: options.startNodeRadius ?? 22,
-			pathWidth: options.pathWidth ?? 18,
-			exitLength: options.exitLength ?? 25,
-			autoResize: options.autoResize ?? true,
-			animations: {
-				blinkDuration: options.animations?.blinkDuration ?? 1000,
-				fadeDuration: options.animations?.fadeDuration ?? 1000,
-				blinkPeriod: options.animations?.blinkPeriod ?? 800,
-			},
-			colors: {
-				path: options.colors?.path ?? "#ffcc00",
-				error: options.colors?.error ?? "#ff4444",
-				success: options.colors?.success ?? "#ffcc00",
-				interrupted: options.colors?.interrupted ?? "#ffcc00",
-				grid: options.colors?.grid ?? "#555",
-				node: options.colors?.node ?? "#555",
-				hexagon: options.colors?.hexagon ?? "#000",
-				colorMap: options.colors?.colorMap ?? {
+		const animations = {
+			blinkDuration: options.animations?.blinkDuration ?? this.options?.animations?.blinkDuration ?? 1000,
+			fadeDuration: options.animations?.fadeDuration ?? this.options?.animations?.fadeDuration ?? 1000,
+			blinkPeriod: options.animations?.blinkPeriod ?? this.options?.animations?.blinkPeriod ?? 800,
+		};
+
+		const colors = {
+			path: options.colors?.path ?? this.options?.colors?.path ?? "#ffcc00",
+			error: options.colors?.error ?? this.options?.colors?.error ?? "#ff4444",
+			success: options.colors?.success ?? this.options?.colors?.success ?? "#ffcc00",
+			symmetry: options.colors?.symmetry ?? this.options?.colors?.symmetry ?? "rgba(255, 255, 255, 0.5)",
+			interrupted: options.colors?.interrupted ?? this.options?.colors?.interrupted ?? "#ffcc00",
+			grid: options.colors?.grid ?? this.options?.colors?.grid ?? "#555",
+			node: options.colors?.node ?? this.options?.colors?.node ?? "#555",
+			hexagon: options.colors?.hexagon ?? this.options?.colors?.hexagon ?? "#000",
+			colorMap: options.colors?.colorMap ??
+				this.options?.colors?.colorMap ?? {
 					[Color.Black]: "#000",
 					[Color.White]: "#fff",
 					[Color.Red]: "#f00",
 					[Color.Blue]: "#00f",
 					[Color.None]: "#ffcc00",
 				},
-				colorList: options.colors?.colorList,
-			},
-			onPathComplete: options.onPathComplete ?? (() => {}),
+			colorList: options.colors?.colorList ?? this.options?.colors?.colorList,
+		};
+
+		return {
+			gridPadding: options.gridPadding ?? this.options?.gridPadding ?? 60,
+			cellSize: options.cellSize ?? this.options?.cellSize ?? 80,
+			nodeRadius: options.nodeRadius ?? this.options?.nodeRadius ?? 6,
+			startNodeRadius: options.startNodeRadius ?? this.options?.startNodeRadius ?? 22,
+			pathWidth: options.pathWidth ?? this.options?.pathWidth ?? 18,
+			exitLength: options.exitLength ?? this.options?.exitLength ?? 25,
+			autoResize: options.autoResize ?? this.options?.autoResize ?? true,
+			animations,
+			colors,
+			onPathComplete: options.onPathComplete ?? this.options?.onPathComplete ?? (() => {}),
 		};
 	}
 
@@ -265,7 +273,7 @@ export class WitnessUI {
 
 	private getExitDir(x: number, y: number): Point | null {
 		if (!this.puzzle) return null;
-		if (this.puzzle.nodes[y][x].type !== NodeType.End) return null;
+		if (this.puzzle.nodes[y]?.[x]?.type !== NodeType.End) return null;
 		if (x === this.puzzle.cols) return { x: 1, y: 0 };
 		if (x === 0) return { x: -1, y: 0 };
 		if (y === 0) return { x: 0, y: -1 };
@@ -325,6 +333,8 @@ export class WitnessUI {
 		const dx = mouseX - lastPos.x;
 		const dy = mouseY - lastPos.y;
 
+		const symmetry = this.puzzle.symmetry || SymmetryType.None;
+
 		const exitDir = this.getExitDir(lastPoint.x, lastPoint.y);
 		if (exitDir) {
 			const dot = dx * exitDir.x + dy * exitDir.y;
@@ -339,34 +349,85 @@ export class WitnessUI {
 			}
 		}
 
-		if (Math.abs(dx) > Math.abs(dy)) {
-			const dir = dx > 0 ? 1 : -1;
-			const target = { x: lastPoint.x + dir, y: lastPoint.y };
+		const tryMoveTo = (target: Point, d: number) => {
 			const edgeType = this.getEdgeType(lastPoint, target);
+			if (target.x < 0 || target.x > this.puzzle!.cols || target.y < 0 || target.y > this.puzzle!.rows || edgeType === EdgeType.Absent) {
+				this.currentMousePos = lastPos;
+				return;
+			}
 
-			if (target.x >= 0 && target.x <= this.puzzle.cols && edgeType !== EdgeType.Absent) {
-				const maxMove = edgeType === EdgeType.Broken ? this.options.cellSize * 0.35 : this.options.cellSize;
+			let maxMove = edgeType === EdgeType.Broken ? this.options.cellSize * 0.35 : this.options.cellSize;
+
+			// 自己衝突チェック（メインパスのエッジ）
+			const targetEdgeKey = this.getEdgeKey(lastPoint, target);
+			const isBacktracking = this.path.length >= 2 && target.x === this.path[this.path.length - 2].x && target.y === this.path[this.path.length - 2].y;
+
+			if (!isBacktracking) {
+				for (let i = 0; i < this.path.length - 1; i++) {
+					if (this.getEdgeKey(this.path[i], this.path[i + 1]) === targetEdgeKey) {
+						// 既に使用中のエッジに向かう場合は、即座にブロック（戻る動作は別途 handleMove で snap 処理される）
+						maxMove = 0;
+						break;
+					}
+				}
+			}
+
+			// 自己衝突チェック（メインパスのノード）
+			const isTargetInPath = this.path.some((p) => p.x === target.x && p.y === target.y);
+			if (isTargetInPath && this.path.length >= 2) {
+				const secondToLast = this.path[this.path.length - 2];
+				if (target.x !== secondToLast.x || target.y !== secondToLast.y) {
+					maxMove = Math.min(maxMove, this.options.cellSize * 0.5 - this.options.pathWidth * 0.5);
+				}
+			}
+
+			if (symmetry !== SymmetryType.None) {
+				const symLast = this.getSymmetricalPoint(lastPoint);
+				const symTarget = this.getSymmetricalPoint(target);
+				const symEdgeType = this.getEdgeType(symLast, symTarget);
+				const symPath = this.getSymmetryPath(this.path);
+				const symEdgeKey = this.getEdgeKey(symLast, symTarget);
+
+				if (symTarget.x < 0 || symTarget.x > this.puzzle!.cols || symTarget.y < 0 || symTarget.y > this.puzzle!.rows || symEdgeType === EdgeType.Absent) {
+					this.currentMousePos = lastPos;
+					return;
+				}
+
+				if (symEdgeType === EdgeType.Broken) {
+					maxMove = Math.min(maxMove, this.options.cellSize * 0.35);
+				}
+
+				// 対称パスとの衝突チェック
+				const isNodeOccupiedBySym = symPath.some((p) => p.x === target.x && p.y === target.y);
+				const isSymNodeOccupiedByMain = this.path.some((p) => p.x === symTarget.x && p.y === symTarget.y);
+				const isMeetingAtNode = target.x === symTarget.x && target.y === symTarget.y;
+				const isEdgeOccupiedBySym = symPath.some((p, i) => i < symPath.length - 1 && this.getEdgeKey(symPath[i], symPath[i + 1]) === targetEdgeKey);
+				const isMirrorEdgeOccupiedByMain = this.path.some((p, i) => i < this.path.length - 1 && this.getEdgeKey(this.path[i], this.path[i + 1]) === symEdgeKey);
+				const isSelfMirrorEdge = targetEdgeKey === symEdgeKey;
+
+				if (isNodeOccupiedBySym || isSymNodeOccupiedByMain || isMeetingAtNode || isEdgeOccupiedBySym || isMirrorEdgeOccupiedByMain || isSelfMirrorEdge) {
+					maxMove = Math.min(maxMove, this.options.cellSize * 0.5 - this.options.pathWidth * 0.5);
+				}
+			}
+			if (target.x !== lastPoint.x) {
 				this.currentMousePos = {
-					x: lastPos.x + Math.max(-maxMove, Math.min(maxMove, dx)),
+					x: lastPos.x + Math.max(-maxMove, Math.min(maxMove, d)),
 					y: lastPos.y,
 				};
 			} else {
-				this.currentMousePos = lastPos;
-			}
-		} else {
-			const dir = dy > 0 ? 1 : -1;
-			const target = { x: lastPoint.x, y: lastPoint.y + dir };
-			const edgeType = this.getEdgeType(lastPoint, target);
-
-			if (target.y >= 0 && target.y <= this.puzzle.rows && edgeType !== EdgeType.Absent) {
-				const maxMove = edgeType === EdgeType.Broken ? this.options.cellSize * 0.35 : this.options.cellSize;
 				this.currentMousePos = {
 					x: lastPos.x,
-					y: lastPos.y + Math.max(-maxMove, Math.min(maxMove, dy)),
+					y: lastPos.y + Math.max(-maxMove, Math.min(maxMove, d)),
 				};
-			} else {
-				this.currentMousePos = lastPos;
 			}
+		};
+
+		if (Math.abs(dx) > Math.abs(dy)) {
+			const dir = dx > 0 ? 1 : -1;
+			tryMoveTo({ x: lastPoint.x + dir, y: lastPoint.y }, dx);
+		} else {
+			const dir = dy > 0 ? 1 : -1;
+			tryMoveTo({ x: lastPoint.x, y: lastPoint.y + dir }, dy);
 		}
 
 		const neighbors = [
@@ -376,6 +437,8 @@ export class WitnessUI {
 			{ x: lastPoint.x, y: lastPoint.y - 1 },
 		];
 
+		const symPath = this.getSymmetryPath(this.path);
+
 		for (const n of neighbors) {
 			if (n.x >= 0 && n.x <= this.puzzle.cols && n.y >= 0 && n.y <= this.puzzle.rows) {
 				const nPos = this.getCanvasCoords(n.x, n.y);
@@ -384,6 +447,19 @@ export class WitnessUI {
 				if (dist < this.options.cellSize * 0.3) {
 					const idx = this.path.findIndex((p) => p.x === n.x && p.y === n.y);
 					if (idx === -1) {
+						// 衝突チェック
+						if (symmetry !== SymmetryType.None) {
+							const sn = this.getSymmetricalPoint(n);
+							// ノード自体が対称点の場合
+							if (n.x === sn.x && n.y === sn.y) continue;
+							// 他の線への衝突チェック
+							if (this.path.some((p) => p.x === sn.x && p.y === sn.y)) continue;
+							if (symPath.some((p) => p.x === n.x && p.y === n.y)) continue;
+							// エッジの衝突チェック
+							const edgeKey = this.getEdgeKey(lastPoint, n);
+							const symEdgeKey = this.getEdgeKey(this.getSymmetricalPoint(lastPoint), sn);
+							if (edgeKey === symEdgeKey) continue;
+						}
 						this.path.push(n);
 					} else if (idx === this.path.length - 2) {
 						this.path.pop();
@@ -479,6 +555,22 @@ export class WitnessUI {
 
 		if (this.isFading) {
 			this.drawPath(ctx, this.fadingPath, false, this.fadeColor, this.fadeOpacity, this.fadingTipPos);
+			if (this.puzzle.symmetry !== undefined && this.puzzle.symmetry !== SymmetryType.None) {
+				const symFadingPath = this.getSymmetryPath(this.fadingPath);
+				const symColor = this.options.colors.symmetry as string;
+				let symTipPos: Point | null = null;
+				if (this.fadingTipPos) {
+					const gridRelX = (this.fadingTipPos.x - this.options.gridPadding) / this.options.cellSize;
+					const gridRelY = (this.fadingTipPos.y - this.options.gridPadding) / this.options.cellSize;
+					const symGridRel = this.getSymmetricalPoint({ x: gridRelX, y: gridRelY });
+					symTipPos = {
+						x: symGridRel.x * this.options.cellSize + this.options.gridPadding,
+						y: symGridRel.y * this.options.cellSize + this.options.gridPadding,
+					};
+				}
+				// 途中で離した場合はメインと同じ色で消えても良いが、一応対称側の色でフェードさせる
+				this.drawPath(ctx, symFadingPath, false, symColor, this.fadeOpacity, symTipPos);
+			}
 		} else if (this.path.length > 0) {
 			let color = this.isInvalidPath ? (this.options.colors.error as string) : (this.options.colors.path as string);
 
@@ -512,6 +604,51 @@ export class WitnessUI {
 			}
 
 			this.drawPath(ctx, this.path, this.isDrawing, color, 1.0, this.isDrawing ? this.currentMousePos : this.exitTipPos);
+
+			if (this.puzzle.symmetry !== undefined && this.puzzle.symmetry !== SymmetryType.None) {
+				const symPath = this.getSymmetryPath(this.path);
+				let symColor = this.options.colors.symmetry as string;
+
+				// エラー時や成功時は色を上書き
+				if (this.isInvalidPath) {
+					symColor = this.options.colors.error as string;
+				} else if (this.isSuccessFading) {
+					symColor = this.options.colors.success as string;
+				}
+
+				if (!this.isDrawing && this.exitTipPos && !this.isInvalidPath) {
+					const elapsed = now - (this.isSuccessFading ? this.successFadeStartTime : this.eraserAnimationStartTime);
+					const blinkDuration = this.options.animations.blinkDuration!;
+					if (elapsed < blinkDuration) {
+						if (this.isSuccessFading) {
+							const hasNegation = this.invalidatedCells.length > 0 || this.invalidatedEdges.length > 0 || this.invalidatedNodes.length > 0;
+							if (hasNegation) {
+								symColor = this.options.colors.error as string;
+							}
+						} else {
+							const transitionIn = Math.min(1.0, elapsed / 200);
+							const transitionOut = elapsed > blinkDuration * 0.8 ? (blinkDuration - elapsed) / (blinkDuration * 0.2) : 1.0;
+							const transitionFactor = Math.min(transitionIn, transitionOut);
+							const blinkFactor = (Math.sin((now * Math.PI * 2) / this.options.animations.blinkPeriod!) + 1) / 2;
+							symColor = this.lerpColor(this.options.colors.symmetry as string, this.options.colors.error as string, blinkFactor * transitionFactor);
+						}
+					}
+				}
+
+				let symTipPos: Point | null = null;
+				if (this.isDrawing || this.exitTipPos) {
+					const tip = this.isDrawing ? this.currentMousePos : this.exitTipPos!;
+					// Canvas座標からグリッド相対座標に変換して対称点を求め、再度Canvas座標に戻す
+					const gridRelX = (tip.x - this.options.gridPadding) / this.options.cellSize;
+					const gridRelY = (tip.y - this.options.gridPadding) / this.options.cellSize;
+					const symGridRel = this.getSymmetricalPoint({ x: gridRelX, y: gridRelY }, true);
+					symTipPos = {
+						x: symGridRel.x * this.options.cellSize + this.options.gridPadding,
+						y: symGridRel.y * this.options.cellSize + this.options.gridPadding,
+					};
+				}
+				this.drawPath(ctx, symPath, this.isDrawing, symColor, 1.0, symTipPos);
+			}
 		}
 	}
 
@@ -814,16 +951,29 @@ export class WitnessUI {
 	private drawPath(ctx: CanvasRenderingContext2D, path: Point[], isDrawing: boolean, color: string | undefined, opacity: number, tipPos: Point | null = null) {
 		if (path.length === 0 || !color) return;
 
-		if (opacity < 1.0) {
-			const { canvas: tempCanvas, ctx: tempCtx } = this.prepareOffscreen();
-			this.drawPathInternal(tempCtx, path, isDrawing, color, tipPos);
-			ctx.save();
-			ctx.globalAlpha = opacity;
-			ctx.drawImage(tempCanvas, 0, 0);
-			ctx.restore();
-		} else {
-			this.drawPathInternal(ctx, path, isDrawing, color, tipPos);
+		let finalOpacity = opacity;
+		let finalColor = color;
+		if (color.startsWith("rgba")) {
+			const match = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
+			if (match) {
+				const r = match[1];
+				const g = match[2];
+				const b = match[3];
+				const a = match[4] ? parseFloat(match[4]) : 1.0;
+				finalColor = `rgb(${r},${g},${b})`;
+				finalOpacity *= a;
+			}
+		} else if (color === "transparent") {
+			return;
 		}
+
+		// 重なり部分の色が濃くなるのを防ぐため、常にオフスクリーンで不透明に描画してから透過で合成する
+		const { canvas: tempCanvas, ctx: tempCtx } = this.prepareOffscreen();
+		this.drawPathInternal(tempCtx, path, isDrawing, finalColor, tipPos);
+		ctx.save();
+		ctx.globalAlpha = finalOpacity;
+		ctx.drawImage(tempCanvas, 0, 0);
+		ctx.restore();
 	}
 
 	private drawPathInternal(ctx: CanvasRenderingContext2D, path: Point[], isDrawing: boolean, color: string, tipPos: Point | null = null) {
@@ -843,9 +993,9 @@ export class WitnessUI {
 			ctx.lineTo(pos.x, pos.y);
 		}
 
+		const actualTipPos = tipPos || this.currentMousePos;
 		if (isDrawing || tipPos) {
-			const pos = tipPos || this.currentMousePos;
-			ctx.lineTo(pos.x, pos.y);
+			ctx.lineTo(actualTipPos.x, actualTipPos.y);
 		}
 
 		ctx.stroke();
@@ -854,9 +1004,9 @@ export class WitnessUI {
 		ctx.arc(startPos.x, startPos.y, this.options.startNodeRadius, 0, Math.PI * 2);
 		ctx.fill();
 
-		if (isDrawing) {
+		if (isDrawing || tipPos) {
 			ctx.beginPath();
-			ctx.arc(this.currentMousePos.x, this.currentMousePos.y, this.options.pathWidth / 2, 0, Math.PI * 2);
+			ctx.arc(actualTipPos.x, actualTipPos.y, this.options.pathWidth / 2, 0, Math.PI * 2);
 			ctx.fill();
 		}
 		ctx.restore();
@@ -989,6 +1139,28 @@ export class WitnessUI {
 		} catch (e) {
 			return c1;
 		}
+	}
+
+	private getSymmetryPath(path: Point[]): Point[] {
+		if (!this.puzzle || !this.puzzle.symmetry) return [];
+		return path.map((p) => this.getSymmetricalPoint(p));
+	}
+
+	private getSymmetricalPoint(p: Point, isFloat = false): Point {
+		if (!this.puzzle || !this.puzzle.symmetry) return { ...p };
+		const { cols, rows, symmetry } = this.puzzle;
+		if (symmetry === SymmetryType.Horizontal) {
+			return { x: cols - p.x, y: p.y };
+		} else if (symmetry === SymmetryType.Vertical) {
+			return { x: p.x, y: rows - p.y };
+		} else if (symmetry === SymmetryType.Rotational) {
+			return { x: cols - p.x, y: rows - p.y };
+		}
+		return { ...p };
+	}
+
+	private getEdgeKey(p1: Point, p2: Point): string {
+		return p1.x < p2.x || (p1.x === p2.x && p1.y < p2.y) ? `${p1.x},${p1.y}-${p2.x},${p2.y}` : `${p2.x},${p2.y}-${p1.x},${p1.y}`;
 	}
 
 	private prepareOffscreen() {

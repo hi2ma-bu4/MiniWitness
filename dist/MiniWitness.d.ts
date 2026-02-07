@@ -26,6 +26,12 @@ export declare enum NodeType {
 	End = 2,
 	Hexagon = 3
 }
+export declare enum SymmetryType {
+	None = 0,
+	Horizontal = 1,// 左右対称
+	Vertical = 2,// 上下対称
+	Rotational = 3
+}
 /**
  * 使用可能色
  * Core内部では数値で管理し、UIで実際の色（文字列）と紐付ける
@@ -63,6 +69,7 @@ export interface PuzzleData {
 	vEdges: EdgeConstraint[][];
 	hEdges: EdgeConstraint[][];
 	nodes: NodeConstraint[][];
+	symmetry?: SymmetryType;
 }
 /**
  * ユーザーの入力（回答パス）
@@ -101,6 +108,7 @@ export interface GenerationOptions {
 	complexity?: number;
 	difficulty?: number;
 	pathLength?: number;
+	symmetry?: SymmetryType;
 	/** 四角形や星などの記号に使用可能な色のリスト。指定がない場合はデフォルト（黒・白・赤・青）が使用される。 */
 	availableColors?: Color[];
 	/** 各記号タイプのデフォルトカラー。指定がない場合はそれぞれの記号の標準色が使用される。
@@ -115,6 +123,7 @@ export declare class Grid {
 	hEdges: EdgeConstraint[][];
 	vEdges: EdgeConstraint[][];
 	nodes: NodeConstraint[][];
+	symmetry: number;
 	constructor(rows: number, cols: number);
 	private initializeGrid;
 	export(): PuzzleData;
@@ -164,6 +173,7 @@ export declare class PuzzleGenerator {
 	 * マークが完全に断絶されたセルにいないか確認する
 	 */
 	private hasIsolatedMark;
+	private getSymmetricalPoint;
 	private getEdgeKey;
 	private TETRIS_SHAPES;
 	/**
@@ -244,6 +254,8 @@ export interface WitnessUIOptions {
 		error?: string;
 		/** 成功時のフラッシュ/アニメーション用 */
 		success?: string;
+		/** 対称パスの色 */
+		symmetry?: string;
 		/** 途中で離した際のフェード色 */
 		interrupted?: string;
 		/** グリッドの色 */
@@ -343,6 +355,9 @@ export declare class WitnessUI {
 	private hexToRgb;
 	private rgbToHex;
 	private lerpColor;
+	private getSymmetryPath;
+	private getSymmetricalPoint;
+	private getEdgeKey;
 	private prepareOffscreen;
 }
 /**
@@ -425,6 +440,8 @@ export declare class PuzzleValidator {
 	 * エッジ（Absent）によって外部に繋がっているセルを特定する
 	 */
 	private getExternalCells;
+	private getSymmetricalPoint;
+	private getSymmetricalPointIndex;
 	private getEdgeKey;
 	/**
 	 * パズルの難易度スコア(0.0-1.0)を算出する

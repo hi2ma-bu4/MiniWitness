@@ -1,5 +1,5 @@
 import { Grid } from "./grid";
-import { CellType, Color, EdgeType, NodeType, type Point, type SolutionPath, type ValidationResult } from "./types";
+import { CellType, Color, EdgeType, NodeType, SymmetryType, type Point, type SolutionPath, type ValidationResult } from "./types";
 
 /**
  * パズルの回答を検証するクラス
@@ -14,6 +14,15 @@ export class PuzzleValidator {
 	public validate(grid: Grid, solution: SolutionPath): ValidationResult {
 		const path = solution.points;
 		if (path.length < 2) return { isValid: false, errorReason: "Path too short" };
+
+		const symmetry = grid.symmetry || SymmetryType.None;
+		const symPath: Point[] = [];
+		if (symmetry !== SymmetryType.None) {
+			for (const p of path) {
+				symPath.push(this.getSymmetricalPoint(grid, p));
+			}
+		}
+
 		const start = path[0];
 		const end = path[path.length - 1];
 
@@ -21,24 +30,57 @@ export class PuzzleValidator {
 		if (grid.nodes[start.y][start.x].type !== NodeType.Start) return { isValid: false, errorReason: "Must start at Start Node" };
 		if (grid.nodes[end.y][end.x].type !== NodeType.End) return { isValid: false, errorReason: "Must end at End Node" };
 
+		if (symmetry !== SymmetryType.None) {
+			const symStart = symPath[0];
+			const symEnd = symPath[symPath.length - 1];
+			if (grid.nodes[symStart.y][symStart.x].type !== NodeType.Start) return { isValid: false, errorReason: "Symmetrical path must start at Start Node" };
+			if (grid.nodes[symEnd.y][symEnd.x].type !== NodeType.End) return { isValid: false, errorReason: "Symmetrical path must end at End Node" };
+		}
+
 		// パスの連続性と自己交差、断線チェック
 		const visitedNodes = new Set<string>();
+		const visitedEdges = new Set<string>();
 		visitedNodes.add(`${start.x},${start.y}`);
+
+		if (symmetry !== SymmetryType.None) {
+			const symStart = symPath[0];
+			if (visitedNodes.has(`${symStart.x},${symStart.y}`)) return { isValid: false, errorReason: "Paths collide at start" };
+			visitedNodes.add(`${symStart.x},${symStart.y}`);
+		}
+
 		for (let i = 0; i < path.length - 1; i++) {
 			const p1 = path[i];
 			const p2 = path[i + 1];
 			const dist = Math.abs(p1.x - p2.x) + Math.abs(p1.y - p2.y);
 			if (dist !== 1) return { isValid: false, errorReason: "Invalid jump in path" };
+
 			const key = `${p2.x},${p2.y}`;
-			if (visitedNodes.has(key)) return { isValid: false, errorReason: "Self-intersecting path" };
+			if (visitedNodes.has(key)) return { isValid: false, errorReason: "Self-intersecting path or path collision" };
 			visitedNodes.add(key);
+
 			if (this.isBrokenEdge(grid, p1, p2)) return { isValid: false, errorReason: "Passed through broken edge" };
+			visitedEdges.add(this.getEdgeKey(p1, p2));
+
+			if (symmetry !== SymmetryType.None) {
+				const sp1 = symPath[i];
+				const sp2 = symPath[i + 1];
+				const symKey = `${sp2.x},${sp2.y}`;
+
+				if (visitedNodes.has(symKey)) return { isValid: false, errorReason: "Path collision" };
+				visitedNodes.add(symKey);
+
+				if (this.isBrokenEdge(grid, sp1, sp2)) return { isValid: false, errorReason: "Symmetrical path passed through broken edge" };
+
+				const edgeKey = this.getEdgeKey(sp1, sp2);
+				if (visitedEdges.has(edgeKey)) return { isValid: false, errorReason: "Paths cross the same edge" };
+				visitedEdges.add(edgeKey);
+			}
 		}
 
 		// 区画の計算
-		const regions = this.calculateRegions(grid, path);
+		const regions = this.calculateRegions(grid, path, symPath);
 		// 通過しなかった六角形の取得
-		const missed = this.getMissedHexagons(grid, path);
+		const missed = this.getMissedHexagons(grid, path, symPath);
 		// エラー削除（テトラポッド）を考慮した制約検証
 		return this.validateWithErasers(grid, regions, missed.edges, missed.nodes);
 	}
@@ -74,13 +116,19 @@ export class PuzzleValidator {
 	/**
 	 * 回答パスが通過しなかった六角形（エッジ・ノード）をリストアップする
 	 */
-	private getMissedHexagons(grid: Grid, path: Point[]): { edges: { type: "h" | "v"; r: number; c: number }[]; nodes: Point[] } {
+	private getMissedHexagons(grid: Grid, path: Point[], symPath: Point[] = []): { edges: { type: "h" | "v"; r: number; c: number }[]; nodes: Point[] } {
 		const pathEdges = new Set<string>();
 		const pathNodes = new Set<string>();
 		for (let i = 0; i < path.length; i++) {
 			pathNodes.add(`${path[i].x},${path[i].y}`);
 			if (i < path.length - 1) {
 				pathEdges.add(this.getEdgeKey(path[i], path[i + 1]));
+			}
+		}
+		for (let i = 0; i < symPath.length; i++) {
+			pathNodes.add(`${symPath[i].x},${symPath[i].y}`);
+			if (i < symPath.length - 1) {
+				pathEdges.add(this.getEdgeKey(symPath[i], symPath[i + 1]));
 			}
 		}
 
@@ -677,11 +725,12 @@ export class PuzzleValidator {
 	/**
 	 * 回答パスによって分割された各区画のセルリストを取得する
 	 */
-	private calculateRegions(grid: Grid, path: Point[]): Point[][] {
+	private calculateRegions(grid: Grid, path: Point[], symPath: Point[] = []): Point[][] {
 		const regions: Point[][] = [];
 		const visitedCells = new Set<string>();
 		const pathEdges = new Set<string>();
 		for (let i = 0; i < path.length - 1; i++) pathEdges.add(this.getEdgeKey(path[i], path[i + 1]));
+		for (let i = 0; i < symPath.length - 1; i++) pathEdges.add(this.getEdgeKey(symPath[i], symPath[i + 1]));
 
 		const externalCells = this.getExternalCells(grid);
 		for (let r = 0; r < grid.rows; r++) {
@@ -772,6 +821,36 @@ export class PuzzleValidator {
 		return external;
 	}
 
+	private getSymmetricalPoint(grid: Grid, p: Point): Point {
+		const symmetry = grid.symmetry || SymmetryType.None;
+		if (symmetry === SymmetryType.Horizontal) {
+			return { x: grid.cols - p.x, y: p.y };
+		} else if (symmetry === SymmetryType.Vertical) {
+			return { x: p.x, y: grid.rows - p.y };
+		} else if (symmetry === SymmetryType.Rotational) {
+			return { x: grid.cols - p.x, y: grid.rows - p.y };
+		}
+		return { ...p };
+	}
+
+	private getSymmetricalPointIndex(grid: Grid, idx: number): number {
+		const nodeCols = grid.cols + 1;
+		const r = Math.floor(idx / nodeCols);
+		const c = idx % nodeCols;
+		const symmetry = grid.symmetry || SymmetryType.None;
+		let sr = r,
+			sc = c;
+		if (symmetry === SymmetryType.Horizontal) {
+			sc = grid.cols - c;
+		} else if (symmetry === SymmetryType.Vertical) {
+			sr = grid.rows - r;
+		} else if (symmetry === SymmetryType.Rotational) {
+			sc = grid.cols - c;
+			sr = grid.rows - r;
+		}
+		return sr * nodeCols + sc;
+	}
+
 	private getEdgeKey(p1: Point, p2: Point): string {
 		return p1.x < p2.x || (p1.x === p2.x && p1.y < p2.y) ? `${p1.x},${p1.y}-${p2.x},${p2.y}` : `${p2.x},${p2.y}-${p1.x},${p1.y}`;
 	}
@@ -827,7 +906,15 @@ export class PuzzleValidator {
 
 		for (const startIdx of startNodes) {
 			const startIsHex = hexagonNodes.has(startIdx) ? 1 : 0;
-			this.exploreSearchSpace(grid, startIdx, 1n << BigInt(startIdx), [startIdx], startIsHex, totalHexagons, adj, endNodes, fingerprints, stats, searchLimit);
+			const symmetry = grid.symmetry || SymmetryType.None;
+			let visitedMask = 1n << BigInt(startIdx);
+			if (symmetry !== SymmetryType.None) {
+				const snStart = this.getSymmetricalPointIndex(grid, startIdx);
+				if (snStart === startIdx) continue; // スタート位置が対称点（軸上）なら不適（通常避ける）
+				visitedMask |= 1n << BigInt(snStart);
+			}
+
+			this.exploreSearchSpace(grid, startIdx, visitedMask, [startIdx], startIsHex, totalHexagons, adj, endNodes, fingerprints, stats, searchLimit);
 		}
 
 		if (stats.solutions === 0) return 0;
@@ -890,9 +977,18 @@ export class PuzzleValidator {
 		stats.maxDepth = Math.max(stats.maxDepth, path.length);
 		if (stats.totalNodesVisited > limit) return;
 
+		const symmetry = grid.symmetry || SymmetryType.None;
+
 		if (endNodes.includes(currIdx)) {
 			if (hexagonsOnPath === totalHexagons) {
 				const solutionPath = { points: path.map((idx) => ({ x: idx % (grid.cols + 1), y: Math.floor(idx / (grid.cols + 1)) })) };
+				// symmetryモードの際、もう一方もEndNodeにいる必要がある
+				if (symmetry !== SymmetryType.None) {
+					const snEnd = this.getSymmetricalPointIndex(grid, currIdx);
+					const nodeCols = grid.cols + 1;
+					if (grid.nodes[Math.floor(snEnd / nodeCols)][snEnd % nodeCols].type !== NodeType.End) return;
+				}
+
 				if (this.validate(grid, solutionPath).isValid) {
 					const fp = this.getFingerprint(grid, solutionPath.points);
 					if (!fingerprints.has(fp)) {
@@ -913,6 +1009,15 @@ export class PuzzleValidator {
 		for (const edge of adj[currIdx]) {
 			if (edge.isBroken) continue;
 			if (visitedMask & (1n << BigInt(edge.next))) continue;
+
+			if (symmetry !== SymmetryType.None) {
+				const snCurr = this.getSymmetricalPointIndex(grid, currIdx);
+				const snNext = this.getSymmetricalPointIndex(grid, edge.next);
+
+				// 対称点との衝突チェック
+				if (edge.next === snNext) continue; // ノード衝突
+				if (currIdx === snNext && edge.next === snCurr) continue; // エッジ衝突（反対向き）
+			}
 
 			// 六角形の枝刈り（現在のノードから必須エッジが出ているが、それを選ばない場合は無効）
 			let possible = true;
@@ -944,7 +1049,14 @@ export class PuzzleValidator {
 		for (const move of validMoves) {
 			const nodeIsHex = grid.nodes[Math.floor(move.next / nodeCols)][move.next % nodeCols].type === NodeType.Hexagon ? 1 : 0;
 			path.push(move.next);
-			this.exploreSearchSpace(grid, move.next, visitedMask | (1n << BigInt(move.next)), path, hexagonsOnPath + (move.isHexagon ? 1 : 0) + nodeIsHex, totalHexagons, adj, endNodes, fingerprints, stats, limit);
+
+			let nextVisitedMask = visitedMask | (1n << BigInt(move.next));
+			if (symmetry !== SymmetryType.None) {
+				const snNext = this.getSymmetricalPointIndex(grid, move.next);
+				nextVisitedMask |= 1n << BigInt(snNext);
+			}
+
+			this.exploreSearchSpace(grid, move.next, nextVisitedMask, path, hexagonsOnPath + (move.isHexagon ? 1 : 0) + nodeIsHex, totalHexagons, adj, endNodes, fingerprints, stats, limit);
 			path.pop();
 			if (stats.totalNodesVisited > limit) return;
 		}
@@ -996,15 +1108,30 @@ export class PuzzleValidator {
 		const totalHexagons = hexagonEdges.size + hexagonNodes.size;
 		for (const startIdx of startNodes) {
 			const startIsHex = hexagonNodes.has(startIdx) ? 1 : 0;
-			this.findPathsOptimized(grid, startIdx, 1n << BigInt(startIdx), [startIdx], startIsHex, totalHexagons, adj, endNodes, fingerprints, limit);
+			const symmetry = grid.symmetry || SymmetryType.None;
+			let visitedMask = 1n << BigInt(startIdx);
+			if (symmetry !== SymmetryType.None) {
+				const snStart = this.getSymmetricalPointIndex(grid, startIdx);
+				if (snStart === startIdx) continue;
+				visitedMask |= 1n << BigInt(snStart);
+			}
+			this.findPathsOptimized(grid, startIdx, visitedMask, [startIdx], startIsHex, totalHexagons, adj, endNodes, fingerprints, limit);
 		}
 		return fingerprints.size;
 	}
 
 	private findPathsOptimized(grid: Grid, currIdx: number, visitedMask: bigint, path: number[], hexagonsOnPath: number, totalHexagons: number, adj: { next: number; isHexagon: boolean; isBroken: boolean }[][], endNodes: number[], fingerprints: Set<string>, limit: number): void {
 		if (fingerprints.size >= limit) return;
+		const symmetry = grid.symmetry || SymmetryType.None;
+
 		if (endNodes.includes(currIdx)) {
 			if (hexagonsOnPath === totalHexagons) {
+				if (symmetry !== SymmetryType.None) {
+					const snEnd = this.getSymmetricalPointIndex(grid, currIdx);
+					const nodeCols = grid.cols + 1;
+					if (grid.nodes[Math.floor(snEnd / nodeCols)][snEnd % nodeCols].type !== NodeType.End) return;
+				}
+
 				const solutionPath = { points: path.map((idx) => ({ x: idx % (grid.cols + 1), y: Math.floor(idx / (grid.cols + 1)) })) };
 				if (this.validate(grid, solutionPath).isValid) fingerprints.add(this.getFingerprint(grid, solutionPath.points));
 			}
@@ -1014,6 +1141,13 @@ export class PuzzleValidator {
 		for (const edge of adj[currIdx]) {
 			if (edge.isBroken) continue;
 			if (visitedMask & (1n << BigInt(edge.next))) continue;
+
+			if (symmetry !== SymmetryType.None) {
+				const snCurr = this.getSymmetricalPointIndex(grid, currIdx);
+				const snNext = this.getSymmetricalPointIndex(grid, edge.next);
+				if (edge.next === snNext) continue;
+				if (currIdx === snNext && edge.next === snCurr) continue;
+			}
 
 			let possible = true;
 			for (const otherEdge of adj[currIdx]) {
@@ -1031,7 +1165,14 @@ export class PuzzleValidator {
 			const nodeCols = grid.cols + 1;
 			const nodeIsHex = grid.nodes[Math.floor(edge.next / nodeCols)][edge.next % nodeCols].type === NodeType.Hexagon ? 1 : 0;
 			path.push(edge.next);
-			this.findPathsOptimized(grid, edge.next, visitedMask | (1n << BigInt(edge.next)), path, hexagonsOnPath + (edge.isHexagon ? 1 : 0) + nodeIsHex, totalHexagons, adj, endNodes, fingerprints, limit);
+
+			let nextVisitedMask = visitedMask | (1n << BigInt(edge.next));
+			if (symmetry !== SymmetryType.None) {
+				const snNext = this.getSymmetricalPointIndex(grid, edge.next);
+				nextVisitedMask |= 1n << BigInt(snNext);
+			}
+
+			this.findPathsOptimized(grid, edge.next, nextVisitedMask, path, hexagonsOnPath + (edge.isHexagon ? 1 : 0) + nodeIsHex, totalHexagons, adj, endNodes, fingerprints, limit);
 			path.pop();
 			if (fingerprints.size >= limit) return;
 		}

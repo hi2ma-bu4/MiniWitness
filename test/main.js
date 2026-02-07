@@ -22,6 +22,16 @@ class WitnessGame {
 		this.newPuzzleBtn.addEventListener("click", () => this.startNewGame());
 		this.sharePuzzleBtn.addEventListener("click", () => this.sharePuzzle());
 
+		document.getElementById("sym-color-select").addEventListener("change", () => {
+			if (this.ui) {
+				this.ui.setOptions({
+					colors: {
+						symmetry: document.getElementById("sym-color-select").value,
+					},
+				});
+			}
+		});
+
 		// URLパラメータからパズルを読み込む
 		const params = new URLSearchParams(window.location.search);
 		const puzzleData = params.get("puzzle");
@@ -50,6 +60,7 @@ class WitnessGame {
 			useTetris: document.getElementById("use-tetris").checked,
 			useEraser: document.getElementById("use-eraser").checked,
 			useBrokenEdges: document.getElementById("use-broken-edges").checked,
+			symmetry: parseInt(document.getElementById("symmetry-select").value),
 			complexity: parseFloat(document.getElementById("complexity-slider").value),
 			difficulty: parseFloat(document.getElementById("difficulty-slider").value),
 			pathLength: parseFloat(document.getElementById("path-length-slider").value),
@@ -76,6 +87,7 @@ class WitnessGame {
 		document.getElementById("use-tetris").checked = !!options.useTetris;
 		document.getElementById("use-eraser").checked = !!options.useEraser;
 		document.getElementById("use-broken-edges").checked = !!options.useBrokenEdges;
+		document.getElementById("symmetry-select").value = options.symmetry ?? 0;
 		document.getElementById("complexity-slider").value = options.complexity ?? 1;
 		document.getElementById("difficulty-slider").value = options.difficulty ?? 1;
 		document.getElementById("path-length-slider").value = options.pathLength ?? 0.5;
@@ -86,10 +98,12 @@ class WitnessGame {
 		const colorList = useCustomTheme ? ["#444444", "#00ff00", "#ff00ff", "#00ffff", "#ffffff", "#ffff00"] : undefined;
 
 		const diff = this.core.calculateDifficulty(this.puzzle);
+		const symColor = document.getElementById("sym-color-select").value;
 
 		this.ui.setOptions({
 			colors: {
 				colorList: colorList,
+				symmetry: symColor,
 			},
 		});
 

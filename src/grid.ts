@@ -9,6 +9,7 @@ export class Grid {
 	public hEdges: EdgeConstraint[][] = []; // 横棒
 	public vEdges: EdgeConstraint[][] = []; // 縦棒
 	public nodes: NodeConstraint[][] = [];
+	public symmetry: number = 0; // SymmetryType
 
 	constructor(rows: number, cols: number) {
 		this.rows = rows;
@@ -40,6 +41,7 @@ export class Grid {
 				vEdges: this.vEdges,
 				hEdges: this.hEdges,
 				nodes: this.nodes,
+				symmetry: this.symmetry,
 			}),
 		);
 	}
@@ -50,6 +52,7 @@ export class Grid {
 		grid.vEdges = data.vEdges;
 		grid.hEdges = data.hEdges;
 		grid.nodes = data.nodes;
+		grid.symmetry = data.symmetry || 0;
 		return grid;
 	}
 }

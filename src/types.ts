@@ -28,6 +28,13 @@ export enum NodeType {
 	Hexagon = 3, // 通過必須
 }
 
+export enum SymmetryType {
+	None = 0,
+	Horizontal = 1, // 左右対称
+	Vertical = 2, // 上下対称
+	Rotational = 3, // 点対称
+}
+
 /**
  * 使用可能色
  * Core内部では数値で管理し、UIで実際の色（文字列）と紐付ける
@@ -70,6 +77,7 @@ export interface PuzzleData {
 	vEdges: EdgeConstraint[][]; // Vertical edges [row][col] (row: 0..rows-1, col: 0..cols)
 	hEdges: EdgeConstraint[][]; // Horizontal edges [row][col] (row: 0..rows, col: 0..cols-1)
 	nodes: NodeConstraint[][]; // [row][col]
+	symmetry?: SymmetryType;
 }
 
 /**
@@ -103,6 +111,7 @@ export interface GenerationOptions {
 	complexity?: number; // 0.0 - 1.0 (制約の密度)
 	difficulty?: number; // 0.0 (Easy) - 1.0 (Hard) (解パターンの数に基づく)
 	pathLength?: number; // 0.0 (Shortest) - 1.0 (Longest)
+	symmetry?: SymmetryType;
 	/** 四角形や星などの記号に使用可能な色のリスト。指定がない場合はデフォルト（黒・白・赤・青）が使用される。 */
 	availableColors?: Color[];
 	/** 各記号タイプのデフォルトカラー。指定がない場合はそれぞれの記号の標準色が使用される。

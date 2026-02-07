@@ -36,6 +36,13 @@ var NodeType = /* @__PURE__ */ ((NodeType2) => {
   NodeType2[NodeType2["Hexagon"] = 3] = "Hexagon";
   return NodeType2;
 })(NodeType || {});
+var SymmetryType = /* @__PURE__ */ ((SymmetryType2) => {
+  SymmetryType2[SymmetryType2["None"] = 0] = "None";
+  SymmetryType2[SymmetryType2["Horizontal"] = 1] = "Horizontal";
+  SymmetryType2[SymmetryType2["Vertical"] = 2] = "Vertical";
+  SymmetryType2[SymmetryType2["Rotational"] = 3] = "Rotational";
+  return SymmetryType2;
+})(SymmetryType || {});
 var Color = {
   None: 0,
   Black: 1,
@@ -55,6 +62,8 @@ var Grid = class _Grid {
   vEdges = [];
   // 縦棒
   nodes = [];
+  symmetry = 0;
+  // SymmetryType
   constructor(rows, cols) {
     this.rows = rows;
     this.cols = cols;
@@ -74,7 +83,8 @@ var Grid = class _Grid {
         cells: this.cells,
         vEdges: this.vEdges,
         hEdges: this.hEdges,
-        nodes: this.nodes
+        nodes: this.nodes,
+        symmetry: this.symmetry
       })
     );
   }
@@ -84,6 +94,7 @@ var Grid = class _Grid {
     grid.vEdges = data.vEdges;
     grid.hEdges = data.hEdges;
     grid.nodes = data.nodes;
+    grid.symmetry = data.symmetry || 0;
     return grid;
   }
 };
@@ -99,24 +110,55 @@ var PuzzleValidator = class {
   validate(grid, solution) {
     const path = solution.points;
     if (path.length < 2) return { isValid: false, errorReason: "Path too short" };
+    const symmetry = grid.symmetry || 0 /* None */;
+    const symPath = [];
+    if (symmetry !== 0 /* None */) {
+      for (const p of path) {
+        symPath.push(this.getSymmetricalPoint(grid, p));
+      }
+    }
     const start = path[0];
     const end = path[path.length - 1];
     if (grid.nodes[start.y][start.x].type !== 1 /* Start */) return { isValid: false, errorReason: "Must start at Start Node" };
     if (grid.nodes[end.y][end.x].type !== 2 /* End */) return { isValid: false, errorReason: "Must end at End Node" };
+    if (symmetry !== 0 /* None */) {
+      const symStart = symPath[0];
+      const symEnd = symPath[symPath.length - 1];
+      if (grid.nodes[symStart.y][symStart.x].type !== 1 /* Start */) return { isValid: false, errorReason: "Symmetrical path must start at Start Node" };
+      if (grid.nodes[symEnd.y][symEnd.x].type !== 2 /* End */) return { isValid: false, errorReason: "Symmetrical path must end at End Node" };
+    }
     const visitedNodes = /* @__PURE__ */ new Set();
+    const visitedEdges = /* @__PURE__ */ new Set();
     visitedNodes.add(`${start.x},${start.y}`);
+    if (symmetry !== 0 /* None */) {
+      const symStart = symPath[0];
+      if (visitedNodes.has(`${symStart.x},${symStart.y}`)) return { isValid: false, errorReason: "Paths collide at start" };
+      visitedNodes.add(`${symStart.x},${symStart.y}`);
+    }
     for (let i = 0; i < path.length - 1; i++) {
       const p1 = path[i];
       const p2 = path[i + 1];
       const dist = Math.abs(p1.x - p2.x) + Math.abs(p1.y - p2.y);
       if (dist !== 1) return { isValid: false, errorReason: "Invalid jump in path" };
       const key = `${p2.x},${p2.y}`;
-      if (visitedNodes.has(key)) return { isValid: false, errorReason: "Self-intersecting path" };
+      if (visitedNodes.has(key)) return { isValid: false, errorReason: "Self-intersecting path or path collision" };
       visitedNodes.add(key);
       if (this.isBrokenEdge(grid, p1, p2)) return { isValid: false, errorReason: "Passed through broken edge" };
+      visitedEdges.add(this.getEdgeKey(p1, p2));
+      if (symmetry !== 0 /* None */) {
+        const sp1 = symPath[i];
+        const sp2 = symPath[i + 1];
+        const symKey = `${sp2.x},${sp2.y}`;
+        if (visitedNodes.has(symKey)) return { isValid: false, errorReason: "Path collision" };
+        visitedNodes.add(symKey);
+        if (this.isBrokenEdge(grid, sp1, sp2)) return { isValid: false, errorReason: "Symmetrical path passed through broken edge" };
+        const edgeKey = this.getEdgeKey(sp1, sp2);
+        if (visitedEdges.has(edgeKey)) return { isValid: false, errorReason: "Paths cross the same edge" };
+        visitedEdges.add(edgeKey);
+      }
     }
-    const regions = this.calculateRegions(grid, path);
-    const missed = this.getMissedHexagons(grid, path);
+    const regions = this.calculateRegions(grid, path, symPath);
+    const missed = this.getMissedHexagons(grid, path, symPath);
     return this.validateWithErasers(grid, regions, missed.edges, missed.nodes);
   }
   /**
@@ -148,13 +190,19 @@ var PuzzleValidator = class {
   /**
    * 回答パスが通過しなかった六角形（エッジ・ノード）をリストアップする
    */
-  getMissedHexagons(grid, path) {
+  getMissedHexagons(grid, path, symPath = []) {
     const pathEdges = /* @__PURE__ */ new Set();
     const pathNodes = /* @__PURE__ */ new Set();
     for (let i = 0; i < path.length; i++) {
       pathNodes.add(`${path[i].x},${path[i].y}`);
       if (i < path.length - 1) {
         pathEdges.add(this.getEdgeKey(path[i], path[i + 1]));
+      }
+    }
+    for (let i = 0; i < symPath.length; i++) {
+      pathNodes.add(`${symPath[i].x},${symPath[i].y}`);
+      if (i < symPath.length - 1) {
+        pathEdges.add(this.getEdgeKey(symPath[i], symPath[i + 1]));
       }
     }
     const missedEdges = [];
@@ -663,11 +711,12 @@ var PuzzleValidator = class {
   /**
    * 回答パスによって分割された各区画のセルリストを取得する
    */
-  calculateRegions(grid, path) {
+  calculateRegions(grid, path, symPath = []) {
     const regions = [];
     const visitedCells = /* @__PURE__ */ new Set();
     const pathEdges = /* @__PURE__ */ new Set();
     for (let i = 0; i < path.length - 1; i++) pathEdges.add(this.getEdgeKey(path[i], path[i + 1]));
+    for (let i = 0; i < symPath.length - 1; i++) pathEdges.add(this.getEdgeKey(symPath[i], symPath[i + 1]));
     const externalCells = this.getExternalCells(grid);
     for (let r = 0; r < grid.rows; r++) {
       for (let c = 0; c < grid.cols; c++) {
@@ -755,6 +804,33 @@ var PuzzleValidator = class {
     }
     return external;
   }
+  getSymmetricalPoint(grid, p) {
+    const symmetry = grid.symmetry || 0 /* None */;
+    if (symmetry === 1 /* Horizontal */) {
+      return { x: grid.cols - p.x, y: p.y };
+    } else if (symmetry === 2 /* Vertical */) {
+      return { x: p.x, y: grid.rows - p.y };
+    } else if (symmetry === 3 /* Rotational */) {
+      return { x: grid.cols - p.x, y: grid.rows - p.y };
+    }
+    return { ...p };
+  }
+  getSymmetricalPointIndex(grid, idx) {
+    const nodeCols = grid.cols + 1;
+    const r = Math.floor(idx / nodeCols);
+    const c = idx % nodeCols;
+    const symmetry = grid.symmetry || 0 /* None */;
+    let sr = r, sc = c;
+    if (symmetry === 1 /* Horizontal */) {
+      sc = grid.cols - c;
+    } else if (symmetry === 2 /* Vertical */) {
+      sr = grid.rows - r;
+    } else if (symmetry === 3 /* Rotational */) {
+      sc = grid.cols - c;
+      sr = grid.rows - r;
+    }
+    return sr * nodeCols + sc;
+  }
   getEdgeKey(p1, p2) {
     return p1.x < p2.x || p1.x === p2.x && p1.y < p2.y ? `${p1.x},${p1.y}-${p2.x},${p2.y}` : `${p2.x},${p2.y}-${p1.x},${p1.y}`;
   }
@@ -803,7 +879,14 @@ var PuzzleValidator = class {
     const searchLimit = Math.max(1e3, rows * cols * 200);
     for (const startIdx of startNodes) {
       const startIsHex = hexagonNodes.has(startIdx) ? 1 : 0;
-      this.exploreSearchSpace(grid, startIdx, 1n << BigInt(startIdx), [startIdx], startIsHex, totalHexagons, adj, endNodes, fingerprints, stats, searchLimit);
+      const symmetry = grid.symmetry || 0 /* None */;
+      let visitedMask = 1n << BigInt(startIdx);
+      if (symmetry !== 0 /* None */) {
+        const snStart = this.getSymmetricalPointIndex(grid, startIdx);
+        if (snStart === startIdx) continue;
+        visitedMask |= 1n << BigInt(snStart);
+      }
+      this.exploreSearchSpace(grid, startIdx, visitedMask, [startIdx], startIsHex, totalHexagons, adj, endNodes, fingerprints, stats, searchLimit);
     }
     if (stats.solutions === 0) return 0;
     let constraintCount = hexagonEdges.size + hexagonNodes.size;
@@ -850,9 +933,15 @@ var PuzzleValidator = class {
     stats.totalNodesVisited++;
     stats.maxDepth = Math.max(stats.maxDepth, path.length);
     if (stats.totalNodesVisited > limit) return;
+    const symmetry = grid.symmetry || 0 /* None */;
     if (endNodes.includes(currIdx)) {
       if (hexagonsOnPath === totalHexagons) {
         const solutionPath = { points: path.map((idx) => ({ x: idx % (grid.cols + 1), y: Math.floor(idx / (grid.cols + 1)) })) };
+        if (symmetry !== 0 /* None */) {
+          const snEnd = this.getSymmetricalPointIndex(grid, currIdx);
+          const nodeCols2 = grid.cols + 1;
+          if (grid.nodes[Math.floor(snEnd / nodeCols2)][snEnd % nodeCols2].type !== 2 /* End */) return;
+        }
         if (this.validate(grid, solutionPath).isValid) {
           const fp = this.getFingerprint(grid, solutionPath.points);
           if (!fingerprints.has(fp)) {
@@ -871,6 +960,12 @@ var PuzzleValidator = class {
     for (const edge of adj[currIdx]) {
       if (edge.isBroken) continue;
       if (visitedMask & 1n << BigInt(edge.next)) continue;
+      if (symmetry !== 0 /* None */) {
+        const snCurr = this.getSymmetricalPointIndex(grid, currIdx);
+        const snNext = this.getSymmetricalPointIndex(grid, edge.next);
+        if (edge.next === snNext) continue;
+        if (currIdx === snNext && edge.next === snCurr) continue;
+      }
       let possible = true;
       for (const otherEdge of adj[currIdx]) {
         if (otherEdge.isHexagon) {
@@ -895,7 +990,12 @@ var PuzzleValidator = class {
     for (const move of validMoves) {
       const nodeIsHex = grid.nodes[Math.floor(move.next / nodeCols)][move.next % nodeCols].type === 3 /* Hexagon */ ? 1 : 0;
       path.push(move.next);
-      this.exploreSearchSpace(grid, move.next, visitedMask | 1n << BigInt(move.next), path, hexagonsOnPath + (move.isHexagon ? 1 : 0) + nodeIsHex, totalHexagons, adj, endNodes, fingerprints, stats, limit);
+      let nextVisitedMask = visitedMask | 1n << BigInt(move.next);
+      if (symmetry !== 0 /* None */) {
+        const snNext = this.getSymmetricalPointIndex(grid, move.next);
+        nextVisitedMask |= 1n << BigInt(snNext);
+      }
+      this.exploreSearchSpace(grid, move.next, nextVisitedMask, path, hexagonsOnPath + (move.isHexagon ? 1 : 0) + nodeIsHex, totalHexagons, adj, endNodes, fingerprints, stats, limit);
       path.pop();
       if (stats.totalNodesVisited > limit) return;
     }
@@ -943,14 +1043,27 @@ var PuzzleValidator = class {
     const totalHexagons = hexagonEdges.size + hexagonNodes.size;
     for (const startIdx of startNodes) {
       const startIsHex = hexagonNodes.has(startIdx) ? 1 : 0;
-      this.findPathsOptimized(grid, startIdx, 1n << BigInt(startIdx), [startIdx], startIsHex, totalHexagons, adj, endNodes, fingerprints, limit);
+      const symmetry = grid.symmetry || 0 /* None */;
+      let visitedMask = 1n << BigInt(startIdx);
+      if (symmetry !== 0 /* None */) {
+        const snStart = this.getSymmetricalPointIndex(grid, startIdx);
+        if (snStart === startIdx) continue;
+        visitedMask |= 1n << BigInt(snStart);
+      }
+      this.findPathsOptimized(grid, startIdx, visitedMask, [startIdx], startIsHex, totalHexagons, adj, endNodes, fingerprints, limit);
     }
     return fingerprints.size;
   }
   findPathsOptimized(grid, currIdx, visitedMask, path, hexagonsOnPath, totalHexagons, adj, endNodes, fingerprints, limit) {
     if (fingerprints.size >= limit) return;
+    const symmetry = grid.symmetry || 0 /* None */;
     if (endNodes.includes(currIdx)) {
       if (hexagonsOnPath === totalHexagons) {
+        if (symmetry !== 0 /* None */) {
+          const snEnd = this.getSymmetricalPointIndex(grid, currIdx);
+          const nodeCols = grid.cols + 1;
+          if (grid.nodes[Math.floor(snEnd / nodeCols)][snEnd % nodeCols].type !== 2 /* End */) return;
+        }
         const solutionPath = { points: path.map((idx) => ({ x: idx % (grid.cols + 1), y: Math.floor(idx / (grid.cols + 1)) })) };
         if (this.validate(grid, solutionPath).isValid) fingerprints.add(this.getFingerprint(grid, solutionPath.points));
       }
@@ -960,6 +1073,12 @@ var PuzzleValidator = class {
     for (const edge of adj[currIdx]) {
       if (edge.isBroken) continue;
       if (visitedMask & 1n << BigInt(edge.next)) continue;
+      if (symmetry !== 0 /* None */) {
+        const snCurr = this.getSymmetricalPointIndex(grid, currIdx);
+        const snNext = this.getSymmetricalPointIndex(grid, edge.next);
+        if (edge.next === snNext) continue;
+        if (currIdx === snNext && edge.next === snCurr) continue;
+      }
       let possible = true;
       for (const otherEdge of adj[currIdx]) {
         if (otherEdge.isHexagon) {
@@ -975,7 +1094,12 @@ var PuzzleValidator = class {
       const nodeCols = grid.cols + 1;
       const nodeIsHex = grid.nodes[Math.floor(edge.next / nodeCols)][edge.next % nodeCols].type === 3 /* Hexagon */ ? 1 : 0;
       path.push(edge.next);
-      this.findPathsOptimized(grid, edge.next, visitedMask | 1n << BigInt(edge.next), path, hexagonsOnPath + (edge.isHexagon ? 1 : 0) + nodeIsHex, totalHexagons, adj, endNodes, fingerprints, limit);
+      let nextVisitedMask = visitedMask | 1n << BigInt(edge.next);
+      if (symmetry !== 0 /* None */) {
+        const snNext = this.getSymmetricalPointIndex(grid, edge.next);
+        nextVisitedMask |= 1n << BigInt(snNext);
+      }
+      this.findPathsOptimized(grid, edge.next, nextVisitedMask, path, hexagonsOnPath + (edge.isHexagon ? 1 : 0) + nodeIsHex, totalHexagons, adj, endNodes, fingerprints, limit);
       path.pop();
       if (fingerprints.size >= limit) return;
     }
@@ -1027,12 +1151,20 @@ var PuzzleGenerator = class {
     let bestScore = -1;
     const maxAttempts = rows * cols > 30 ? 50 : 80;
     const markAttemptsPerPath = 5;
-    const startPoint = { x: 0, y: rows };
-    const endPoint = { x: cols, y: 0 };
+    const symmetry = options.symmetry || 0 /* None */;
+    let startPoint = { x: 0, y: rows };
+    let endPoint = { x: cols, y: 0 };
+    if (symmetry === 1 /* Horizontal */) {
+      endPoint = { x: 0, y: 0 };
+    } else if (symmetry === 2 /* Vertical */) {
+      endPoint = { x: cols, y: rows };
+    } else if (symmetry === 3 /* Rotational */) {
+      endPoint = { x: cols, y: rows };
+    }
     let currentPath = null;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       if (attempt % markAttemptsPerPath === 0) {
-        currentPath = this.generateRandomPath(new Grid(rows, cols), startPoint, endPoint, options.pathLength);
+        currentPath = this.generateRandomPath(new Grid(rows, cols), startPoint, endPoint, options.pathLength, symmetry);
       }
       const grid = this.generateFromPath(rows, cols, currentPath, options);
       if (!this.checkAllRequestedConstraintsPresent(grid, options)) continue;
@@ -1057,11 +1189,27 @@ var PuzzleGenerator = class {
    */
   generateFromPath(rows, cols, solutionPath, options) {
     const grid = new Grid(rows, cols);
-    const startPoint = { x: 0, y: rows };
-    const endPoint = { x: cols, y: 0 };
+    const symmetry = options.symmetry || 0 /* None */;
+    grid.symmetry = symmetry;
+    let startPoint = { x: 0, y: rows };
+    let endPoint = { x: cols, y: 0 };
+    if (symmetry === 1 /* Horizontal */) {
+      endPoint = { x: 0, y: 0 };
+    } else if (symmetry === 2 /* Vertical */) {
+      endPoint = { x: cols, y: rows };
+    } else if (symmetry === 3 /* Rotational */) {
+      endPoint = { x: cols, y: rows };
+    }
     grid.nodes[startPoint.y][startPoint.x].type = 1 /* Start */;
     grid.nodes[endPoint.y][endPoint.x].type = 2 /* End */;
-    this.applyConstraintsBasedOnPath(grid, solutionPath, options);
+    if (symmetry !== 0 /* None */) {
+      const symStart = this.getSymmetricalPoint(grid, startPoint, symmetry);
+      const symEnd = this.getSymmetricalPoint(grid, endPoint, symmetry);
+      grid.nodes[symStart.y][symStart.x].type = 1 /* Start */;
+      grid.nodes[symEnd.y][symEnd.x].type = 2 /* End */;
+    }
+    const symPath = symmetry !== 0 /* None */ ? solutionPath.map((p) => this.getSymmetricalPoint(grid, p, symmetry)) : [];
+    this.applyConstraintsBasedOnPath(grid, solutionPath, options, symPath);
     if (options.useBrokenEdges) {
       this.applyBrokenEdges(grid, solutionPath, options);
     }
@@ -1072,9 +1220,9 @@ var PuzzleGenerator = class {
    * ランダムな正解パスを生成する
    * @param targetLengthFactor 0.0 (最短) - 1.0 (最長)
    */
-  generateRandomPath(grid, start, end, targetLengthFactor) {
+  generateRandomPath(grid, start, end, targetLengthFactor, symmetry = 0 /* None */) {
     if (targetLengthFactor === void 0) {
-      return this.generateSingleRandomPath(grid, start, end);
+      return this.generateSingleRandomPath(grid, start, end, void 0, symmetry);
     }
     const minLen = grid.rows + grid.cols;
     const maxLen = (grid.rows + 1) * (grid.cols + 1) - 1;
@@ -1083,7 +1231,7 @@ var PuzzleGenerator = class {
     let bestDiff = Infinity;
     const attempts = 50;
     for (let i = 0; i < attempts; i++) {
-      const currentPath = this.generateSingleRandomPath(grid, start, end, targetLengthFactor);
+      const currentPath = this.generateSingleRandomPath(grid, start, end, targetLengthFactor, symmetry);
       const currentLen = currentPath.length - 1;
       const diff = Math.abs(currentLen - targetLen);
       if (diff < bestDiff) {
@@ -1097,14 +1245,28 @@ var PuzzleGenerator = class {
   /**
    * 1本のランダムパスを生成する
    */
-  generateSingleRandomPath(grid, start, end, biasFactor) {
+  generateSingleRandomPath(grid, start, end, biasFactor, symmetry = 0 /* None */) {
     const visited = /* @__PURE__ */ new Set();
     const path = [];
     const findPath = (current) => {
       visited.add(`${current.x},${current.y}`);
+      const snCurrent = this.getSymmetricalPoint(grid, current, symmetry);
+      visited.add(`${snCurrent.x},${snCurrent.y}`);
       path.push(current);
       if (current.x === end.x && current.y === end.y) return true;
-      const neighbors = this.getValidNeighbors(grid, current, visited);
+      let neighbors = this.getValidNeighbors(grid, current, visited);
+      if (symmetry !== 0 /* None */) {
+        neighbors = neighbors.filter((n) => {
+          const sn = this.getSymmetricalPoint(grid, n, symmetry);
+          if (sn.x < 0 || sn.x > grid.cols || sn.y < 0 || sn.y > grid.rows) return false;
+          if (visited.has(`${sn.x},${sn.y}`)) return false;
+          if (n.x === sn.x && n.y === sn.y) return false;
+          const edgeKey = this.getEdgeKey(current, n);
+          const symEdgeKey = this.getEdgeKey(snCurrent, sn);
+          if (edgeKey === symEdgeKey) return false;
+          return true;
+        });
+      }
       if (biasFactor !== void 0) {
         neighbors.sort((a, b) => {
           const da = Math.abs(a.x - end.x) + Math.abs(a.y - end.y);
@@ -1119,6 +1281,8 @@ var PuzzleGenerator = class {
         if (findPath(next)) return true;
       }
       path.pop();
+      visited.delete(`${current.x},${current.y}`);
+      visited.delete(`${snCurrent.x},${snCurrent.y}`);
       return false;
     };
     findPath(start);
@@ -1359,6 +1523,16 @@ var PuzzleGenerator = class {
       }
     return false;
   }
+  getSymmetricalPoint(grid, p, symmetry) {
+    if (symmetry === 1 /* Horizontal */) {
+      return { x: grid.cols - p.x, y: p.y };
+    } else if (symmetry === 2 /* Vertical */) {
+      return { x: p.x, y: grid.rows - p.y };
+    } else if (symmetry === 3 /* Rotational */) {
+      return { x: grid.cols - p.x, y: grid.rows - p.y };
+    }
+    return { ...p };
+  }
   getEdgeKey(p1, p2) {
     return p1.x < p2.x || p1.x === p2.x && p1.y < p2.y ? `${p1.x},${p1.y}-${p2.x},${p2.y}` : `${p2.x},${p2.y}-${p1.x},${p1.y}`;
   }
@@ -1436,7 +1610,7 @@ var PuzzleGenerator = class {
   /**
    * 解パスに基づいて各区画にルールを配置する
    */
-  applyConstraintsBasedOnPath(grid, path, options) {
+  applyConstraintsBasedOnPath(grid, path, options, symPath = []) {
     const complexity = options.complexity ?? 0.5;
     const useHexagons = options.useHexagons ?? true;
     const useSquares = options.useSquares ?? true;
@@ -1478,7 +1652,7 @@ var PuzzleGenerator = class {
       }
     }
     if (useSquares || useStars || useTetris || useEraser) {
-      const regions = this.calculateRegions(grid, path);
+      const regions = this.calculateRegions(grid, path, symPath);
       const availableColors = options.availableColors ?? [Color.Black, Color.White, Color.Red, Color.Blue];
       const defaultColors = options.defaultColors ?? {};
       const getDefColor = (type, fallback) => {
@@ -1563,7 +1737,7 @@ var PuzzleGenerator = class {
             if (useSquares) errorTypes.push("square");
             let boundaryEdges = [];
             if (useHexagons) {
-              boundaryEdges = this.getRegionBoundaryEdges(grid, region, path);
+              boundaryEdges = this.getRegionBoundaryEdges(grid, region, path, symPath);
               if (boundaryEdges.length > 0) errorTypes.push("hexagon");
             }
             if (useTetris) errorTypes.push("tetris");
@@ -1696,11 +1870,12 @@ var PuzzleGenerator = class {
   /**
    * 区画分けを行う
    */
-  calculateRegions(grid, path) {
+  calculateRegions(grid, path, symPath = []) {
     const regions = [];
     const visitedCells = /* @__PURE__ */ new Set();
     const pathEdges = /* @__PURE__ */ new Set();
     for (let i = 0; i < path.length - 1; i++) pathEdges.add(this.getEdgeKey(path[i], path[i + 1]));
+    for (let i = 0; i < symPath.length - 1; i++) pathEdges.add(this.getEdgeKey(symPath[i], symPath[i + 1]));
     for (let r = 0; r < grid.rows; r++) {
       for (let c = 0; c < grid.cols; c++) {
         if (visitedCells.has(`${c},${r}`)) continue;
@@ -1744,9 +1919,10 @@ var PuzzleGenerator = class {
   /**
    * 区画の境界エッジのうち、解パスが通っていないものを取得する
    */
-  getRegionBoundaryEdges(grid, region, path) {
+  getRegionBoundaryEdges(grid, region, path, symPath = []) {
     const pathEdges = /* @__PURE__ */ new Set();
     for (let i = 0; i < path.length - 1; i++) pathEdges.add(this.getEdgeKey(path[i], path[i + 1]));
+    for (let i = 0; i < symPath.length - 1; i++) pathEdges.add(this.getEdgeKey(symPath[i], symPath[i + 1]));
     const boundary = [];
     for (const cell of region) {
       const edges = [
@@ -2029,6 +2205,7 @@ var PuzzleSerializer = class {
     const bw = new BitWriter();
     bw.write(puzzle.rows, 6);
     bw.write(puzzle.cols, 6);
+    bw.write(puzzle.symmetry ?? 0, 2);
     const shapes = collectShapes(puzzle.cells);
     bw.write(shapes.length, 5);
     for (const s of shapes) {
@@ -2059,6 +2236,7 @@ var PuzzleSerializer = class {
     bw.write(+!!options.useTetris, 1);
     bw.write(+!!options.useEraser, 1);
     bw.write(+!!options.useBrokenEdges, 1);
+    bw.write(options.symmetry ?? 0, 2);
     bw.write(Math.round((options.complexity ?? 0) * 254), 8);
     bw.write(Math.round((options.difficulty ?? 0) * 254), 8);
     bw.write(Math.round((options.pathLength ?? 0) * 254), 8);
@@ -2083,6 +2261,7 @@ var PuzzleSerializer = class {
     const br = new BitReader(raw);
     const rows = br.read(6);
     const cols = br.read(6);
+    const symmetry = br.read(2);
     const shapeCount = br.read(5);
     const shapes = [];
     for (let i = 0; i < shapeCount; i++) {
@@ -2123,19 +2302,21 @@ var PuzzleSerializer = class {
     const useTetris = !!br.read(1);
     const useEraser = !!br.read(1);
     const useBroken = !!br.read(1);
+    const optSymmetry = br.read(2);
     if (useHexagons) options.useHexagons = true;
     if (useSquares) options.useSquares = true;
     if (useStars) options.useStars = true;
     if (useTetris) options.useTetris = true;
     if (useEraser) options.useEraser = true;
     if (useBroken) options.useBrokenEdges = true;
+    options.symmetry = optSymmetry;
     const complexity = readRatio();
     const difficulty = readRatio();
     const pathLength = readRatio();
     if (complexity !== 0) options.complexity = complexity;
     if (difficulty !== 0) options.difficulty = difficulty;
     if (pathLength !== 0) options.pathLength = pathLength;
-    return { puzzle: { rows, cols, cells, vEdges, hEdges, nodes }, options };
+    return { puzzle: { rows, cols, cells, vEdges, hEdges, nodes, symmetry }, options };
   }
 };
 
@@ -2197,37 +2378,40 @@ var WitnessUI = class {
     this.animate();
   }
   mergeOptions(options) {
+    const animations = {
+      blinkDuration: options.animations?.blinkDuration ?? this.options?.animations?.blinkDuration ?? 1e3,
+      fadeDuration: options.animations?.fadeDuration ?? this.options?.animations?.fadeDuration ?? 1e3,
+      blinkPeriod: options.animations?.blinkPeriod ?? this.options?.animations?.blinkPeriod ?? 800
+    };
+    const colors = {
+      path: options.colors?.path ?? this.options?.colors?.path ?? "#ffcc00",
+      error: options.colors?.error ?? this.options?.colors?.error ?? "#ff4444",
+      success: options.colors?.success ?? this.options?.colors?.success ?? "#ffcc00",
+      symmetry: options.colors?.symmetry ?? this.options?.colors?.symmetry ?? "rgba(255, 255, 255, 0.5)",
+      interrupted: options.colors?.interrupted ?? this.options?.colors?.interrupted ?? "#ffcc00",
+      grid: options.colors?.grid ?? this.options?.colors?.grid ?? "#555",
+      node: options.colors?.node ?? this.options?.colors?.node ?? "#555",
+      hexagon: options.colors?.hexagon ?? this.options?.colors?.hexagon ?? "#000",
+      colorMap: options.colors?.colorMap ?? this.options?.colors?.colorMap ?? {
+        [Color.Black]: "#000",
+        [Color.White]: "#fff",
+        [Color.Red]: "#f00",
+        [Color.Blue]: "#00f",
+        [Color.None]: "#ffcc00"
+      },
+      colorList: options.colors?.colorList ?? this.options?.colors?.colorList
+    };
     return {
-      gridPadding: options.gridPadding ?? 60,
-      cellSize: options.cellSize ?? 80,
-      nodeRadius: options.nodeRadius ?? 6,
-      startNodeRadius: options.startNodeRadius ?? 22,
-      pathWidth: options.pathWidth ?? 18,
-      exitLength: options.exitLength ?? 25,
-      autoResize: options.autoResize ?? true,
-      animations: {
-        blinkDuration: options.animations?.blinkDuration ?? 1e3,
-        fadeDuration: options.animations?.fadeDuration ?? 1e3,
-        blinkPeriod: options.animations?.blinkPeriod ?? 800
-      },
-      colors: {
-        path: options.colors?.path ?? "#ffcc00",
-        error: options.colors?.error ?? "#ff4444",
-        success: options.colors?.success ?? "#ffcc00",
-        interrupted: options.colors?.interrupted ?? "#ffcc00",
-        grid: options.colors?.grid ?? "#555",
-        node: options.colors?.node ?? "#555",
-        hexagon: options.colors?.hexagon ?? "#000",
-        colorMap: options.colors?.colorMap ?? {
-          [Color.Black]: "#000",
-          [Color.White]: "#fff",
-          [Color.Red]: "#f00",
-          [Color.Blue]: "#00f",
-          [Color.None]: "#ffcc00"
-        },
-        colorList: options.colors?.colorList
-      },
-      onPathComplete: options.onPathComplete ?? (() => {
+      gridPadding: options.gridPadding ?? this.options?.gridPadding ?? 60,
+      cellSize: options.cellSize ?? this.options?.cellSize ?? 80,
+      nodeRadius: options.nodeRadius ?? this.options?.nodeRadius ?? 6,
+      startNodeRadius: options.startNodeRadius ?? this.options?.startNodeRadius ?? 22,
+      pathWidth: options.pathWidth ?? this.options?.pathWidth ?? 18,
+      exitLength: options.exitLength ?? this.options?.exitLength ?? 25,
+      autoResize: options.autoResize ?? this.options?.autoResize ?? true,
+      animations,
+      colors,
+      onPathComplete: options.onPathComplete ?? this.options?.onPathComplete ?? (() => {
       })
     };
   }
@@ -2328,7 +2512,7 @@ var WitnessUI = class {
   }
   getExitDir(x, y) {
     if (!this.puzzle) return null;
-    if (this.puzzle.nodes[y][x].type !== 2 /* End */) return null;
+    if (this.puzzle.nodes[y]?.[x]?.type !== 2 /* End */) return null;
     if (x === this.puzzle.cols) return { x: 1, y: 0 };
     if (x === 0) return { x: -1, y: 0 };
     if (y === 0) return { x: 0, y: -1 };
@@ -2377,6 +2561,7 @@ var WitnessUI = class {
     const lastPos = this.getCanvasCoords(lastPoint.x, lastPoint.y);
     const dx = mouseX - lastPos.x;
     const dy = mouseY - lastPos.y;
+    const symmetry = this.puzzle.symmetry || 0 /* None */;
     const exitDir = this.getExitDir(lastPoint.x, lastPoint.y);
     if (exitDir) {
       const dot = dx * exitDir.x + dy * exitDir.y;
@@ -2390,32 +2575,71 @@ var WitnessUI = class {
         return;
       }
     }
-    if (Math.abs(dx) > Math.abs(dy)) {
-      const dir = dx > 0 ? 1 : -1;
-      const target = { x: lastPoint.x + dir, y: lastPoint.y };
+    const tryMoveTo = (target, d) => {
       const edgeType = this.getEdgeType(lastPoint, target);
-      if (target.x >= 0 && target.x <= this.puzzle.cols && edgeType !== 2 /* Absent */) {
-        const maxMove = edgeType === 1 /* Broken */ ? this.options.cellSize * 0.35 : this.options.cellSize;
+      if (target.x < 0 || target.x > this.puzzle.cols || target.y < 0 || target.y > this.puzzle.rows || edgeType === 2 /* Absent */) {
+        this.currentMousePos = lastPos;
+        return;
+      }
+      let maxMove = edgeType === 1 /* Broken */ ? this.options.cellSize * 0.35 : this.options.cellSize;
+      const targetEdgeKey = this.getEdgeKey(lastPoint, target);
+      const isBacktracking = this.path.length >= 2 && target.x === this.path[this.path.length - 2].x && target.y === this.path[this.path.length - 2].y;
+      if (!isBacktracking) {
+        for (let i = 0; i < this.path.length - 1; i++) {
+          if (this.getEdgeKey(this.path[i], this.path[i + 1]) === targetEdgeKey) {
+            maxMove = 0;
+            break;
+          }
+        }
+      }
+      const isTargetInPath = this.path.some((p) => p.x === target.x && p.y === target.y);
+      if (isTargetInPath && this.path.length >= 2) {
+        const secondToLast = this.path[this.path.length - 2];
+        if (target.x !== secondToLast.x || target.y !== secondToLast.y) {
+          maxMove = Math.min(maxMove, this.options.cellSize * 0.5 - this.options.pathWidth * 0.5);
+        }
+      }
+      if (symmetry !== 0 /* None */) {
+        const symLast = this.getSymmetricalPoint(lastPoint);
+        const symTarget = this.getSymmetricalPoint(target);
+        const symEdgeType = this.getEdgeType(symLast, symTarget);
+        const symPath2 = this.getSymmetryPath(this.path);
+        const symEdgeKey = this.getEdgeKey(symLast, symTarget);
+        if (symTarget.x < 0 || symTarget.x > this.puzzle.cols || symTarget.y < 0 || symTarget.y > this.puzzle.rows || symEdgeType === 2 /* Absent */) {
+          this.currentMousePos = lastPos;
+          return;
+        }
+        if (symEdgeType === 1 /* Broken */) {
+          maxMove = Math.min(maxMove, this.options.cellSize * 0.35);
+        }
+        const isNodeOccupiedBySym = symPath2.some((p) => p.x === target.x && p.y === target.y);
+        const isSymNodeOccupiedByMain = this.path.some((p) => p.x === symTarget.x && p.y === symTarget.y);
+        const isMeetingAtNode = target.x === symTarget.x && target.y === symTarget.y;
+        const isEdgeOccupiedBySym = symPath2.some((p, i) => i < symPath2.length - 1 && this.getEdgeKey(symPath2[i], symPath2[i + 1]) === targetEdgeKey);
+        const isMirrorEdgeOccupiedByMain = this.path.some((p, i) => i < this.path.length - 1 && this.getEdgeKey(this.path[i], this.path[i + 1]) === symEdgeKey);
+        const isSelfMirrorEdge = targetEdgeKey === symEdgeKey;
+        if (isNodeOccupiedBySym || isSymNodeOccupiedByMain || isMeetingAtNode || isEdgeOccupiedBySym || isMirrorEdgeOccupiedByMain || isSelfMirrorEdge) {
+          maxMove = Math.min(maxMove, this.options.cellSize * 0.5 - this.options.pathWidth * 0.5);
+        }
+      }
+      if (target.x !== lastPoint.x) {
         this.currentMousePos = {
-          x: lastPos.x + Math.max(-maxMove, Math.min(maxMove, dx)),
+          x: lastPos.x + Math.max(-maxMove, Math.min(maxMove, d)),
           y: lastPos.y
         };
       } else {
-        this.currentMousePos = lastPos;
-      }
-    } else {
-      const dir = dy > 0 ? 1 : -1;
-      const target = { x: lastPoint.x, y: lastPoint.y + dir };
-      const edgeType = this.getEdgeType(lastPoint, target);
-      if (target.y >= 0 && target.y <= this.puzzle.rows && edgeType !== 2 /* Absent */) {
-        const maxMove = edgeType === 1 /* Broken */ ? this.options.cellSize * 0.35 : this.options.cellSize;
         this.currentMousePos = {
           x: lastPos.x,
-          y: lastPos.y + Math.max(-maxMove, Math.min(maxMove, dy))
+          y: lastPos.y + Math.max(-maxMove, Math.min(maxMove, d))
         };
-      } else {
-        this.currentMousePos = lastPos;
       }
+    };
+    if (Math.abs(dx) > Math.abs(dy)) {
+      const dir = dx > 0 ? 1 : -1;
+      tryMoveTo({ x: lastPoint.x + dir, y: lastPoint.y }, dx);
+    } else {
+      const dir = dy > 0 ? 1 : -1;
+      tryMoveTo({ x: lastPoint.x, y: lastPoint.y + dir }, dy);
     }
     const neighbors = [
       { x: lastPoint.x + 1, y: lastPoint.y },
@@ -2423,6 +2647,7 @@ var WitnessUI = class {
       { x: lastPoint.x, y: lastPoint.y + 1 },
       { x: lastPoint.x, y: lastPoint.y - 1 }
     ];
+    const symPath = this.getSymmetryPath(this.path);
     for (const n of neighbors) {
       if (n.x >= 0 && n.x <= this.puzzle.cols && n.y >= 0 && n.y <= this.puzzle.rows) {
         const nPos = this.getCanvasCoords(n.x, n.y);
@@ -2430,6 +2655,15 @@ var WitnessUI = class {
         if (dist < this.options.cellSize * 0.3) {
           const idx = this.path.findIndex((p) => p.x === n.x && p.y === n.y);
           if (idx === -1) {
+            if (symmetry !== 0 /* None */) {
+              const sn = this.getSymmetricalPoint(n);
+              if (n.x === sn.x && n.y === sn.y) continue;
+              if (this.path.some((p) => p.x === sn.x && p.y === sn.y)) continue;
+              if (symPath.some((p) => p.x === n.x && p.y === n.y)) continue;
+              const edgeKey = this.getEdgeKey(lastPoint, n);
+              const symEdgeKey = this.getEdgeKey(this.getSymmetricalPoint(lastPoint), sn);
+              if (edgeKey === symEdgeKey) continue;
+            }
             this.path.push(n);
           } else if (idx === this.path.length - 2) {
             this.path.pop();
@@ -2507,6 +2741,21 @@ var WitnessUI = class {
     }
     if (this.isFading) {
       this.drawPath(ctx, this.fadingPath, false, this.fadeColor, this.fadeOpacity, this.fadingTipPos);
+      if (this.puzzle.symmetry !== void 0 && this.puzzle.symmetry !== 0 /* None */) {
+        const symFadingPath = this.getSymmetryPath(this.fadingPath);
+        const symColor = this.options.colors.symmetry;
+        let symTipPos = null;
+        if (this.fadingTipPos) {
+          const gridRelX = (this.fadingTipPos.x - this.options.gridPadding) / this.options.cellSize;
+          const gridRelY = (this.fadingTipPos.y - this.options.gridPadding) / this.options.cellSize;
+          const symGridRel = this.getSymmetricalPoint({ x: gridRelX, y: gridRelY });
+          symTipPos = {
+            x: symGridRel.x * this.options.cellSize + this.options.gridPadding,
+            y: symGridRel.y * this.options.cellSize + this.options.gridPadding
+          };
+        }
+        this.drawPath(ctx, symFadingPath, false, symColor, this.fadeOpacity, symTipPos);
+      }
     } else if (this.path.length > 0) {
       let color = this.isInvalidPath ? this.options.colors.error : this.options.colors.path;
       if (this.isSuccessFading) {
@@ -2531,6 +2780,45 @@ var WitnessUI = class {
         }
       }
       this.drawPath(ctx, this.path, this.isDrawing, color, 1, this.isDrawing ? this.currentMousePos : this.exitTipPos);
+      if (this.puzzle.symmetry !== void 0 && this.puzzle.symmetry !== 0 /* None */) {
+        const symPath = this.getSymmetryPath(this.path);
+        let symColor = this.options.colors.symmetry;
+        if (this.isInvalidPath) {
+          symColor = this.options.colors.error;
+        } else if (this.isSuccessFading) {
+          symColor = this.options.colors.success;
+        }
+        if (!this.isDrawing && this.exitTipPos && !this.isInvalidPath) {
+          const elapsed = now - (this.isSuccessFading ? this.successFadeStartTime : this.eraserAnimationStartTime);
+          const blinkDuration = this.options.animations.blinkDuration;
+          if (elapsed < blinkDuration) {
+            if (this.isSuccessFading) {
+              const hasNegation = this.invalidatedCells.length > 0 || this.invalidatedEdges.length > 0 || this.invalidatedNodes.length > 0;
+              if (hasNegation) {
+                symColor = this.options.colors.error;
+              }
+            } else {
+              const transitionIn = Math.min(1, elapsed / 200);
+              const transitionOut = elapsed > blinkDuration * 0.8 ? (blinkDuration - elapsed) / (blinkDuration * 0.2) : 1;
+              const transitionFactor = Math.min(transitionIn, transitionOut);
+              const blinkFactor = (Math.sin(now * Math.PI * 2 / this.options.animations.blinkPeriod) + 1) / 2;
+              symColor = this.lerpColor(this.options.colors.symmetry, this.options.colors.error, blinkFactor * transitionFactor);
+            }
+          }
+        }
+        let symTipPos = null;
+        if (this.isDrawing || this.exitTipPos) {
+          const tip = this.isDrawing ? this.currentMousePos : this.exitTipPos;
+          const gridRelX = (tip.x - this.options.gridPadding) / this.options.cellSize;
+          const gridRelY = (tip.y - this.options.gridPadding) / this.options.cellSize;
+          const symGridRel = this.getSymmetricalPoint({ x: gridRelX, y: gridRelY }, true);
+          symTipPos = {
+            x: symGridRel.x * this.options.cellSize + this.options.gridPadding,
+            y: symGridRel.y * this.options.cellSize + this.options.gridPadding
+          };
+        }
+        this.drawPath(ctx, symPath, this.isDrawing, symColor, 1, symTipPos);
+      }
     }
   }
   drawRipples(ctx) {
@@ -2800,16 +3088,27 @@ var WitnessUI = class {
   }
   drawPath(ctx, path, isDrawing, color, opacity, tipPos = null) {
     if (path.length === 0 || !color) return;
-    if (opacity < 1) {
-      const { canvas: tempCanvas, ctx: tempCtx } = this.prepareOffscreen();
-      this.drawPathInternal(tempCtx, path, isDrawing, color, tipPos);
-      ctx.save();
-      ctx.globalAlpha = opacity;
-      ctx.drawImage(tempCanvas, 0, 0);
-      ctx.restore();
-    } else {
-      this.drawPathInternal(ctx, path, isDrawing, color, tipPos);
+    let finalOpacity = opacity;
+    let finalColor = color;
+    if (color.startsWith("rgba")) {
+      const match = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
+      if (match) {
+        const r = match[1];
+        const g = match[2];
+        const b = match[3];
+        const a = match[4] ? parseFloat(match[4]) : 1;
+        finalColor = `rgb(${r},${g},${b})`;
+        finalOpacity *= a;
+      }
+    } else if (color === "transparent") {
+      return;
     }
+    const { canvas: tempCanvas, ctx: tempCtx } = this.prepareOffscreen();
+    this.drawPathInternal(tempCtx, path, isDrawing, finalColor, tipPos);
+    ctx.save();
+    ctx.globalAlpha = finalOpacity;
+    ctx.drawImage(tempCanvas, 0, 0);
+    ctx.restore();
   }
   drawPathInternal(ctx, path, isDrawing, color, tipPos = null) {
     ctx.save();
@@ -2825,17 +3124,17 @@ var WitnessUI = class {
       const pos = this.getCanvasCoords(path[i].x, path[i].y);
       ctx.lineTo(pos.x, pos.y);
     }
+    const actualTipPos = tipPos || this.currentMousePos;
     if (isDrawing || tipPos) {
-      const pos = tipPos || this.currentMousePos;
-      ctx.lineTo(pos.x, pos.y);
+      ctx.lineTo(actualTipPos.x, actualTipPos.y);
     }
     ctx.stroke();
     ctx.beginPath();
     ctx.arc(startPos.x, startPos.y, this.options.startNodeRadius, 0, Math.PI * 2);
     ctx.fill();
-    if (isDrawing) {
+    if (isDrawing || tipPos) {
       ctx.beginPath();
-      ctx.arc(this.currentMousePos.x, this.currentMousePos.y, this.options.pathWidth / 2, 0, Math.PI * 2);
+      ctx.arc(actualTipPos.x, actualTipPos.y, this.options.pathWidth / 2, 0, Math.PI * 2);
       ctx.fill();
     }
     ctx.restore();
@@ -2953,6 +3252,25 @@ var WitnessUI = class {
       return c1;
     }
   }
+  getSymmetryPath(path) {
+    if (!this.puzzle || !this.puzzle.symmetry) return [];
+    return path.map((p) => this.getSymmetricalPoint(p));
+  }
+  getSymmetricalPoint(p, isFloat = false) {
+    if (!this.puzzle || !this.puzzle.symmetry) return { ...p };
+    const { cols, rows, symmetry } = this.puzzle;
+    if (symmetry === 1 /* Horizontal */) {
+      return { x: cols - p.x, y: p.y };
+    } else if (symmetry === 2 /* Vertical */) {
+      return { x: p.x, y: rows - p.y };
+    } else if (symmetry === 3 /* Rotational */) {
+      return { x: cols - p.x, y: rows - p.y };
+    }
+    return { ...p };
+  }
+  getEdgeKey(p1, p2) {
+    return p1.x < p2.x || p1.x === p2.x && p1.y < p2.y ? `${p1.x},${p1.y}-${p2.x},${p2.y}` : `${p2.x},${p2.y}-${p1.x},${p1.y}`;
+  }
   prepareOffscreen() {
     if (typeof document === "undefined") {
       return { canvas: {}, ctx: {} };
@@ -3010,6 +3328,7 @@ export {
   PuzzleGenerator,
   PuzzleSerializer,
   PuzzleValidator,
+  SymmetryType,
   WitnessCore,
   WitnessUI
 };

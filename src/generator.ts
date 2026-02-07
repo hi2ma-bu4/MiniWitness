@@ -1,5 +1,5 @@
 import { Grid } from "./grid";
-import { CellType, Color, type EdgeConstraint, EdgeType, type GenerationOptions, NodeType, type Point } from "./types";
+import { CellType, Color, type EdgeConstraint, EdgeType, type GenerationOptions, NodeType, type Point, SymmetryType } from "./types";
 import { PuzzleValidator } from "./validator";
 
 /**
@@ -23,14 +23,27 @@ export class PuzzleGenerator {
 		const maxAttempts = rows * cols > 30 ? 50 : 80;
 		const markAttemptsPerPath = 5;
 
-		const startPoint: Point = { x: 0, y: rows };
-		const endPoint: Point = { x: cols, y: 0 };
+		const symmetry = options.symmetry || SymmetryType.None;
+		let startPoint: Point = { x: 0, y: rows };
+		let endPoint: Point = { x: cols, y: 0 };
+
+		if (symmetry === SymmetryType.Horizontal) {
+			// 左右対称：スタートと同じ側（左側）にゴールを置くことで、軸を跨ぐ必要をなくす
+			endPoint = { x: 0, y: 0 };
+		} else if (symmetry === SymmetryType.Vertical) {
+			// 上下対称：スタートと同じ側（下側）にゴールを置く
+			endPoint = { x: cols, y: rows };
+		} else if (symmetry === SymmetryType.Rotational) {
+			// 点対称：点対称なスタートとゴールが重ならないように配置
+			endPoint = { x: cols, y: rows };
+		}
+
 		let currentPath: Point[] | null = null;
 
 		for (let attempt = 0; attempt < maxAttempts; attempt++) {
 			// 一定回数ごとに新しいパスを生成する
 			if (attempt % markAttemptsPerPath === 0) {
-				currentPath = this.generateRandomPath(new Grid(rows, cols), startPoint, endPoint, options.pathLength);
+				currentPath = this.generateRandomPath(new Grid(rows, cols), startPoint, endPoint, options.pathLength, symmetry);
 			}
 
 			const grid = this.generateFromPath(rows, cols, currentPath!, options);
@@ -66,14 +79,33 @@ export class PuzzleGenerator {
 	 */
 	private generateFromPath(rows: number, cols: number, solutionPath: Point[], options: GenerationOptions): Grid {
 		const grid = new Grid(rows, cols);
-		const startPoint: Point = { x: 0, y: rows };
-		const endPoint: Point = { x: cols, y: 0 };
+		const symmetry = options.symmetry || SymmetryType.None;
+		grid.symmetry = symmetry;
+
+		let startPoint: Point = { x: 0, y: rows };
+		let endPoint: Point = { x: cols, y: 0 };
+
+		if (symmetry === SymmetryType.Horizontal) {
+			endPoint = { x: 0, y: 0 };
+		} else if (symmetry === SymmetryType.Vertical) {
+			endPoint = { x: cols, y: rows };
+		} else if (symmetry === SymmetryType.Rotational) {
+			endPoint = { x: cols, y: rows };
+		}
 
 		grid.nodes[startPoint.y][startPoint.x].type = NodeType.Start;
 		grid.nodes[endPoint.y][endPoint.x].type = NodeType.End;
 
+		if (symmetry !== SymmetryType.None) {
+			const symStart = this.getSymmetricalPoint(grid, startPoint, symmetry);
+			const symEnd = this.getSymmetricalPoint(grid, endPoint, symmetry);
+			grid.nodes[symStart.y][symStart.x].type = NodeType.Start;
+			grid.nodes[symEnd.y][symEnd.x].type = NodeType.End;
+		}
+
 		// パスに基づいて制約（記号）を配置
-		this.applyConstraintsBasedOnPath(grid, solutionPath, options);
+		const symPath = symmetry !== SymmetryType.None ? solutionPath.map((p) => this.getSymmetricalPoint(grid, p, symmetry)) : [];
+		this.applyConstraintsBasedOnPath(grid, solutionPath, options, symPath);
 
 		// 断線エッジの適用
 		if (options.useBrokenEdges) {
@@ -89,9 +121,9 @@ export class PuzzleGenerator {
 	 * ランダムな正解パスを生成する
 	 * @param targetLengthFactor 0.0 (最短) - 1.0 (最長)
 	 */
-	private generateRandomPath(grid: Grid, start: Point, end: Point, targetLengthFactor?: number): Point[] {
+	private generateRandomPath(grid: Grid, start: Point, end: Point, targetLengthFactor?: number, symmetry: SymmetryType = SymmetryType.None): Point[] {
 		if (targetLengthFactor === undefined) {
-			return this.generateSingleRandomPath(grid, start, end);
+			return this.generateSingleRandomPath(grid, start, end, undefined, symmetry);
 		}
 
 		// 指定された長さに近いパスを探す
@@ -105,7 +137,7 @@ export class PuzzleGenerator {
 		const attempts = 50;
 		for (let i = 0; i < attempts; i++) {
 			// 最初の方の試行はバイアスを強めにかける
-			const currentPath = this.generateSingleRandomPath(grid, start, end, targetLengthFactor);
+			const currentPath = this.generateSingleRandomPath(grid, start, end, targetLengthFactor, symmetry);
 			const currentLen = currentPath.length - 1;
 			const diff = Math.abs(currentLen - targetLen);
 
@@ -124,23 +156,40 @@ export class PuzzleGenerator {
 	/**
 	 * 1本のランダムパスを生成する
 	 */
-	private generateSingleRandomPath(grid: Grid, start: Point, end: Point, biasFactor?: number): Point[] {
+	private generateSingleRandomPath(grid: Grid, start: Point, end: Point, biasFactor?: number, symmetry: SymmetryType = SymmetryType.None): Point[] {
 		const visited = new Set<string>();
 		const path: Point[] = [];
+
 		const findPath = (current: Point): boolean => {
 			visited.add(`${current.x},${current.y}`);
+			const snCurrent = this.getSymmetricalPoint(grid, current, symmetry);
+			visited.add(`${snCurrent.x},${snCurrent.y}`);
+
 			path.push(current);
 			if (current.x === end.x && current.y === end.y) return true;
 
-			const neighbors = this.getValidNeighbors(grid, current, visited);
+			let neighbors = this.getValidNeighbors(grid, current, visited);
+
+			if (symmetry !== SymmetryType.None) {
+				neighbors = neighbors.filter((n) => {
+					const sn = this.getSymmetricalPoint(grid, n, symmetry);
+					if (sn.x < 0 || sn.x > grid.cols || sn.y < 0 || sn.y > grid.rows) return false;
+					if (visited.has(`${sn.x},${sn.y}`)) return false;
+					// ノード衝突（現在の移動先が自分自身の対称点である場合もNG）
+					if (n.x === sn.x && n.y === sn.y) return false;
+					// エッジ衝突
+					const edgeKey = this.getEdgeKey(current, n);
+					const symEdgeKey = this.getEdgeKey(snCurrent, sn);
+					if (edgeKey === symEdgeKey) return false;
+					return true;
+				});
+			}
 			if (biasFactor !== undefined) {
 				neighbors.sort((a, b) => {
 					const da = Math.abs(a.x - end.x) + Math.abs(a.y - end.y);
 					const db = Math.abs(b.x - end.x) + Math.abs(b.y - end.y);
-					// biasFactor = 0 (Shortest) -> da - db (昇順)
-					// biasFactor = 1 (Longest) -> db - da (降順)
 					const score = (da - db) * (1 - biasFactor * 2);
-					return score + (Math.random() - 0.5) * 1.5; // 揺らぎ
+					return score + (Math.random() - 0.5) * 1.5;
 				});
 			} else {
 				this.shuffleArray(neighbors);
@@ -151,6 +200,8 @@ export class PuzzleGenerator {
 			}
 
 			path.pop();
+			visited.delete(`${current.x},${current.y}`);
+			visited.delete(`${snCurrent.x},${snCurrent.y}`);
 			return false;
 		};
 		findPath(start);
@@ -424,6 +475,17 @@ export class PuzzleGenerator {
 		return false;
 	}
 
+	private getSymmetricalPoint(grid: Grid, p: Point, symmetry: SymmetryType): Point {
+		if (symmetry === SymmetryType.Horizontal) {
+			return { x: grid.cols - p.x, y: p.y };
+		} else if (symmetry === SymmetryType.Vertical) {
+			return { x: p.x, y: grid.rows - p.y };
+		} else if (symmetry === SymmetryType.Rotational) {
+			return { x: grid.cols - p.x, y: grid.rows - p.y };
+		}
+		return { ...p };
+	}
+
 	private getEdgeKey(p1: Point, p2: Point): string {
 		return p1.x < p2.x || (p1.x === p2.x && p1.y < p2.y) ? `${p1.x},${p1.y}-${p2.x},${p2.y}` : `${p2.x},${p2.y}-${p1.x},${p1.y}`;
 	}
@@ -503,7 +565,7 @@ export class PuzzleGenerator {
 	/**
 	 * 解パスに基づいて各区画にルールを配置する
 	 */
-	private applyConstraintsBasedOnPath(grid: Grid, path: Point[], options: GenerationOptions) {
+	private applyConstraintsBasedOnPath(grid: Grid, path: Point[], options: GenerationOptions, symPath: Point[] = []) {
 		const complexity = options.complexity ?? 0.5;
 		const useHexagons = options.useHexagons ?? true;
 		const useSquares = options.useSquares ?? true;
@@ -557,7 +619,7 @@ export class PuzzleGenerator {
 
 		// 区画ルールの配置
 		if (useSquares || useStars || useTetris || useEraser) {
-			const regions = this.calculateRegions(grid, path);
+			const regions = this.calculateRegions(grid, path, symPath);
 			const availableColors = options.availableColors ?? [Color.Black, Color.White, Color.Red, Color.Blue];
 			const defaultColors = (options.defaultColors ?? {}) as any;
 			const getDefColor = (type: CellType, fallback: Color): Color => {
@@ -662,7 +724,7 @@ export class PuzzleGenerator {
 						if (useSquares) errorTypes.push("square");
 						let boundaryEdges: { type: "h" | "v"; r: number; c: number }[] = [];
 						if (useHexagons) {
-							boundaryEdges = this.getRegionBoundaryEdges(grid, region, path);
+							boundaryEdges = this.getRegionBoundaryEdges(grid, region, path, symPath);
 							if (boundaryEdges.length > 0) errorTypes.push("hexagon");
 						}
 						if (useTetris) errorTypes.push("tetris");
@@ -813,11 +875,13 @@ export class PuzzleGenerator {
 	/**
 	 * 区画分けを行う
 	 */
-	private calculateRegions(grid: Grid, path: Point[]): Point[][] {
+	private calculateRegions(grid: Grid, path: Point[], symPath: Point[] = []): Point[][] {
 		const regions: Point[][] = [];
 		const visitedCells = new Set<string>();
 		const pathEdges = new Set<string>();
 		for (let i = 0; i < path.length - 1; i++) pathEdges.add(this.getEdgeKey(path[i], path[i + 1]));
+		for (let i = 0; i < symPath.length - 1; i++) pathEdges.add(this.getEdgeKey(symPath[i], symPath[i + 1]));
+
 		for (let r = 0; r < grid.rows; r++) {
 			for (let c = 0; c < grid.cols; c++) {
 				if (visitedCells.has(`${c},${r}`)) continue;
@@ -863,9 +927,10 @@ export class PuzzleGenerator {
 	/**
 	 * 区画の境界エッジのうち、解パスが通っていないものを取得する
 	 */
-	private getRegionBoundaryEdges(grid: Grid, region: Point[], path: Point[]): { type: "h" | "v"; r: number; c: number }[] {
+	private getRegionBoundaryEdges(grid: Grid, region: Point[], path: Point[], symPath: Point[] = []): { type: "h" | "v"; r: number; c: number }[] {
 		const pathEdges = new Set<string>();
 		for (let i = 0; i < path.length - 1; i++) pathEdges.add(this.getEdgeKey(path[i], path[i + 1]));
+		for (let i = 0; i < symPath.length - 1; i++) pathEdges.add(this.getEdgeKey(symPath[i], symPath[i + 1]));
 
 		const boundary: { type: "h" | "v"; r: number; c: number }[] = [];
 		for (const cell of region) {

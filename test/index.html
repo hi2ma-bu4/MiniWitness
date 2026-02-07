@@ -35,6 +35,22 @@
 				<label><input type="checkbox" id="custom-theme" checked> Custom Theme</label>
 			</div>
 			<div class="control-group">
+				<label for="symmetry-select">Symmetry:</label>
+				<select id="symmetry-select">
+					<option value="0">None</option>
+					<option value="1">Horizontal</option>
+					<option value="2">Vertical</option>
+					<option value="3">Rotational</option>
+				</select>
+				<label for="sym-color-select">Color:</label>
+				<select id="sym-color-select">
+					<option value="rgba(255, 255, 255, 0.5)">White (Half)</option>
+					<option value="#00f">Blue</option>
+					<option value="#ff0">Yellow</option>
+					<option value="transparent">Transparent</option>
+				</select>
+			</div>
+			<div class="control-group">
 				<label for="complexity-slider">Complexity (Constraint Density):</label>
 				<input type="range" id="complexity-slider" min="0" max="1" step="0.1" value="1">
 			</div>

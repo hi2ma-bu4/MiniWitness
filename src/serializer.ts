@@ -67,6 +67,7 @@ export class PuzzleSerializer {
 
 		bw.write(puzzle.rows, 6);
 		bw.write(puzzle.cols, 6);
+		bw.write(puzzle.symmetry ?? 0, 2);
 
 		/* ---- shapes ---- */
 		const shapes = collectShapes(puzzle.cells);
@@ -109,6 +110,7 @@ export class PuzzleSerializer {
 		bw.write(+!!options.useTetris, 1);
 		bw.write(+!!options.useEraser, 1);
 		bw.write(+!!options.useBrokenEdges, 1);
+		bw.write(options.symmetry ?? 0, 2);
 
 		bw.write(Math.round((options.complexity ?? 0) * 254), 8);
 		bw.write(Math.round((options.difficulty ?? 0) * 254), 8);
@@ -148,6 +150,7 @@ export class PuzzleSerializer {
 
 		const rows = br.read(6);
 		const cols = br.read(6);
+		const symmetry = br.read(2);
 
 		/* ---- shapes ---- */
 		const shapeCount = br.read(5);
@@ -202,6 +205,7 @@ export class PuzzleSerializer {
 		const useTetris = !!br.read(1);
 		const useEraser = !!br.read(1);
 		const useBroken = !!br.read(1);
+		const optSymmetry = br.read(2);
 
 		if (useHexagons) options.useHexagons = true;
 		if (useSquares) options.useSquares = true;
@@ -209,6 +213,7 @@ export class PuzzleSerializer {
 		if (useTetris) options.useTetris = true;
 		if (useEraser) options.useEraser = true;
 		if (useBroken) options.useBrokenEdges = true;
+		options.symmetry = optSymmetry;
 
 		const complexity = readRatio();
 		const difficulty = readRatio();
@@ -218,6 +223,6 @@ export class PuzzleSerializer {
 		if (difficulty !== 0) options.difficulty = difficulty;
 		if (pathLength !== 0) options.pathLength = pathLength;
 
-		return { puzzle: { rows, cols, cells, vEdges, hEdges, nodes }, options };
+		return { puzzle: { rows, cols, cells, vEdges, hEdges, nodes, symmetry }, options };
 	}
 }
