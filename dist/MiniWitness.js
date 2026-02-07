@@ -1,5 +1,5 @@
 /*!
- * MiniWitness 1.2.1
+ * MiniWitness 1.2.2
  * Copyright 2026 hi2ma-bu4
  * Licensed under the Apache License, Version 2.0
  * http://www.apache.org/licenses/LICENSE-2.0
@@ -2926,9 +2926,12 @@ var WitnessUI = class {
         this.drawPath(ctx, symFadingPath, false, symColor, this.fadeOpacity, symTipPos);
       }
     } else if (this.path.length > 0) {
-      let color = this.isInvalidPath ? this.options.colors.error : this.options.colors.path;
+      const originalPathColor = this.options.colors.path;
+      const originalPathAlpha = this.colorToRgba(originalPathColor).a;
+      const errorColor = this.options.colors.error;
+      let color = this.isInvalidPath ? this.setAlpha(errorColor, originalPathAlpha) : originalPathColor;
       if (this.isSuccessFading && !this.puzzle.symmetry) {
-        color = this.options.colors.success;
+        color = this.setAlpha(this.options.colors.success, originalPathAlpha);
       }
       if (!this.isDrawing && this.exitTipPos && !this.isInvalidPath) {
         const elapsed = now - (this.isSuccessFading ? this.successFadeStartTime : this.eraserAnimationStartTime);
@@ -2944,16 +2947,19 @@ var WitnessUI = class {
             const transitionOut = elapsed > blinkDuration * 0.8 ? (blinkDuration - elapsed) / (blinkDuration * 0.2) : 1;
             const transitionFactor = Math.min(transitionIn, transitionOut);
             const blinkFactor = (Math.sin(now * Math.PI * 2 / this.options.animations.blinkPeriod) + 1) / 2;
-            color = this.lerpColor(this.options.colors.path, this.options.colors.error, blinkFactor * transitionFactor);
+            const targetErrorColor = this.setAlpha(errorColor, originalPathAlpha);
+            color = this.lerpColor(originalPathColor, targetErrorColor, blinkFactor * transitionFactor);
           }
         }
       }
       this.drawPath(ctx, this.path, this.isDrawing, color, 1, this.isDrawing ? this.currentMousePos : this.exitTipPos);
       if (this.puzzle.symmetry !== void 0 && this.puzzle.symmetry !== 0 /* None */) {
         const symPath = this.getSymmetryPath(this.path);
-        let symColor = this.options.colors.symmetry;
+        const originalSymColor = this.options.colors.symmetry;
+        const originalSymAlpha = this.colorToRgba(originalSymColor).a;
+        let symColor = originalSymColor;
         if (this.isInvalidPath) {
-          symColor = this.options.colors.error;
+          symColor = this.setAlpha(errorColor, originalSymAlpha);
         }
         if (!this.isDrawing && this.exitTipPos && !this.isInvalidPath) {
           const elapsed = now - (this.isSuccessFading ? this.successFadeStartTime : this.eraserAnimationStartTime);
@@ -2969,7 +2975,8 @@ var WitnessUI = class {
               const transitionOut = elapsed > blinkDuration * 0.8 ? (blinkDuration - elapsed) / (blinkDuration * 0.2) : 1;
               const transitionFactor = Math.min(transitionIn, transitionOut);
               const blinkFactor = (Math.sin(now * Math.PI * 2 / this.options.animations.blinkPeriod) + 1) / 2;
-              symColor = this.lerpColor(this.options.colors.symmetry, this.options.colors.error, blinkFactor * transitionFactor);
+              const targetErrorColor = this.setAlpha(errorColor, originalSymAlpha);
+              symColor = this.lerpColor(originalSymColor, targetErrorColor, blinkFactor * transitionFactor);
             }
           }
         }
@@ -3254,22 +3261,10 @@ var WitnessUI = class {
     }
   }
   drawPath(ctx, path, isDrawing, color, opacity, tipPos = null) {
-    if (path.length === 0 || !color) return;
-    let finalOpacity = opacity;
-    let finalColor = color;
-    if (color.startsWith("rgba")) {
-      const match = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
-      if (match) {
-        const r = match[1];
-        const g = match[2];
-        const b = match[3];
-        const a = match[4] ? parseFloat(match[4]) : 1;
-        finalColor = `rgb(${r},${g},${b})`;
-        finalOpacity *= a;
-      }
-    } else if (color === "transparent") {
-      return;
-    }
+    if (path.length === 0 || !color || color === "transparent") return;
+    const rgba = this.colorToRgba(color);
+    const finalColor = `rgb(${rgba.r},${rgba.g},${rgba.b})`;
+    const finalOpacity = opacity * rgba.a;
     const { canvas: tempCanvas, ctx: tempCtx } = this.prepareOffscreen();
     this.drawPathInternal(tempCtx, path, isDrawing, finalColor, tipPos);
     ctx.save();
@@ -3395,29 +3390,60 @@ var WitnessUI = class {
     }
     return defaultFallback;
   }
-  hexToRgb(hex) {
-    let c = hex.startsWith("#") ? hex.slice(1) : hex;
-    if (c.length === 3) {
+  colorToRgba(color) {
+    if (!color || color === "transparent") {
+      return { r: 0, g: 0, b: 0, a: 0 };
+    }
+    if (color.startsWith("rgba") || color.startsWith("rgb")) {
+      const match = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
+      if (match) {
+        return {
+          r: parseInt(match[1]),
+          g: parseInt(match[2]),
+          b: parseInt(match[3]),
+          a: match[4] ? parseFloat(match[4]) : 1
+        };
+      }
+    }
+    let c = color.startsWith("#") ? color.slice(1) : color;
+    if (c.length === 3 || c.length === 4) {
       c = c.split("").map((s) => s + s).join("");
     }
-    const i = parseInt(c, 16);
-    return {
-      r: i >> 16 & 255,
-      g: i >> 8 & 255,
-      b: i & 255
-    };
-  }
-  rgbToHex(r, g, b) {
-    return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+    if (c.length === 6) {
+      const i = parseInt(c, 16);
+      return {
+        r: i >> 16 & 255,
+        g: i >> 8 & 255,
+        b: i & 255,
+        a: 1
+      };
+    } else if (c.length === 8) {
+      const i = parseInt(c, 16);
+      return {
+        r: i >> 24 & 255,
+        g: i >> 16 & 255,
+        b: i >> 8 & 255,
+        a: (i & 255) / 255
+      };
+    }
+    return { r: 0, g: 0, b: 0, a: 1 };
   }
   lerpColor(c1, c2, t) {
     try {
-      const rgb1 = this.hexToRgb(c1);
-      const rgb2 = this.hexToRgb(c2);
-      return this.rgbToHex(Math.round(rgb1.r + (rgb2.r - rgb1.r) * t), Math.round(rgb1.g + (rgb2.g - rgb1.g) * t), Math.round(rgb1.b + (rgb2.b - rgb1.b) * t));
+      const rgba1 = this.colorToRgba(c1);
+      const rgba2 = this.colorToRgba(c2);
+      const r = Math.round(rgba1.r + (rgba2.r - rgba1.r) * t);
+      const g = Math.round(rgba1.g + (rgba2.g - rgba1.g) * t);
+      const b = Math.round(rgba1.b + (rgba2.b - rgba1.b) * t);
+      const a = rgba1.a + (rgba2.a - rgba1.a) * t;
+      return `rgba(${r},${g},${b},${a})`;
     } catch (e) {
       return c1;
     }
+  }
+  setAlpha(color, alpha) {
+    const rgba = this.colorToRgba(color);
+    return `rgba(${rgba.r},${rgba.g},${rgba.b},${alpha})`;
   }
   getSymmetryPath(path) {
     if (!this.puzzle || !this.puzzle.symmetry) return [];

@@ -38,20 +38,22 @@ test("WitnessUI instantiation in Node (should not crash with mock canvas)", () =
 });
 
 test("WitnessUI setValidationResult updates internal state", () => {
-	const ui = new WitnessUI(createMockCanvas() as unknown as HTMLCanvasElement) as any;
+	const ui = new WitnessUI(createMockCanvas() as unknown as HTMLCanvasElement);
+	const internalUI = ui as unknown as { isSuccessFading: boolean; successFadeStartTime: number; invalidatedCells: unknown[] };
 	ui.setValidationResult(true, [{ x: 0, y: 0 }]);
-	assert.strictEqual(ui.isSuccessFading, true, "isSuccessFading should be true on valid result");
-	assert.ok(ui.successFadeStartTime > 0, "successFadeStartTime should be set");
-	assert.strictEqual(ui.invalidatedCells.length, 1, "invalidatedCells should be updated");
+	assert.strictEqual(internalUI.isSuccessFading, true, "isSuccessFading should be true on valid result");
+	assert.ok(internalUI.successFadeStartTime > 0, "successFadeStartTime should be set");
+	assert.strictEqual(internalUI.invalidatedCells.length, 1, "invalidatedCells should be updated");
 });
 
 test("WitnessUI preserves color in symmetry mode", () => {
-	const ui = new WitnessUI(createMockCanvas() as unknown as HTMLCanvasElement) as any;
-	ui.puzzle = { symmetry: 1 }; // SymmetryType.Horizontal
+	const ui = new WitnessUI(createMockCanvas() as unknown as HTMLCanvasElement);
+	const internalUI = ui as unknown as { puzzle: { symmetry: number }; isSuccessFading: boolean };
+	internalUI.puzzle = { symmetry: 1 }; // SymmetryType.Horizontal
 	ui.setValidationResult(true);
 
-	assert.strictEqual(ui.puzzle.symmetry, 1);
-	assert.strictEqual(ui.isSuccessFading, true);
+	assert.strictEqual(internalUI.puzzle.symmetry, 1);
+	assert.strictEqual(internalUI.isSuccessFading, true);
 });
 
 test("WitnessUI instantiation with mock canvas object", () => {
@@ -60,8 +62,9 @@ test("WitnessUI instantiation with mock canvas object", () => {
 });
 
 test("WitnessUI setCanvasRect", () => {
-	const ui = new WitnessUI(createMockCanvas() as unknown as HTMLCanvasElement) as any;
+	const ui = new WitnessUI(createMockCanvas() as unknown as HTMLCanvasElement);
+	const internalUI = ui as unknown as { canvasRect: unknown };
 	const rect = { left: 10, top: 20, width: 300, height: 400 };
 	ui.setCanvasRect(rect);
-	assert.deepStrictEqual(ui.canvasRect, rect);
+	assert.deepStrictEqual(internalUI.canvasRect, rect);
 });

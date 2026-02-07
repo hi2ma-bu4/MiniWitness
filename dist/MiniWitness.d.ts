@@ -374,9 +374,9 @@ export declare class WitnessUI {
 	private drawStar;
 	private drawTetris;
 	private getColorCode;
-	private hexToRgb;
-	private rgbToHex;
+	private colorToRgba;
 	private lerpColor;
+	private setAlpha;
 	private getSymmetryPath;
 	private getSymmetricalPoint;
 	private getEdgeKey;
