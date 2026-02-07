@@ -45,6 +45,10 @@ export interface WitnessUIOptions {
 		node?: string;
 		/** 六角形（通過必須）の色 */
 		hexagon?: string;
+		/** メイン線のみの六角形の色 */
+		hexagonMain?: string;
+		/** 対称線のみの六角形の色 */
+		hexagonSymmetry?: string;
 		/** 各色のカラーコードマップ */
 		colorMap?: Record<number, string>;
 		/** 各色のカラーコードリスト（インデックスがColor値に対応） */
@@ -140,6 +144,8 @@ export class WitnessUI {
 			grid: options.colors?.grid ?? this.options?.colors?.grid ?? "#555",
 			node: options.colors?.node ?? this.options?.colors?.node ?? "#555",
 			hexagon: options.colors?.hexagon ?? this.options?.colors?.hexagon ?? "#000",
+			hexagonMain: options.colors?.hexagonMain ?? this.options?.colors?.hexagonMain ?? "#00ffff",
+			hexagonSymmetry: options.colors?.hexagonSymmetry ?? this.options?.colors?.hexagonSymmetry ?? "#ffff00",
 			colorMap: options.colors?.colorMap ??
 				this.options?.colors?.colorMap ?? {
 					[Color.Black]: "#000",
@@ -809,16 +815,25 @@ export class WitnessUI {
 
 		ctx.lineWidth = 2;
 		const hexRadius = 8;
+		const getHexColor = (type: EdgeType | NodeType) => {
+			if (type === EdgeType.Hexagon || type === NodeType.Hexagon) return this.options.colors.hexagon as string;
+			if (type === EdgeType.HexagonMain || type === NodeType.HexagonMain) return this.options.colors.hexagonMain as string;
+			if (type === EdgeType.HexagonSymmetry || type === NodeType.HexagonSymmetry) return this.options.colors.hexagonSymmetry as string;
+			return this.options.colors.hexagon as string;
+		};
+
 		for (let r = 0; r <= this.puzzle.rows; r++) {
 			for (let c = 0; c < this.puzzle.cols; c++) {
-				if (this.puzzle.hEdges[r][c].type === EdgeType.Hexagon) {
+				const type = this.puzzle.hEdges[r][c].type;
+				if (type === EdgeType.Hexagon || type === EdgeType.HexagonMain || type === EdgeType.HexagonSymmetry) {
 					const pos = this.getCanvasCoords(c + 0.5, r);
 					ctx.save();
 					const isInvalidated = this.invalidatedEdges.some((e) => e.type === "h" && e.r === r && e.c === c);
 					const isError = this.errorEdges.some((e) => e.type === "h" && e.r === r && e.c === c);
+					const baseColor = getHexColor(type);
 
 					if (isError) {
-						const color = this.lerpColor(this.options.colors.hexagon as string, this.options.colors.error as string, blinkFactor);
+						const color = this.lerpColor(baseColor, this.options.colors.error as string, blinkFactor);
 						this.drawHexagon(ctx, pos.x, pos.y, hexRadius, color);
 					} else if (isInvalidated) {
 						const elapsed = now - (this.isSuccessFading ? this.successFadeStartTime : this.eraserAnimationStartTime);
@@ -828,14 +843,14 @@ export class WitnessUI {
 							const transitionIn = Math.min(1.0, elapsed / 200);
 							const transitionOut = elapsed > blinkDuration * 0.8 ? (blinkDuration - elapsed) / (blinkDuration * 0.2) : 1.0;
 							const transitionFactor = Math.min(transitionIn, transitionOut);
-							const color = this.lerpColor(this.options.colors.hexagon as string, this.options.colors.error as string, blinkFactor * transitionFactor);
+							const color = this.lerpColor(baseColor, this.options.colors.error as string, blinkFactor * transitionFactor);
 							this.drawHexagon(ctx, pos.x, pos.y, hexRadius, color);
 						} else {
 							ctx.globalAlpha *= Math.max(0.3, 1.0 - (elapsed - blinkDuration) / this.options.animations.fadeDuration!);
-							this.drawHexagon(ctx, pos.x, pos.y, hexRadius);
+							this.drawHexagon(ctx, pos.x, pos.y, hexRadius, baseColor);
 						}
 					} else {
-						this.drawHexagon(ctx, pos.x, pos.y, hexRadius);
+						this.drawHexagon(ctx, pos.x, pos.y, hexRadius, baseColor);
 					}
 					ctx.restore();
 				}
@@ -843,14 +858,16 @@ export class WitnessUI {
 		}
 		for (let r = 0; r < this.puzzle.rows; r++) {
 			for (let c = 0; c <= this.puzzle.cols; c++) {
-				if (this.puzzle.vEdges[r][c].type === EdgeType.Hexagon) {
+				const type = this.puzzle.vEdges[r][c].type;
+				if (type === EdgeType.Hexagon || type === EdgeType.HexagonMain || type === EdgeType.HexagonSymmetry) {
 					const pos = this.getCanvasCoords(c, r + 0.5);
 					ctx.save();
 					const isInvalidated = this.invalidatedEdges.some((e) => e.type === "v" && e.r === r && e.c === c);
 					const isError = this.errorEdges.some((e) => e.type === "v" && e.r === r && e.c === c);
+					const baseColor = getHexColor(type);
 
 					if (isError) {
-						const color = this.lerpColor(this.options.colors.hexagon as string, this.options.colors.error as string, blinkFactor);
+						const color = this.lerpColor(baseColor, this.options.colors.error as string, blinkFactor);
 						this.drawHexagon(ctx, pos.x, pos.y, hexRadius, color);
 					} else if (isInvalidated) {
 						const elapsed = now - (this.isSuccessFading ? this.successFadeStartTime : this.eraserAnimationStartTime);
@@ -860,14 +877,14 @@ export class WitnessUI {
 							const transitionIn = Math.min(1.0, elapsed / 200);
 							const transitionOut = elapsed > blinkDuration * 0.8 ? (blinkDuration - elapsed) / (blinkDuration * 0.2) : 1.0;
 							const transitionFactor = Math.min(transitionIn, transitionOut);
-							const color = this.lerpColor(this.options.colors.hexagon as string, this.options.colors.error as string, blinkFactor * transitionFactor);
+							const color = this.lerpColor(baseColor, this.options.colors.error as string, blinkFactor * transitionFactor);
 							this.drawHexagon(ctx, pos.x, pos.y, hexRadius, color);
 						} else {
 							ctx.globalAlpha *= Math.max(0.3, 1.0 - (elapsed - blinkDuration) / this.options.animations.fadeDuration!);
-							this.drawHexagon(ctx, pos.x, pos.y, hexRadius);
+							this.drawHexagon(ctx, pos.x, pos.y, hexRadius, baseColor);
 						}
 					} else {
-						this.drawHexagon(ctx, pos.x, pos.y, hexRadius);
+						this.drawHexagon(ctx, pos.x, pos.y, hexRadius, baseColor);
 					}
 					ctx.restore();
 				}
@@ -876,14 +893,16 @@ export class WitnessUI {
 
 		for (let r = 0; r <= this.puzzle.rows; r++) {
 			for (let c = 0; c <= this.puzzle.cols; c++) {
-				if (this.puzzle.nodes[r][c].type === NodeType.Hexagon) {
+				const type = this.puzzle.nodes[r][c].type;
+				if (type === NodeType.Hexagon || type === NodeType.HexagonMain || type === NodeType.HexagonSymmetry) {
 					const pos = this.getCanvasCoords(c, r);
 					ctx.save();
 					const isInvalidated = this.invalidatedNodes.some((p) => p.x === c && p.y === r);
 					const isError = this.errorNodes.some((p) => p.x === c && p.y === r);
+					const baseColor = getHexColor(type);
 
 					if (isError) {
-						const color = this.lerpColor(this.options.colors.hexagon as string, this.options.colors.error as string, blinkFactor);
+						const color = this.lerpColor(baseColor, this.options.colors.error as string, blinkFactor);
 						this.drawHexagon(ctx, pos.x, pos.y, hexRadius, color);
 					} else if (isInvalidated) {
 						const elapsed = now - (this.isSuccessFading ? this.successFadeStartTime : this.eraserAnimationStartTime);
@@ -893,14 +912,14 @@ export class WitnessUI {
 							const transitionIn = Math.min(1.0, elapsed / 200);
 							const transitionOut = elapsed > blinkDuration * 0.8 ? (blinkDuration - elapsed) / (blinkDuration * 0.2) : 1.0;
 							const transitionFactor = Math.min(transitionIn, transitionOut);
-							const color = this.lerpColor(this.options.colors.hexagon as string, this.options.colors.error as string, blinkFactor * transitionFactor);
+							const color = this.lerpColor(baseColor, this.options.colors.error as string, blinkFactor * transitionFactor);
 							this.drawHexagon(ctx, pos.x, pos.y, hexRadius, color);
 						} else {
 							ctx.globalAlpha *= Math.max(0.3, 1.0 - (elapsed - blinkDuration) / this.options.animations.fadeDuration!);
-							this.drawHexagon(ctx, pos.x, pos.y, hexRadius);
+							this.drawHexagon(ctx, pos.x, pos.y, hexRadius, baseColor);
 						}
 					} else {
-						this.drawHexagon(ctx, pos.x, pos.y, hexRadius);
+						this.drawHexagon(ctx, pos.x, pos.y, hexRadius, baseColor);
 					}
 					ctx.restore();
 				}
@@ -942,7 +961,7 @@ export class WitnessUI {
 				if (isNodeIsolated(c, r)) continue;
 
 				const node = this.puzzle.nodes[r][c];
-				if (node.type === NodeType.Hexagon) continue;
+				if (node.type === NodeType.Hexagon || node.type === NodeType.HexagonMain || node.type === NodeType.HexagonSymmetry) continue;
 
 				const pos = this.getCanvasCoords(c, r);
 

@@ -1,6 +1,6 @@
 import assert from "node:assert";
 import { test } from "node:test";
-import { CellType, Color, EdgeType, NodeType, type PuzzleData, PuzzleGenerator, WitnessCore } from "../../dist/MiniWitness.js";
+import { CellType, Color, EdgeType, NodeType, type PuzzleData, PuzzleGenerator, SymmetryType, WitnessCore } from "../../dist/MiniWitness.js";
 
 const core = new WitnessCore();
 
@@ -139,13 +139,16 @@ test("Non-adjacency between Edge Hexagons and Node Hexagons", () => {
 	for (let i = 0; i < 50; i++) {
 		const grid = generator.generate(4, 4, options);
 
+		const isHexEdge = (t: EdgeType) => t === EdgeType.Hexagon || t === EdgeType.HexagonMain || t === EdgeType.HexagonSymmetry;
+		const isHexNode = (t: NodeType) => t === NodeType.Hexagon || t === NodeType.HexagonMain || t === NodeType.HexagonSymmetry;
+
 		// Check all horizontal edges
 		for (let r = 0; r <= grid.rows; r++) {
 			for (let c = 0; c < grid.cols; c++) {
-				if (grid.hEdges[r][c].type === EdgeType.Hexagon) {
+				if (isHexEdge(grid.hEdges[r][c].type)) {
 					// Endpoint nodes should not be Hexagons
-					assert.notStrictEqual(grid.nodes[r][c].type, NodeType.Hexagon, `Adjacency found at hEdge(${r},${c}) and node(${r},${c})`);
-					assert.notStrictEqual(grid.nodes[r][c + 1].type, NodeType.Hexagon, `Adjacency found at hEdge(${r},${c}) and node(${r},${c + 1})`);
+					assert.ok(!isHexNode(grid.nodes[r][c].type), `Adjacency found at hEdge(${r},${c}) and node(${r},${c})`);
+					assert.ok(!isHexNode(grid.nodes[r][c + 1].type), `Adjacency found at hEdge(${r},${c}) and node(${r},${c + 1})`);
 				}
 			}
 		}
@@ -153,12 +156,46 @@ test("Non-adjacency between Edge Hexagons and Node Hexagons", () => {
 		// Check all vertical edges
 		for (let r = 0; r < grid.rows; r++) {
 			for (let c = 0; c <= grid.cols; c++) {
-				if (grid.vEdges[r][c].type === EdgeType.Hexagon) {
+				if (isHexEdge(grid.vEdges[r][c].type)) {
 					// Endpoint nodes should not be Hexagons
-					assert.notStrictEqual(grid.nodes[r][c].type, NodeType.Hexagon, `Adjacency found at vEdge(${r},${c}) and node(${r},${c})`);
-					assert.notStrictEqual(grid.nodes[r + 1][c].type, NodeType.Hexagon, `Adjacency found at vEdge(${r},${c}) and node(${r + 1},${c})`);
+					assert.ok(!isHexNode(grid.nodes[r][c].type), `Adjacency found at vEdge(${r},${c}) and node(${r},${c})`);
+					assert.ok(!isHexNode(grid.nodes[r + 1][c].type), `Adjacency found at vEdge(${r},${c}) and node(${r + 1},${c})`);
 				}
 			}
 		}
 	}
+});
+
+test("HexagonMain and HexagonSymmetry validation", () => {
+	const puzzle = createBasicGrid(2, 2);
+	puzzle.symmetry = SymmetryType.Horizontal;
+	puzzle.nodes[2][2].type = NodeType.Start; // Symmetry start
+	puzzle.nodes[0][0].type = NodeType.End; // Main end
+	puzzle.nodes[0][2].type = NodeType.End; // Symmetry end
+
+	const solution = {
+		points: [
+			{ x: 0, y: 2 },
+			{ x: 0, y: 1 },
+			{ x: 0, y: 0 },
+		],
+	};
+
+	// 1. HexagonMain on main path - Valid
+	puzzle.vEdges[1][0].type = EdgeType.HexagonMain;
+	assert.strictEqual(core.validateSolution(puzzle, solution).isValid, true, "HexagonMain on main path should be valid");
+
+	// 2. HexagonMain on sym path - Invalid
+	puzzle.vEdges[1][0].type = EdgeType.Normal;
+	puzzle.vEdges[1][2].type = EdgeType.HexagonMain;
+	assert.strictEqual(core.validateSolution(puzzle, solution).isValid, false, "HexagonMain on sym path should be invalid");
+
+	// 3. HexagonSymmetry on sym path - Valid
+	puzzle.vEdges[1][2].type = EdgeType.HexagonSymmetry;
+	assert.strictEqual(core.validateSolution(puzzle, solution).isValid, true, "HexagonSymmetry on sym path should be valid");
+
+	// 4. HexagonSymmetry on main path - Invalid
+	puzzle.vEdges[1][2].type = EdgeType.Normal;
+	puzzle.vEdges[1][0].type = EdgeType.HexagonSymmetry;
+	assert.strictEqual(core.validateSolution(puzzle, solution).isValid, false, "HexagonSymmetry on main path should be invalid");
 });

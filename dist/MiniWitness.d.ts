@@ -18,13 +18,17 @@ export declare enum EdgeType {
 	Normal = 0,
 	Broken = 1,// 線の真ん中で断線 (通行不可)
 	Absent = 2,// そもそも分岐もなし (通行不可)
-	Hexagon = 3
+	Hexagon = 3,// 通過必須 (ワイルドカード)
+	HexagonMain = 4,// メイン線のみ通過必須
+	HexagonSymmetry = 5
 }
 export declare enum NodeType {
 	Normal = 0,
 	Start = 1,
 	End = 2,
-	Hexagon = 3
+	Hexagon = 3,// 通過必須 (ワイルドカード)
+	HexagonMain = 4,// メイン線のみ通過必須
+	HexagonSymmetry = 5
 }
 export declare enum SymmetryType {
 	None = 0,
@@ -267,6 +271,10 @@ export interface WitnessUIOptions {
 		node?: string;
 		/** 六角形（通過必須）の色 */
 		hexagon?: string;
+		/** メイン線のみの六角形の色 */
+		hexagonMain?: string;
+		/** 対称線のみの六角形の色 */
+		hexagonSymmetry?: string;
 		/** 各色のカラーコードマップ */
 		colorMap?: Record<number, string>;
 		/** 各色のカラーコードリスト（インデックスがColor値に対応） */

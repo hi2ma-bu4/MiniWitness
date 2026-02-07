@@ -18,14 +18,18 @@ export enum EdgeType {
 	Normal = 0,
 	Broken = 1, // 線の真ん中で断線 (通行不可)
 	Absent = 2, // そもそも分岐もなし (通行不可)
-	Hexagon = 3, // 通過必須
+	Hexagon = 3, // 通過必須 (ワイルドカード)
+	HexagonMain = 4, // メイン線のみ通過必須
+	HexagonSymmetry = 5, // 対称線のみ通過必須
 }
 
 export enum NodeType {
 	Normal = 0,
 	Start = 1,
 	End = 2,
-	Hexagon = 3, // 通過必須
+	Hexagon = 3, // 通過必須 (ワイルドカード)
+	HexagonMain = 4, // メイン線のみ通過必須
+	HexagonSymmetry = 5, // 対称線のみ通過必須
 }
 
 export enum SymmetryType {

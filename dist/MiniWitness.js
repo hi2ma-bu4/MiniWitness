@@ -1,5 +1,5 @@
 /*!
- * MiniWitness 1.2.2
+ * MiniWitness 1.2.3
  * Copyright 2026 hi2ma-bu4
  * Licensed under the Apache License, Version 2.0
  * http://www.apache.org/licenses/LICENSE-2.0
@@ -27,6 +27,8 @@ var EdgeType = /* @__PURE__ */ ((EdgeType2) => {
   EdgeType2[EdgeType2["Broken"] = 1] = "Broken";
   EdgeType2[EdgeType2["Absent"] = 2] = "Absent";
   EdgeType2[EdgeType2["Hexagon"] = 3] = "Hexagon";
+  EdgeType2[EdgeType2["HexagonMain"] = 4] = "HexagonMain";
+  EdgeType2[EdgeType2["HexagonSymmetry"] = 5] = "HexagonSymmetry";
   return EdgeType2;
 })(EdgeType || {});
 var NodeType = /* @__PURE__ */ ((NodeType2) => {
@@ -34,6 +36,8 @@ var NodeType = /* @__PURE__ */ ((NodeType2) => {
   NodeType2[NodeType2["Start"] = 1] = "Start";
   NodeType2[NodeType2["End"] = 2] = "End";
   NodeType2[NodeType2["Hexagon"] = 3] = "Hexagon";
+  NodeType2[NodeType2["HexagonMain"] = 4] = "HexagonMain";
+  NodeType2[NodeType2["HexagonSymmetry"] = 5] = "HexagonSymmetry";
   return NodeType2;
 })(NodeType || {});
 var SymmetryType = /* @__PURE__ */ ((SymmetryType2) => {
@@ -202,42 +206,60 @@ var PuzzleValidator = class {
    * 回答パスが通過しなかった六角形（エッジ・ノード）をリストアップする
    */
   getMissedHexagons(grid, path, symPath = []) {
-    const pathEdges = /* @__PURE__ */ new Set();
-    const pathNodes = /* @__PURE__ */ new Set();
+    const mainPathEdges = /* @__PURE__ */ new Set();
+    const mainPathNodes = /* @__PURE__ */ new Set();
     for (let i = 0; i < path.length; i++) {
-      pathNodes.add(`${path[i].x},${path[i].y}`);
+      mainPathNodes.add(`${path[i].x},${path[i].y}`);
       if (i < path.length - 1) {
-        pathEdges.add(this.getEdgeKey(path[i], path[i + 1]));
+        mainPathEdges.add(this.getEdgeKey(path[i], path[i + 1]));
       }
     }
+    const symPathEdges = /* @__PURE__ */ new Set();
+    const symPathNodes = /* @__PURE__ */ new Set();
     for (let i = 0; i < symPath.length; i++) {
-      pathNodes.add(`${symPath[i].x},${symPath[i].y}`);
+      symPathNodes.add(`${symPath[i].x},${symPath[i].y}`);
       if (i < symPath.length - 1) {
-        pathEdges.add(this.getEdgeKey(symPath[i], symPath[i + 1]));
+        symPathEdges.add(this.getEdgeKey(symPath[i], symPath[i + 1]));
       }
     }
     const missedEdges = [];
     for (let r = 0; r <= grid.rows; r++) {
       for (let c = 0; c < grid.cols; c++) {
-        if (grid.hEdges[r][c].type === 3 /* Hexagon */) {
+        const type = grid.hEdges[r][c].type;
+        if (type === 3 /* Hexagon */ || type === 4 /* HexagonMain */ || type === 5 /* HexagonSymmetry */) {
           const key = this.getEdgeKey({ x: c, y: r }, { x: c + 1, y: r });
-          if (!pathEdges.has(key)) missedEdges.push({ type: "h", r, c });
+          let passed = false;
+          if (type === 3 /* Hexagon */) passed = mainPathEdges.has(key) || symPathEdges.has(key);
+          else if (type === 4 /* HexagonMain */) passed = mainPathEdges.has(key);
+          else if (type === 5 /* HexagonSymmetry */) passed = symPathEdges.has(key);
+          if (!passed) missedEdges.push({ type: "h", r, c });
         }
       }
     }
     for (let r = 0; r < grid.rows; r++) {
       for (let c = 0; c <= grid.cols; c++) {
-        if (grid.vEdges[r][c].type === 3 /* Hexagon */) {
+        const type = grid.vEdges[r][c].type;
+        if (type === 3 /* Hexagon */ || type === 4 /* HexagonMain */ || type === 5 /* HexagonSymmetry */) {
           const key = this.getEdgeKey({ x: c, y: r }, { x: c, y: r + 1 });
-          if (!pathEdges.has(key)) missedEdges.push({ type: "v", r, c });
+          let passed = false;
+          if (type === 3 /* Hexagon */) passed = mainPathEdges.has(key) || symPathEdges.has(key);
+          else if (type === 4 /* HexagonMain */) passed = mainPathEdges.has(key);
+          else if (type === 5 /* HexagonSymmetry */) passed = symPathEdges.has(key);
+          if (!passed) missedEdges.push({ type: "v", r, c });
         }
       }
     }
     const missedNodes = [];
     for (let r = 0; r <= grid.rows; r++) {
       for (let c = 0; c <= grid.cols; c++) {
-        if (grid.nodes[r][c].type === 3 /* Hexagon */) {
-          if (!pathNodes.has(`${c},${r}`)) missedNodes.push({ x: c, y: r });
+        const type = grid.nodes[r][c].type;
+        if (type === 3 /* Hexagon */ || type === 4 /* HexagonMain */ || type === 5 /* HexagonSymmetry */) {
+          const posKey = `${c},${r}`;
+          let passed = false;
+          if (type === 3 /* Hexagon */) passed = mainPathNodes.has(posKey) || symPathNodes.has(posKey);
+          else if (type === 4 /* HexagonMain */) passed = mainPathNodes.has(posKey);
+          else if (type === 5 /* HexagonSymmetry */) passed = symPathNodes.has(posKey);
+          if (!passed) missedNodes.push({ x: c, y: r });
         }
       }
     }
@@ -890,6 +912,8 @@ var PuzzleValidator = class {
     const adj = Array.from({ length: nodeCount }, () => []);
     const startNodes = [];
     const endNodes = [];
+    const hexIdMap = /* @__PURE__ */ new Map();
+    let nextHexId = 0;
     const hexagonEdges = /* @__PURE__ */ new Set();
     const hexagonNodes = /* @__PURE__ */ new Set();
     for (let r = 0; r <= rows; r++) {
@@ -897,29 +921,38 @@ var PuzzleValidator = class {
         const u = r * nodeCols + c;
         if (grid.nodes[r][c].type === 1 /* Start */) startNodes.push(u);
         if (grid.nodes[r][c].type === 2 /* End */) endNodes.push(u);
-        if (grid.nodes[r][c].type === 3 /* Hexagon */) hexagonNodes.add(u);
+        if (grid.nodes[r][c].type === 3 /* Hexagon */ || grid.nodes[r][c].type === 4 /* HexagonMain */ || grid.nodes[r][c].type === 5 /* HexagonSymmetry */) {
+          hexIdMap.set(`n${c},${r}`, nextHexId++);
+          hexagonNodes.add(u);
+        }
         if (c < cols) {
           const v = u + 1;
           const type = grid.hEdges[r][c].type;
-          const isHexagon = type === 3 /* Hexagon */;
+          const isHexagon = type === 3 /* Hexagon */ || type === 4 /* HexagonMain */ || type === 5 /* HexagonSymmetry */;
           const isBroken = type === 1 /* Broken */ || type === 2 /* Absent */;
-          adj[u].push({ next: v, isHexagon, isBroken });
-          adj[v].push({ next: u, isHexagon, isBroken });
-          if (isHexagon) hexagonEdges.add(this.getEdgeKey({ x: c, y: r }, { x: c + 1, y: r }));
+          adj[u].push({ next: v, hexType: type, isBroken });
+          adj[v].push({ next: u, hexType: type, isBroken });
+          if (isHexagon) {
+            hexIdMap.set(`eh${c},${r}`, nextHexId++);
+            hexagonEdges.add(this.getEdgeKey({ x: c, y: r }, { x: c + 1, y: r }));
+          }
         }
         if (r < rows) {
           const v = u + nodeCols;
           const type = grid.vEdges[r][c].type;
-          const isHexagon = type === 3 /* Hexagon */;
+          const isHexagon = type === 3 /* Hexagon */ || type === 4 /* HexagonMain */ || type === 5 /* HexagonSymmetry */;
           const isBroken = type === 1 /* Broken */ || type === 2 /* Absent */;
-          adj[u].push({ next: v, isHexagon, isBroken });
-          adj[v].push({ next: u, isHexagon, isBroken });
-          if (isHexagon) hexagonEdges.add(this.getEdgeKey({ x: c, y: r }, { x: c, y: r + 1 }));
+          adj[u].push({ next: v, hexType: type, isBroken });
+          adj[v].push({ next: u, hexType: type, isBroken });
+          if (isHexagon) {
+            hexIdMap.set(`ev${c},${r}`, nextHexId++);
+            hexagonEdges.add(this.getEdgeKey({ x: c, y: r }, { x: c, y: r + 1 }));
+          }
         }
       }
     }
     const stats = { totalNodesVisited: 0, branchingPoints: 0, solutions: 0, maxDepth: 0, backtracks: 0 };
-    const totalHexagons = hexagonEdges.size + hexagonNodes.size;
+    const totalHexagons = nextHexId;
     const fingerprints = /* @__PURE__ */ new Set();
     const searchLimit = Math.max(1e3, rows * cols * 200);
     const externalCells = this.getExternalCells(grid);
@@ -934,15 +967,31 @@ var PuzzleValidator = class {
       if (hasCellMarks) break;
     }
     for (const startIdx of startNodes) {
-      const startIsHex = hexagonNodes.has(startIdx) ? 1 : 0;
+      const nodeCols2 = grid.cols + 1;
+      const r = Math.floor(startIdx / nodeCols2);
+      const c = startIdx % nodeCols2;
+      let startHexMask = 0n;
+      const nodeType = grid.nodes[r][c].type;
+      if (nodeType === 3 /* Hexagon */ || nodeType === 4 /* HexagonMain */) {
+        startHexMask |= 1n << BigInt(hexIdMap.get(`n${c},${r}`));
+      }
       const symmetry = grid.symmetry || 0 /* None */;
+      if (symmetry !== 0 /* None */) {
+        const snStart = this.getSymmetricalPointIndex(grid, startIdx);
+        const snR = Math.floor(snStart / nodeCols2);
+        const snC = snStart % nodeCols2;
+        const snNodeType = grid.nodes[snR][snC].type;
+        if (snNodeType === 3 /* Hexagon */ || snNodeType === 5 /* HexagonSymmetry */) {
+          startHexMask |= 1n << BigInt(hexIdMap.get(`n${snC},${snR}`));
+        }
+      }
       let visitedMask = 1n << BigInt(startIdx);
       if (symmetry !== 0 /* None */) {
         const snStart = this.getSymmetricalPointIndex(grid, startIdx);
         if (snStart === startIdx) continue;
         visitedMask |= 1n << BigInt(snStart);
       }
-      this.exploreSearchSpace(grid, startIdx, visitedMask, [startIdx], startIsHex, totalHexagons, adj, endNodes, fingerprints, stats, searchLimit, externalCells, hasCellMarks);
+      this.exploreSearchSpace(grid, startIdx, visitedMask, [startIdx], startHexMask, totalHexagons, adj, endNodes, fingerprints, stats, searchLimit, externalCells, hasCellMarks, hexIdMap);
     }
     if (stats.solutions === 0) return 0;
     let constraintCount = hexagonEdges.size + hexagonNodes.size;
@@ -985,13 +1034,19 @@ var PuzzleValidator = class {
   /**
    * 探索空間を走査して統計情報を収集する
    */
-  exploreSearchSpace(grid, currIdx, visitedMask, path, hexagonsOnPath, totalHexagons, adj, endNodes, fingerprints, stats, limit, externalCells, hasCellMarks = true) {
+  exploreSearchSpace(grid, currIdx, visitedMask, path, hexMask, totalHexagons, adj, endNodes, fingerprints, stats, limit, externalCells, hasCellMarks = true, hexIdMap) {
     stats.totalNodesVisited++;
     stats.maxDepth = Math.max(stats.maxDepth, path.length);
     if (stats.totalNodesVisited > limit) return;
     const symmetry = grid.symmetry || 0 /* None */;
     if (endNodes.includes(currIdx)) {
-      if (hexagonsOnPath === totalHexagons) {
+      let setBits = 0;
+      let temp = hexMask;
+      while (temp > 0n) {
+        if (temp & 1n) setBits++;
+        temp >>= 1n;
+      }
+      if (setBits === totalHexagons) {
         const points = path.map((idx) => ({ x: idx % (grid.cols + 1), y: Math.floor(idx / (grid.cols + 1)) }));
         const solutionPath = { points };
         if (symmetry !== 0 /* None */) {
@@ -1035,12 +1090,30 @@ var PuzzleValidator = class {
       }
       let possible = true;
       for (const otherEdge of adj[currIdx]) {
-        if (otherEdge.isHexagon) {
+        const isMandatoryForMain = otherEdge.hexType === 3 /* Hexagon */ || otherEdge.hexType === 4 /* HexagonMain */;
+        if (isMandatoryForMain) {
           const isAlreadyOnPath = path.length >= 2 && otherEdge.next === path[path.length - 2];
           const isNextMove = otherEdge.next === edge.next;
           if (!isAlreadyOnPath && !isNextMove) {
             possible = false;
             break;
+          }
+        }
+      }
+      if (!possible) continue;
+      if (symmetry !== 0 /* None */) {
+        const snCurr = this.getSymmetricalPointIndex(grid, currIdx);
+        const snNext = this.getSymmetricalPointIndex(grid, edge.next);
+        for (const otherEdge of adj[snCurr]) {
+          const isMandatoryForSym = otherEdge.hexType === 3 /* Hexagon */ || otherEdge.hexType === 5 /* HexagonSymmetry */;
+          if (isMandatoryForSym) {
+            const snPrev = path.length >= 2 ? this.getSymmetricalPointIndex(grid, path[path.length - 2]) : -1;
+            const isAlreadyOnSymPath = otherEdge.next === snPrev;
+            const isSymNextMove = otherEdge.next === snNext;
+            if (!isAlreadyOnSymPath && !isSymNextMove) {
+              possible = false;
+              break;
+            }
           }
         }
       }
@@ -1055,14 +1128,59 @@ var PuzzleValidator = class {
     }
     const nodeCols = grid.cols + 1;
     for (const move of validMoves) {
-      const nodeIsHex = grid.nodes[Math.floor(move.next / nodeCols)][move.next % nodeCols].type === 3 /* Hexagon */ ? 1 : 0;
+      let nextHexMask = hexMask;
+      const r = Math.floor(move.next / nodeCols);
+      const c = move.next % nodeCols;
+      const nodeType = grid.nodes[r][c].type;
+      if (nodeType === 3 /* Hexagon */ || nodeType === 4 /* HexagonMain */) {
+        nextHexMask |= 1n << BigInt(hexIdMap.get(`n${c},${r}`));
+      }
+      const prevIdx = path[path.length - 1];
+      const pr = Math.floor(prevIdx / nodeCols);
+      const pc = prevIdx % nodeCols;
+      if (pr === r) {
+        const ec = Math.min(pc, c);
+        if (move.hexType === 3 /* Hexagon */ || move.hexType === 4 /* HexagonMain */) {
+          nextHexMask |= 1n << BigInt(hexIdMap.get(`eh${ec},${r}`));
+        }
+      } else {
+        const er = Math.min(pr, r);
+        if (move.hexType === 3 /* Hexagon */ || move.hexType === 4 /* HexagonMain */) {
+          nextHexMask |= 1n << BigInt(hexIdMap.get(`ev${c},${er}`));
+        }
+      }
+      if (symmetry !== 0 /* None */) {
+        const snNext = this.getSymmetricalPointIndex(grid, move.next);
+        const snR = Math.floor(snNext / nodeCols);
+        const snC = snNext % nodeCols;
+        const snNodeType = grid.nodes[snR][snC].type;
+        if (snNodeType === 3 /* Hexagon */ || snNodeType === 5 /* HexagonSymmetry */) {
+          nextHexMask |= 1n << BigInt(hexIdMap.get(`n${snC},${snR}`));
+        }
+        const snPrev = this.getSymmetricalPointIndex(grid, prevIdx);
+        const spr = Math.floor(snPrev / nodeCols);
+        const spc = snPrev % nodeCols;
+        if (spr === snR) {
+          const ec = Math.min(spc, snC);
+          const et = grid.hEdges[snR][ec].type;
+          if (et === 3 /* Hexagon */ || et === 5 /* HexagonSymmetry */) {
+            nextHexMask |= 1n << BigInt(hexIdMap.get(`eh${ec},${snR}`));
+          }
+        } else {
+          const er = Math.min(spr, snR);
+          const et = grid.vEdges[er][snC].type;
+          if (et === 3 /* Hexagon */ || et === 5 /* HexagonSymmetry */) {
+            nextHexMask |= 1n << BigInt(hexIdMap.get(`ev${snC},${er}`));
+          }
+        }
+      }
       path.push(move.next);
       let nextVisitedMask = visitedMask | 1n << BigInt(move.next);
       if (symmetry !== 0 /* None */) {
         const snNext = this.getSymmetricalPointIndex(grid, move.next);
         nextVisitedMask |= 1n << BigInt(snNext);
       }
-      this.exploreSearchSpace(grid, move.next, nextVisitedMask, path, hexagonsOnPath + (move.isHexagon ? 1 : 0) + nodeIsHex, totalHexagons, adj, endNodes, fingerprints, stats, limit, externalCells, hasCellMarks);
+      this.exploreSearchSpace(grid, move.next, nextVisitedMask, path, nextHexMask, totalHexagons, adj, endNodes, fingerprints, stats, limit, externalCells, hasCellMarks, hexIdMap);
       path.pop();
       if (stats.totalNodesVisited > limit) return;
     }
@@ -1078,36 +1196,38 @@ var PuzzleValidator = class {
     const adj = Array.from({ length: nodeCount }, () => []);
     const startNodes = [];
     const endNodes = [];
-    const hexagonEdges = /* @__PURE__ */ new Set();
-    const hexagonNodes = /* @__PURE__ */ new Set();
+    const hexIdMap = /* @__PURE__ */ new Map();
+    let nextHexId = 0;
     for (let r = 0; r <= rows; r++) {
       for (let c = 0; c <= cols; c++) {
         const u = r * nodeCols + c;
         if (grid.nodes[r][c].type === 1 /* Start */) startNodes.push(u);
         if (grid.nodes[r][c].type === 2 /* End */) endNodes.push(u);
-        if (grid.nodes[r][c].type === 3 /* Hexagon */) hexagonNodes.add(u);
+        if (grid.nodes[r][c].type === 3 /* Hexagon */ || grid.nodes[r][c].type === 4 /* HexagonMain */ || grid.nodes[r][c].type === 5 /* HexagonSymmetry */) {
+          hexIdMap.set(`n${c},${r}`, nextHexId++);
+        }
         if (c < cols) {
           const v = u + 1;
           const type = grid.hEdges[r][c].type;
-          const isHexagon = type === 3 /* Hexagon */;
+          const isHexagon = type === 3 /* Hexagon */ || type === 4 /* HexagonMain */ || type === 5 /* HexagonSymmetry */;
           const isBroken = type === 1 /* Broken */ || type === 2 /* Absent */;
-          adj[u].push({ next: v, isHexagon, isBroken });
-          adj[v].push({ next: u, isHexagon, isBroken });
-          if (isHexagon) hexagonEdges.add(this.getEdgeKey({ x: c, y: r }, { x: c + 1, y: r }));
+          adj[u].push({ next: v, hexType: type, isBroken });
+          adj[v].push({ next: u, hexType: type, isBroken });
+          if (isHexagon) hexIdMap.set(`eh${c},${r}`, nextHexId++);
         }
         if (r < rows) {
           const v = u + nodeCols;
           const type = grid.vEdges[r][c].type;
-          const isHexagon = type === 3 /* Hexagon */;
+          const isHexagon = type === 3 /* Hexagon */ || type === 4 /* HexagonMain */ || type === 5 /* HexagonSymmetry */;
           const isBroken = type === 1 /* Broken */ || type === 2 /* Absent */;
-          adj[u].push({ next: v, isHexagon, isBroken });
-          adj[v].push({ next: u, isHexagon, isBroken });
-          if (isHexagon) hexagonEdges.add(this.getEdgeKey({ x: c, y: r }, { x: c, y: r + 1 }));
+          adj[u].push({ next: v, hexType: type, isBroken });
+          adj[v].push({ next: u, hexType: type, isBroken });
+          if (isHexagon) hexIdMap.set(`ev${c},${r}`, nextHexId++);
         }
       }
     }
     const fingerprints = /* @__PURE__ */ new Set();
-    const totalHexagons = hexagonEdges.size + hexagonNodes.size;
+    const totalHexagons = nextHexId;
     const externalCells = this.getExternalCells(grid);
     let hasCellMarks = false;
     for (let r = 0; r < rows; r++) {
@@ -1120,23 +1240,45 @@ var PuzzleValidator = class {
       if (hasCellMarks) break;
     }
     for (const startIdx of startNodes) {
-      const startIsHex = hexagonNodes.has(startIdx) ? 1 : 0;
+      const nodeCols2 = grid.cols + 1;
+      const r = Math.floor(startIdx / nodeCols2);
+      const c = startIdx % nodeCols2;
+      let startHexMask = 0n;
+      const nodeType = grid.nodes[r][c].type;
+      if (nodeType === 3 /* Hexagon */ || nodeType === 4 /* HexagonMain */) {
+        startHexMask |= 1n << BigInt(hexIdMap.get(`n${c},${r}`));
+      }
       const symmetry = grid.symmetry || 0 /* None */;
+      if (symmetry !== 0 /* None */) {
+        const snStart = this.getSymmetricalPointIndex(grid, startIdx);
+        const snR = Math.floor(snStart / nodeCols2);
+        const snC = snStart % nodeCols2;
+        const snNodeType = grid.nodes[snR][snC].type;
+        if (snNodeType === 3 /* Hexagon */ || snNodeType === 5 /* HexagonSymmetry */) {
+          startHexMask |= 1n << BigInt(hexIdMap.get(`n${snC},${snR}`));
+        }
+      }
       let visitedMask = 1n << BigInt(startIdx);
       if (symmetry !== 0 /* None */) {
         const snStart = this.getSymmetricalPointIndex(grid, startIdx);
         if (snStart === startIdx) continue;
         visitedMask |= 1n << BigInt(snStart);
       }
-      this.findPathsOptimized(grid, startIdx, visitedMask, [startIdx], startIsHex, totalHexagons, adj, endNodes, fingerprints, limit, externalCells, hasCellMarks);
+      this.findPathsOptimized(grid, startIdx, visitedMask, [startIdx], startHexMask, totalHexagons, adj, endNodes, fingerprints, limit, externalCells, hasCellMarks, hexIdMap);
     }
     return fingerprints.size;
   }
-  findPathsOptimized(grid, currIdx, visitedMask, path, hexagonsOnPath, totalHexagons, adj, endNodes, fingerprints, limit, externalCells, hasCellMarks = true) {
+  findPathsOptimized(grid, currIdx, visitedMask, path, hexMask, totalHexagons, adj, endNodes, fingerprints, limit, externalCells, hasCellMarks = true, hexIdMap) {
     if (fingerprints.size >= limit) return;
     const symmetry = grid.symmetry || 0 /* None */;
     if (endNodes.includes(currIdx)) {
-      if (hexagonsOnPath === totalHexagons) {
+      let setBits = 0;
+      let temp = hexMask;
+      while (temp > 0n) {
+        if (temp & 1n) setBits++;
+        temp >>= 1n;
+      }
+      if (setBits === totalHexagons) {
         const points = path.map((idx) => ({ x: idx % (grid.cols + 1), y: Math.floor(idx / (grid.cols + 1)) }));
         if (symmetry !== 0 /* None */) {
           const snEnd = this.getSymmetricalPointIndex(grid, currIdx);
@@ -1167,7 +1309,8 @@ var PuzzleValidator = class {
       }
       let possible = true;
       for (const otherEdge of adj[currIdx]) {
-        if (otherEdge.isHexagon) {
+        const isMandatoryForMain = otherEdge.hexType === 3 /* Hexagon */ || otherEdge.hexType === 4 /* HexagonMain */;
+        if (isMandatoryForMain) {
           const isAlreadyOnPath = path.length >= 2 && otherEdge.next === path[path.length - 2];
           const isNextMove = otherEdge.next === edge.next;
           if (!isAlreadyOnPath && !isNextMove) {
@@ -1177,15 +1320,76 @@ var PuzzleValidator = class {
         }
       }
       if (!possible) continue;
+      if (symmetry !== 0 /* None */) {
+        const snCurr = this.getSymmetricalPointIndex(grid, currIdx);
+        const snNext = this.getSymmetricalPointIndex(grid, edge.next);
+        for (const otherEdge of adj[snCurr]) {
+          const isMandatoryForSym = otherEdge.hexType === 3 /* Hexagon */ || otherEdge.hexType === 5 /* HexagonSymmetry */;
+          if (isMandatoryForSym) {
+            const snPrev = path.length >= 2 ? this.getSymmetricalPointIndex(grid, path[path.length - 2]) : -1;
+            const isAlreadyOnSymPath = otherEdge.next === snPrev;
+            const isSymNextMove = otherEdge.next === snNext;
+            if (!isAlreadyOnSymPath && !isSymNextMove) {
+              possible = false;
+              break;
+            }
+          }
+        }
+      }
+      if (!possible) continue;
       const nodeCols = grid.cols + 1;
-      const nodeIsHex = grid.nodes[Math.floor(edge.next / nodeCols)][edge.next % nodeCols].type === 3 /* Hexagon */ ? 1 : 0;
+      let nextHexMask = hexMask;
+      const r = Math.floor(edge.next / nodeCols);
+      const c = edge.next % nodeCols;
+      const nodeType = grid.nodes[r][c].type;
+      if (nodeType === 3 /* Hexagon */ || nodeType === 4 /* HexagonMain */) {
+        nextHexMask |= 1n << BigInt(hexIdMap.get(`n${c},${r}`));
+      }
+      const pr = Math.floor(currIdx / nodeCols);
+      const pc = currIdx % nodeCols;
+      if (pr === r) {
+        const ec = Math.min(pc, c);
+        if (edge.hexType === 3 /* Hexagon */ || edge.hexType === 4 /* HexagonMain */) {
+          nextHexMask |= 1n << BigInt(hexIdMap.get(`eh${ec},${r}`));
+        }
+      } else {
+        const er = Math.min(pr, r);
+        if (edge.hexType === 3 /* Hexagon */ || edge.hexType === 4 /* HexagonMain */) {
+          nextHexMask |= 1n << BigInt(hexIdMap.get(`ev${c},${er}`));
+        }
+      }
+      if (symmetry !== 0 /* None */) {
+        const snNext = this.getSymmetricalPointIndex(grid, edge.next);
+        const snR = Math.floor(snNext / nodeCols);
+        const snC = snNext % nodeCols;
+        const snNodeType = grid.nodes[snR][snC].type;
+        if (snNodeType === 3 /* Hexagon */ || snNodeType === 5 /* HexagonSymmetry */) {
+          nextHexMask |= 1n << BigInt(hexIdMap.get(`n${snC},${snR}`));
+        }
+        const snCurr = this.getSymmetricalPointIndex(grid, currIdx);
+        const spr = Math.floor(snCurr / nodeCols);
+        const spc = snCurr % nodeCols;
+        if (spr === snR) {
+          const ec = Math.min(spc, snC);
+          const et = grid.hEdges[snR][ec].type;
+          if (et === 3 /* Hexagon */ || et === 5 /* HexagonSymmetry */) {
+            nextHexMask |= 1n << BigInt(hexIdMap.get(`eh${ec},${snR}`));
+          }
+        } else {
+          const er = Math.min(spr, snR);
+          const et = grid.vEdges[er][snC].type;
+          if (et === 3 /* Hexagon */ || et === 5 /* HexagonSymmetry */) {
+            nextHexMask |= 1n << BigInt(hexIdMap.get(`ev${snC},${er}`));
+          }
+        }
+      }
       path.push(edge.next);
       let nextVisitedMask = visitedMask | 1n << BigInt(edge.next);
       if (symmetry !== 0 /* None */) {
         const snNext = this.getSymmetricalPointIndex(grid, edge.next);
         nextVisitedMask |= 1n << BigInt(snNext);
       }
-      this.findPathsOptimized(grid, edge.next, nextVisitedMask, path, hexagonsOnPath + (edge.isHexagon ? 1 : 0) + nodeIsHex, totalHexagons, adj, endNodes, fingerprints, limit, externalCells, hasCellMarks);
+      this.findPathsOptimized(grid, edge.next, nextVisitedMask, path, nextHexMask, totalHexagons, adj, endNodes, fingerprints, limit, externalCells, hasCellMarks, hexIdMap);
       path.pop();
       if (fingerprints.size >= limit) return;
     }
@@ -1748,13 +1952,26 @@ var PuzzleGenerator = class {
     const maxTotalTetrisArea = Math.floor(grid.rows * grid.cols * 0.45);
     if (useHexagons) {
       const targetDifficulty = options.difficulty ?? 0.5;
+      const symmetry = options.symmetry || 0 /* None */;
       for (let i = 0; i < path.length - 1; i++) {
         const neighbors = this.getValidNeighbors(grid, path[i], /* @__PURE__ */ new Set());
         const isBranching = neighbors.length > 2;
         let prob = complexity * (targetDifficulty < 0.4 ? 0.6 : 0.3);
         if (isBranching) prob = targetDifficulty < 0.4 ? prob * 1 : prob * 0.5;
         if (Math.random() < prob) {
-          this.setEdgeHexagon(grid, path[i], path[i + 1]);
+          let type = 3 /* Hexagon */;
+          let p1 = path[i];
+          let p2 = path[i + 1];
+          if (symmetry !== 0 /* None */) {
+            const r = Math.random();
+            if (r < 0.3) type = 4 /* HexagonMain */;
+            else if (r < 0.6) {
+              type = 5 /* HexagonSymmetry */;
+              p1 = this.getSymmetricalPoint(grid, path[i], symmetry);
+              p2 = this.getSymmetricalPoint(grid, path[i + 1], symmetry);
+            }
+          }
+          this.setEdgeHexagon(grid, p1, p2, type);
           hexagonsPlaced++;
         }
       }
@@ -1764,7 +1981,17 @@ var PuzzleGenerator = class {
         if (this.hasIncidentHexagonEdge(grid, node)) continue;
         let prob = complexity * (targetDifficulty > 0.6 ? 0.15 : 0.05);
         if (Math.random() < prob) {
-          grid.nodes[node.y][node.x].type = 3 /* Hexagon */;
+          let type = 3 /* Hexagon */;
+          let targetNode = node;
+          if (symmetry !== 0 /* None */) {
+            const r = Math.random();
+            if (r < 0.3) type = 4 /* HexagonMain */;
+            else if (r < 0.6) {
+              type = 5 /* HexagonSymmetry */;
+              targetNode = this.getSymmetricalPoint(grid, node, symmetry);
+            }
+          }
+          grid.nodes[targetNode.y][targetNode.x].type = type;
           hexagonsPlaced++;
         }
       }
@@ -2102,22 +2329,24 @@ var PuzzleGenerator = class {
     for (const e of boundary) unique.set(`${e.type},${e.r},${e.c}`, e);
     return Array.from(unique.values());
   }
-  setEdgeHexagon(grid, p1, p2) {
-    if (p1.x === p2.x) grid.vEdges[Math.min(p1.y, p2.y)][p1.x].type = 3 /* Hexagon */;
-    else grid.hEdges[p1.y][Math.min(p1.x, p2.x)].type = 3 /* Hexagon */;
+  setEdgeHexagon(grid, p1, p2, type = 3 /* Hexagon */) {
+    if (p1.x === p2.x) grid.vEdges[Math.min(p1.y, p2.y)][p1.x].type = type;
+    else grid.hEdges[p1.y][Math.min(p1.x, p2.x)].type = type;
   }
   hasIncidentHexagonEdge(grid, p) {
-    if (p.x > 0 && grid.hEdges[p.y][p.x - 1].type === 3 /* Hexagon */) return true;
-    if (p.x < grid.cols && grid.hEdges[p.y][p.x].type === 3 /* Hexagon */) return true;
-    if (p.y > 0 && grid.vEdges[p.y - 1][p.x].type === 3 /* Hexagon */) return true;
-    if (p.y < grid.rows && grid.vEdges[p.y][p.x].type === 3 /* Hexagon */) return true;
+    const isHex = (t) => t === 3 /* Hexagon */ || t === 4 /* HexagonMain */ || t === 5 /* HexagonSymmetry */;
+    if (p.x > 0 && isHex(grid.hEdges[p.y][p.x - 1].type)) return true;
+    if (p.x < grid.cols && isHex(grid.hEdges[p.y][p.x].type)) return true;
+    if (p.y > 0 && isHex(grid.vEdges[p.y - 1][p.x].type)) return true;
+    if (p.y < grid.rows && isHex(grid.vEdges[p.y][p.x].type)) return true;
     return false;
   }
   isEdgeAdjacentToHexagonNode(grid, edge) {
+    const isHex = (t) => t === 3 /* Hexagon */ || t === 4 /* HexagonMain */ || t === 5 /* HexagonSymmetry */;
     if (edge.type === "h") {
-      return grid.nodes[edge.r][edge.c].type === 3 /* Hexagon */ || grid.nodes[edge.r][edge.c + 1].type === 3 /* Hexagon */;
+      return isHex(grid.nodes[edge.r][edge.c].type) || isHex(grid.nodes[edge.r][edge.c + 1].type);
     } else {
-      return grid.nodes[edge.r][edge.c].type === 3 /* Hexagon */ || grid.nodes[edge.r + 1][edge.c].type === 3 /* Hexagon */;
+      return isHex(grid.nodes[edge.r][edge.c].type) || isHex(grid.nodes[edge.r + 1][edge.c].type);
     }
   }
   /**
@@ -2150,16 +2379,18 @@ var PuzzleGenerator = class {
     }
     if (useHexagons) {
       let found = false;
+      const isHexEdge = (t) => t === 3 /* Hexagon */ || t === 4 /* HexagonMain */ || t === 5 /* HexagonSymmetry */;
+      const isHexNode = (t) => t === 3 /* Hexagon */ || t === 4 /* HexagonMain */ || t === 5 /* HexagonSymmetry */;
       for (let r = 0; r <= grid.rows; r++)
         for (let c = 0; c < grid.cols; c++)
-          if (grid.hEdges[r][c].type === 3 /* Hexagon */) {
+          if (isHexEdge(grid.hEdges[r][c].type)) {
             found = true;
             break;
           }
       if (!found) {
         for (let r = 0; r < grid.rows; r++)
           for (let c = 0; c <= grid.cols; c++)
-            if (grid.vEdges[r][c].type === 3 /* Hexagon */) {
+            if (isHexEdge(grid.vEdges[r][c].type)) {
               found = true;
               break;
             }
@@ -2167,7 +2398,7 @@ var PuzzleGenerator = class {
       if (!found) {
         for (let r = 0; r <= grid.rows; r++)
           for (let c = 0; c <= grid.cols; c++)
-            if (grid.nodes[r][c].type === 3 /* Hexagon */) {
+            if (isHexNode(grid.nodes[r][c].type)) {
               found = true;
               break;
             }
@@ -2385,9 +2616,9 @@ var PuzzleSerializer = class {
         }
       }
     }
-    for (let y = 0; y < puzzle.rows; y++) for (let x = 0; x < puzzle.cols + 1; x++) bw.write(puzzle.vEdges[y][x].type, 2);
-    for (let y = 0; y < puzzle.rows + 1; y++) for (let x = 0; x < puzzle.cols; x++) bw.write(puzzle.hEdges[y][x].type, 2);
-    for (let y = 0; y < puzzle.rows + 1; y++) for (let x = 0; x < puzzle.cols + 1; x++) bw.write(puzzle.nodes[y][x].type, 2);
+    for (let y = 0; y < puzzle.rows; y++) for (let x = 0; x < puzzle.cols + 1; x++) bw.write(puzzle.vEdges[y][x].type, 3);
+    for (let y = 0; y < puzzle.rows + 1; y++) for (let x = 0; x < puzzle.cols; x++) bw.write(puzzle.hEdges[y][x].type, 3);
+    for (let y = 0; y < puzzle.rows + 1; y++) for (let x = 0; x < puzzle.cols + 1; x++) bw.write(puzzle.nodes[y][x].type, 3);
     bw.write(+!!options.useHexagons, 1);
     bw.write(+!!options.useSquares, 1);
     bw.write(+!!options.useStars, 1);
@@ -2446,9 +2677,9 @@ var PuzzleSerializer = class {
       }
       cells.push(row);
     }
-    const vEdges = Array.from({ length: rows }, () => Array.from({ length: cols + 1 }, () => ({ type: br.read(2) })));
-    const hEdges = Array.from({ length: rows + 1 }, () => Array.from({ length: cols }, () => ({ type: br.read(2) })));
-    const nodes = Array.from({ length: rows + 1 }, () => Array.from({ length: cols + 1 }, () => ({ type: br.read(2) })));
+    const vEdges = Array.from({ length: rows }, () => Array.from({ length: cols + 1 }, () => ({ type: br.read(3) })));
+    const hEdges = Array.from({ length: rows + 1 }, () => Array.from({ length: cols }, () => ({ type: br.read(3) })));
+    const nodes = Array.from({ length: rows + 1 }, () => Array.from({ length: cols + 1 }, () => ({ type: br.read(3) })));
     const readRatio = () => {
       const v = br.read(8);
       return Math.round(v / 254 * 1e3) / 1e3;
@@ -2548,6 +2779,8 @@ var WitnessUI = class {
       grid: options.colors?.grid ?? this.options?.colors?.grid ?? "#555",
       node: options.colors?.node ?? this.options?.colors?.node ?? "#555",
       hexagon: options.colors?.hexagon ?? this.options?.colors?.hexagon ?? "#000",
+      hexagonMain: options.colors?.hexagonMain ?? this.options?.colors?.hexagonMain ?? "#00ffff",
+      hexagonSymmetry: options.colors?.hexagonSymmetry ?? this.options?.colors?.hexagonSymmetry ?? "#ffff00",
       colorMap: options.colors?.colorMap ?? this.options?.colors?.colorMap ?? {
         [Color.Black]: "#000",
         [Color.White]: "#fff",
@@ -3109,15 +3342,23 @@ var WitnessUI = class {
     }
     ctx.lineWidth = 2;
     const hexRadius = 8;
+    const getHexColor = (type) => {
+      if (type === 3 /* Hexagon */ || type === 3 /* Hexagon */) return this.options.colors.hexagon;
+      if (type === 4 /* HexagonMain */ || type === 4 /* HexagonMain */) return this.options.colors.hexagonMain;
+      if (type === 5 /* HexagonSymmetry */ || type === 5 /* HexagonSymmetry */) return this.options.colors.hexagonSymmetry;
+      return this.options.colors.hexagon;
+    };
     for (let r = 0; r <= this.puzzle.rows; r++) {
       for (let c = 0; c < this.puzzle.cols; c++) {
-        if (this.puzzle.hEdges[r][c].type === 3 /* Hexagon */) {
+        const type = this.puzzle.hEdges[r][c].type;
+        if (type === 3 /* Hexagon */ || type === 4 /* HexagonMain */ || type === 5 /* HexagonSymmetry */) {
           const pos = this.getCanvasCoords(c + 0.5, r);
           ctx.save();
           const isInvalidated = this.invalidatedEdges.some((e) => e.type === "h" && e.r === r && e.c === c);
           const isError = this.errorEdges.some((e) => e.type === "h" && e.r === r && e.c === c);
+          const baseColor = getHexColor(type);
           if (isError) {
-            const color = this.lerpColor(this.options.colors.hexagon, this.options.colors.error, blinkFactor);
+            const color = this.lerpColor(baseColor, this.options.colors.error, blinkFactor);
             this.drawHexagon(ctx, pos.x, pos.y, hexRadius, color);
           } else if (isInvalidated) {
             const elapsed = now - (this.isSuccessFading ? this.successFadeStartTime : this.eraserAnimationStartTime);
@@ -3127,14 +3368,14 @@ var WitnessUI = class {
               const transitionIn = Math.min(1, elapsed / 200);
               const transitionOut = elapsed > blinkDuration * 0.8 ? (blinkDuration - elapsed) / (blinkDuration * 0.2) : 1;
               const transitionFactor = Math.min(transitionIn, transitionOut);
-              const color = this.lerpColor(this.options.colors.hexagon, this.options.colors.error, blinkFactor * transitionFactor);
+              const color = this.lerpColor(baseColor, this.options.colors.error, blinkFactor * transitionFactor);
               this.drawHexagon(ctx, pos.x, pos.y, hexRadius, color);
             } else {
               ctx.globalAlpha *= Math.max(0.3, 1 - (elapsed - blinkDuration) / this.options.animations.fadeDuration);
-              this.drawHexagon(ctx, pos.x, pos.y, hexRadius);
+              this.drawHexagon(ctx, pos.x, pos.y, hexRadius, baseColor);
             }
           } else {
-            this.drawHexagon(ctx, pos.x, pos.y, hexRadius);
+            this.drawHexagon(ctx, pos.x, pos.y, hexRadius, baseColor);
           }
           ctx.restore();
         }
@@ -3142,13 +3383,15 @@ var WitnessUI = class {
     }
     for (let r = 0; r < this.puzzle.rows; r++) {
       for (let c = 0; c <= this.puzzle.cols; c++) {
-        if (this.puzzle.vEdges[r][c].type === 3 /* Hexagon */) {
+        const type = this.puzzle.vEdges[r][c].type;
+        if (type === 3 /* Hexagon */ || type === 4 /* HexagonMain */ || type === 5 /* HexagonSymmetry */) {
           const pos = this.getCanvasCoords(c, r + 0.5);
           ctx.save();
           const isInvalidated = this.invalidatedEdges.some((e) => e.type === "v" && e.r === r && e.c === c);
           const isError = this.errorEdges.some((e) => e.type === "v" && e.r === r && e.c === c);
+          const baseColor = getHexColor(type);
           if (isError) {
-            const color = this.lerpColor(this.options.colors.hexagon, this.options.colors.error, blinkFactor);
+            const color = this.lerpColor(baseColor, this.options.colors.error, blinkFactor);
             this.drawHexagon(ctx, pos.x, pos.y, hexRadius, color);
           } else if (isInvalidated) {
             const elapsed = now - (this.isSuccessFading ? this.successFadeStartTime : this.eraserAnimationStartTime);
@@ -3158,14 +3401,14 @@ var WitnessUI = class {
               const transitionIn = Math.min(1, elapsed / 200);
               const transitionOut = elapsed > blinkDuration * 0.8 ? (blinkDuration - elapsed) / (blinkDuration * 0.2) : 1;
               const transitionFactor = Math.min(transitionIn, transitionOut);
-              const color = this.lerpColor(this.options.colors.hexagon, this.options.colors.error, blinkFactor * transitionFactor);
+              const color = this.lerpColor(baseColor, this.options.colors.error, blinkFactor * transitionFactor);
               this.drawHexagon(ctx, pos.x, pos.y, hexRadius, color);
             } else {
               ctx.globalAlpha *= Math.max(0.3, 1 - (elapsed - blinkDuration) / this.options.animations.fadeDuration);
-              this.drawHexagon(ctx, pos.x, pos.y, hexRadius);
+              this.drawHexagon(ctx, pos.x, pos.y, hexRadius, baseColor);
             }
           } else {
-            this.drawHexagon(ctx, pos.x, pos.y, hexRadius);
+            this.drawHexagon(ctx, pos.x, pos.y, hexRadius, baseColor);
           }
           ctx.restore();
         }
@@ -3173,13 +3416,15 @@ var WitnessUI = class {
     }
     for (let r = 0; r <= this.puzzle.rows; r++) {
       for (let c = 0; c <= this.puzzle.cols; c++) {
-        if (this.puzzle.nodes[r][c].type === 3 /* Hexagon */) {
+        const type = this.puzzle.nodes[r][c].type;
+        if (type === 3 /* Hexagon */ || type === 4 /* HexagonMain */ || type === 5 /* HexagonSymmetry */) {
           const pos = this.getCanvasCoords(c, r);
           ctx.save();
           const isInvalidated = this.invalidatedNodes.some((p) => p.x === c && p.y === r);
           const isError = this.errorNodes.some((p) => p.x === c && p.y === r);
+          const baseColor = getHexColor(type);
           if (isError) {
-            const color = this.lerpColor(this.options.colors.hexagon, this.options.colors.error, blinkFactor);
+            const color = this.lerpColor(baseColor, this.options.colors.error, blinkFactor);
             this.drawHexagon(ctx, pos.x, pos.y, hexRadius, color);
           } else if (isInvalidated) {
             const elapsed = now - (this.isSuccessFading ? this.successFadeStartTime : this.eraserAnimationStartTime);
@@ -3189,14 +3434,14 @@ var WitnessUI = class {
               const transitionIn = Math.min(1, elapsed / 200);
               const transitionOut = elapsed > blinkDuration * 0.8 ? (blinkDuration - elapsed) / (blinkDuration * 0.2) : 1;
               const transitionFactor = Math.min(transitionIn, transitionOut);
-              const color = this.lerpColor(this.options.colors.hexagon, this.options.colors.error, blinkFactor * transitionFactor);
+              const color = this.lerpColor(baseColor, this.options.colors.error, blinkFactor * transitionFactor);
               this.drawHexagon(ctx, pos.x, pos.y, hexRadius, color);
             } else {
               ctx.globalAlpha *= Math.max(0.3, 1 - (elapsed - blinkDuration) / this.options.animations.fadeDuration);
-              this.drawHexagon(ctx, pos.x, pos.y, hexRadius);
+              this.drawHexagon(ctx, pos.x, pos.y, hexRadius, baseColor);
             }
           } else {
-            this.drawHexagon(ctx, pos.x, pos.y, hexRadius);
+            this.drawHexagon(ctx, pos.x, pos.y, hexRadius, baseColor);
           }
           ctx.restore();
         }
@@ -3234,7 +3479,7 @@ var WitnessUI = class {
       for (let c = 0; c <= this.puzzle.cols; c++) {
         if (isNodeIsolated(c, r)) continue;
         const node = this.puzzle.nodes[r][c];
-        if (node.type === 3 /* Hexagon */) continue;
+        if (node.type === 3 /* Hexagon */ || node.type === 4 /* HexagonMain */ || node.type === 5 /* HexagonSymmetry */) continue;
         const pos = this.getCanvasCoords(c, r);
         if (node.type === 1 /* Start */) {
           if (this.options.colors.node) ctx.fillStyle = this.options.colors.node;

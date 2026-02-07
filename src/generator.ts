@@ -616,6 +616,8 @@ export class PuzzleGenerator {
 		// 六角形の配置
 		if (useHexagons) {
 			const targetDifficulty = options.difficulty ?? 0.5;
+			const symmetry = options.symmetry || SymmetryType.None;
+
 			// エッジ六角形 (線上・中心)
 			for (let i = 0; i < path.length - 1; i++) {
 				const neighbors = this.getValidNeighbors(grid, path[i], new Set());
@@ -624,7 +626,21 @@ export class PuzzleGenerator {
 				let prob = complexity * (targetDifficulty < 0.4 ? 0.6 : 0.3);
 				if (isBranching) prob = targetDifficulty < 0.4 ? prob * 1.0 : prob * 0.5;
 				if (Math.random() < prob) {
-					this.setEdgeHexagon(grid, path[i], path[i + 1]);
+					let type = EdgeType.Hexagon;
+					let p1 = path[i];
+					let p2 = path[i + 1];
+
+					if (symmetry !== SymmetryType.None) {
+						const r = Math.random();
+						if (r < 0.3) type = EdgeType.HexagonMain;
+						else if (r < 0.6) {
+							type = EdgeType.HexagonSymmetry;
+							p1 = this.getSymmetricalPoint(grid, path[i], symmetry);
+							p2 = this.getSymmetricalPoint(grid, path[i + 1], symmetry);
+						}
+					}
+
+					this.setEdgeHexagon(grid, p1, p2, type);
 					hexagonsPlaced++;
 				}
 			}
@@ -638,7 +654,19 @@ export class PuzzleGenerator {
 				// 難易度が高いときにノード六角形を配置
 				let prob = complexity * (targetDifficulty > 0.6 ? 0.15 : 0.05);
 				if (Math.random() < prob) {
-					grid.nodes[node.y][node.x].type = NodeType.Hexagon;
+					let type = NodeType.Hexagon;
+					let targetNode = node;
+
+					if (symmetry !== SymmetryType.None) {
+						const r = Math.random();
+						if (r < 0.3) type = NodeType.HexagonMain;
+						else if (r < 0.6) {
+							type = NodeType.HexagonSymmetry;
+							targetNode = this.getSymmetricalPoint(grid, node, symmetry);
+						}
+					}
+
+					grid.nodes[targetNode.y][targetNode.x].type = type;
 					hexagonsPlaced++;
 				}
 			}
@@ -1030,24 +1058,26 @@ export class PuzzleGenerator {
 		return Array.from(unique.values());
 	}
 
-	private setEdgeHexagon(grid: Grid, p1: Point, p2: Point) {
-		if (p1.x === p2.x) grid.vEdges[Math.min(p1.y, p2.y)][p1.x].type = EdgeType.Hexagon;
-		else grid.hEdges[p1.y][Math.min(p1.x, p2.x)].type = EdgeType.Hexagon;
+	private setEdgeHexagon(grid: Grid, p1: Point, p2: Point, type: EdgeType = EdgeType.Hexagon) {
+		if (p1.x === p2.x) grid.vEdges[Math.min(p1.y, p2.y)][p1.x].type = type;
+		else grid.hEdges[p1.y][Math.min(p1.x, p2.x)].type = type;
 	}
 
 	private hasIncidentHexagonEdge(grid: Grid, p: Point): boolean {
-		if (p.x > 0 && grid.hEdges[p.y][p.x - 1].type === EdgeType.Hexagon) return true;
-		if (p.x < grid.cols && grid.hEdges[p.y][p.x].type === EdgeType.Hexagon) return true;
-		if (p.y > 0 && grid.vEdges[p.y - 1][p.x].type === EdgeType.Hexagon) return true;
-		if (p.y < grid.rows && grid.vEdges[p.y][p.x].type === EdgeType.Hexagon) return true;
+		const isHex = (t: EdgeType) => t === EdgeType.Hexagon || t === EdgeType.HexagonMain || t === EdgeType.HexagonSymmetry;
+		if (p.x > 0 && isHex(grid.hEdges[p.y][p.x - 1].type)) return true;
+		if (p.x < grid.cols && isHex(grid.hEdges[p.y][p.x].type)) return true;
+		if (p.y > 0 && isHex(grid.vEdges[p.y - 1][p.x].type)) return true;
+		if (p.y < grid.rows && isHex(grid.vEdges[p.y][p.x].type)) return true;
 		return false;
 	}
 
 	private isEdgeAdjacentToHexagonNode(grid: Grid, edge: { type: "h" | "v"; r: number; c: number }): boolean {
+		const isHex = (t: NodeType) => t === NodeType.Hexagon || t === NodeType.HexagonMain || t === NodeType.HexagonSymmetry;
 		if (edge.type === "h") {
-			return grid.nodes[edge.r][edge.c].type === NodeType.Hexagon || grid.nodes[edge.r][edge.c + 1].type === NodeType.Hexagon;
+			return isHex(grid.nodes[edge.r][edge.c].type) || isHex(grid.nodes[edge.r][edge.c + 1].type);
 		} else {
-			return grid.nodes[edge.r][edge.c].type === NodeType.Hexagon || grid.nodes[edge.r + 1][edge.c].type === NodeType.Hexagon;
+			return isHex(grid.nodes[edge.r][edge.c].type) || isHex(grid.nodes[edge.r + 1][edge.c].type);
 		}
 	}
 
@@ -1081,23 +1111,26 @@ export class PuzzleGenerator {
 		}
 		if (useHexagons) {
 			let found = false;
+			const isHexEdge = (t: EdgeType) => t === EdgeType.Hexagon || t === EdgeType.HexagonMain || t === EdgeType.HexagonSymmetry;
+			const isHexNode = (t: NodeType) => t === NodeType.Hexagon || t === NodeType.HexagonMain || t === NodeType.HexagonSymmetry;
+
 			for (let r = 0; r <= grid.rows; r++)
 				for (let c = 0; c < grid.cols; c++)
-					if (grid.hEdges[r][c].type === EdgeType.Hexagon) {
+					if (isHexEdge(grid.hEdges[r][c].type)) {
 						found = true;
 						break;
 					}
 			if (!found)
 				for (let r = 0; r < grid.rows; r++)
 					for (let c = 0; c <= grid.cols; c++)
-						if (grid.vEdges[r][c].type === EdgeType.Hexagon) {
+						if (isHexEdge(grid.vEdges[r][c].type)) {
 							found = true;
 							break;
 						}
 			if (!found)
 				for (let r = 0; r <= grid.rows; r++)
 					for (let c = 0; c <= grid.cols; c++)
-						if (grid.nodes[r][c].type === NodeType.Hexagon) {
+						if (isHexNode(grid.nodes[r][c].type)) {
 							found = true;
 							break;
 						}
