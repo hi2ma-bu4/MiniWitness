@@ -1,5 +1,5 @@
 /*!
- * MiniWitness 1.1.5
+ * MiniWitness 1.1.6
  * Copyright 2026 hi2ma-bu4
  * Licensed under the Apache License, Version 2.0
  * http://www.apache.org/licenses/LICENSE-2.0
@@ -33,6 +33,7 @@ var NodeType = /* @__PURE__ */ ((NodeType2) => {
   NodeType2[NodeType2["Normal"] = 0] = "Normal";
   NodeType2[NodeType2["Start"] = 1] = "Start";
   NodeType2[NodeType2["End"] = 2] = "End";
+  NodeType2[NodeType2["Hexagon"] = 3] = "Hexagon";
   return NodeType2;
 })(NodeType || {});
 var Color = {
@@ -115,8 +116,8 @@ var PuzzleValidator = class {
       if (this.isBrokenEdge(grid, p1, p2)) return { isValid: false, errorReason: "Passed through broken edge" };
     }
     const regions = this.calculateRegions(grid, path);
-    const missedHexagons = this.getMissedHexagons(grid, path);
-    return this.validateWithErasers(grid, regions, missedHexagons);
+    const missed = this.getMissedHexagons(grid, path);
+    return this.validateWithErasers(grid, regions, missed.edges, missed.nodes);
   }
   /**
    * 二点間が断線（Broken or Absent）しているか確認する
@@ -145,19 +146,23 @@ var PuzzleValidator = class {
     }
   }
   /**
-   * 回答パスが通過しなかった六角形エッジをリストアップする
+   * 回答パスが通過しなかった六角形（エッジ・ノード）をリストアップする
    */
   getMissedHexagons(grid, path) {
     const pathEdges = /* @__PURE__ */ new Set();
-    for (let i = 0; i < path.length - 1; i++) {
-      pathEdges.add(this.getEdgeKey(path[i], path[i + 1]));
+    const pathNodes = /* @__PURE__ */ new Set();
+    for (let i = 0; i < path.length; i++) {
+      pathNodes.add(`${path[i].x},${path[i].y}`);
+      if (i < path.length - 1) {
+        pathEdges.add(this.getEdgeKey(path[i], path[i + 1]));
+      }
     }
-    const missed = [];
+    const missedEdges = [];
     for (let r = 0; r <= grid.rows; r++) {
       for (let c = 0; c < grid.cols; c++) {
         if (grid.hEdges[r][c].type === 3 /* Hexagon */) {
           const key = this.getEdgeKey({ x: c, y: r }, { x: c + 1, y: r });
-          if (!pathEdges.has(key)) missed.push({ type: "h", r, c });
+          if (!pathEdges.has(key)) missedEdges.push({ type: "h", r, c });
         }
       }
     }
@@ -165,16 +170,24 @@ var PuzzleValidator = class {
       for (let c = 0; c <= grid.cols; c++) {
         if (grid.vEdges[r][c].type === 3 /* Hexagon */) {
           const key = this.getEdgeKey({ x: c, y: r }, { x: c, y: r + 1 });
-          if (!pathEdges.has(key)) missed.push({ type: "v", r, c });
+          if (!pathEdges.has(key)) missedEdges.push({ type: "v", r, c });
         }
       }
     }
-    return missed;
+    const missedNodes = [];
+    for (let r = 0; r <= grid.rows; r++) {
+      for (let c = 0; c <= grid.cols; c++) {
+        if (grid.nodes[r][c].type === 3 /* Hexagon */) {
+          if (!pathNodes.has(`${c},${r}`)) missedNodes.push({ x: c, y: r });
+        }
+      }
+    }
+    return { edges: missedEdges, nodes: missedNodes };
   }
   /**
    * テトラポッド（エラー削除）を考慮してパズルの各制約を検証する
    */
-  validateWithErasers(grid, regions, missedHexagons) {
+  validateWithErasers(grid, regions, missedHexagons, missedNodeHexagons) {
     const regionResults = [];
     let allRegionsPossiblyValid = true;
     for (let i = 0; i < regions.length; i++) {
@@ -185,38 +198,45 @@ var PuzzleValidator = class {
       for (let j = 0; j < missedHexagons.length; j++) {
         if (this.isHexagonAdjacentToRegion(grid, missedHexagons[j], region)) adjacentMissedHexagons.push(j);
       }
-      const possible = this.getPossibleErasures(grid, region, erasers, otherMarks, adjacentMissedHexagons);
+      const adjacentMissedNodeHexagons = [];
+      for (let j = 0; j < missedNodeHexagons.length; j++) {
+        if (this.isNodeHexagonAdjacentToRegion(grid, missedNodeHexagons[j], region)) adjacentMissedNodeHexagons.push(j);
+      }
+      const possible = this.getPossibleErasures(grid, region, erasers, otherMarks, adjacentMissedHexagons, adjacentMissedNodeHexagons);
       if (possible.length === 0) {
         allRegionsPossiblyValid = false;
-        const bestEffort = this.getBestEffortErasures(grid, region, erasers, otherMarks, adjacentMissedHexagons);
+        const bestEffort = this.getBestEffortErasures(grid, region, erasers, otherMarks, adjacentMissedHexagons, adjacentMissedNodeHexagons);
         regionResults.push([bestEffort]);
       } else {
         possible.sort((a, b) => {
-          const costA = a.invalidatedCells.length + a.invalidatedHexagons.length;
-          const costB = b.invalidatedCells.length + b.invalidatedHexagons.length;
+          const costA = a.invalidatedCells.length + a.invalidatedHexagons.length + a.invalidatedNodeHexagons.length;
+          const costB = b.invalidatedCells.length + b.invalidatedHexagons.length + b.invalidatedNodeHexagons.length;
           return costA - costB;
         });
         regionResults.push(possible);
       }
     }
     if (allRegionsPossiblyValid) {
-      const assignment = this.findGlobalAssignment(regionResults, missedHexagons.length);
+      const assignment = this.findGlobalAssignment(regionResults, missedHexagons.length, missedNodeHexagons.length);
       if (assignment) {
         return {
           isValid: true,
           invalidatedCells: assignment.invalidatedCells,
-          invalidatedEdges: assignment.invalidatedHexIndices.map((idx) => missedHexagons[idx])
+          invalidatedEdges: assignment.invalidatedHexIndices.map((idx) => missedHexagons[idx]),
+          invalidatedNodes: assignment.invalidatedNodeHexIndices.map((idx) => missedNodeHexagons[idx])
         };
       }
     }
     const errorCells = [];
     const invalidatedCells = [];
     const invalidatedHexIndices = /* @__PURE__ */ new Set();
+    const invalidatedNodeHexIndices = /* @__PURE__ */ new Set();
     for (const options of regionResults) {
       const best = options[0];
       errorCells.push(...best.errorCells);
       invalidatedCells.push(...best.invalidatedCells);
       for (const idx of best.invalidatedHexagons) invalidatedHexIndices.add(idx);
+      for (const idx of best.invalidatedNodeHexagons) invalidatedNodeHexIndices.add(idx);
     }
     const errorEdges = [];
     for (let i = 0; i < missedHexagons.length; i++) {
@@ -224,13 +244,21 @@ var PuzzleValidator = class {
         errorEdges.push(missedHexagons[i]);
       }
     }
+    const errorNodes = [];
+    for (let i = 0; i < missedNodeHexagons.length; i++) {
+      if (!invalidatedNodeHexIndices.has(i)) {
+        errorNodes.push(missedNodeHexagons[i]);
+      }
+    }
     return {
       isValid: false,
       errorReason: "Constraints failed",
       errorCells,
       errorEdges,
+      errorNodes,
       invalidatedCells,
-      invalidatedEdges: Array.from(invalidatedHexIndices).map((idx) => missedHexagons[idx])
+      invalidatedEdges: Array.from(invalidatedHexIndices).map((idx) => missedHexagons[idx]),
+      invalidatedNodes: Array.from(invalidatedNodeHexIndices).map((idx) => missedNodeHexagons[idx])
     };
   }
   /**
@@ -248,20 +276,38 @@ var PuzzleValidator = class {
     return false;
   }
   /**
+   * 指定されたノードが特定の区画に隣接しているか確認する
+   */
+  isNodeHexagonAdjacentToRegion(grid, node, region) {
+    const regionCells = new Set(region.map((p) => `${p.x},${p.y}`));
+    const adjCells = [
+      { x: node.x - 1, y: node.y - 1 },
+      { x: node.x, y: node.y - 1 },
+      { x: node.x - 1, y: node.y },
+      { x: node.x, y: node.y }
+    ];
+    for (const cell of adjCells) {
+      if (cell.x >= 0 && cell.x < grid.cols && cell.y >= 0 && cell.y < grid.rows) {
+        if (regionCells.has(`${cell.x},${cell.y}`)) return true;
+      }
+    }
+    return false;
+  }
+  /**
    * 区画内のエラー削除可能な全パターンを取得する
    */
-  getPossibleErasures(grid, region, erasers, otherMarks, adjacentMissedHexagons) {
+  getPossibleErasures(grid, region, erasers, otherMarks, adjacentMissedHexagons, adjacentMissedNodeHexagons) {
     const results = [];
     const numErasers = erasers.length;
     if (numErasers === 0) {
       const errorCells = this.getRegionErrors(grid, region, []);
-      if (errorCells.length === 0 && adjacentMissedHexagons.length === 0) {
-        results.push({ invalidatedCells: [], invalidatedHexagons: [], isValid: true, errorCells: [] });
+      if (errorCells.length === 0 && adjacentMissedHexagons.length === 0 && adjacentMissedNodeHexagons.length === 0) {
+        results.push({ invalidatedCells: [], invalidatedHexagons: [], invalidatedNodeHexagons: [], isValid: true, errorCells: [] });
       }
       return results;
     }
-    const itemsToNegate = [...otherMarks.map((p) => ({ type: "cell", pos: p })), ...adjacentMissedHexagons.map((idx) => ({ type: "hex", index: idx }))];
-    const initiallyValid = this.getRegionErrors(grid, region, []).length === 0 && adjacentMissedHexagons.length === 0;
+    const itemsToNegate = [...otherMarks.map((p) => ({ type: "cell", pos: p })), ...adjacentMissedHexagons.map((idx) => ({ type: "hex", index: idx })), ...adjacentMissedNodeHexagons.map((idx) => ({ type: "nodeHex", index: idx }))];
+    const initiallyValid = this.getRegionErrors(grid, region, []).length === 0 && adjacentMissedHexagons.length === 0 && adjacentMissedNodeHexagons.length === 0;
     for (let N = 0; N <= numErasers; N++) {
       const negatedEraserCombinations = this.getNCombinations(erasers, N);
       for (const negatedErasers of negatedEraserCombinations) {
@@ -273,6 +319,7 @@ var PuzzleValidator = class {
           for (const negatedItems of itemCombinations) {
             const negatedCells = negatedItems.filter((it) => it.type === "cell").map((it) => it.pos);
             const negatedHexIndices = negatedItems.filter((it) => it.type === "hex").map((it) => it.index);
+            const negatedNodeHexIndices = negatedItems.filter((it) => it.type === "nodeHex").map((it) => it.index);
             const errorCells = this.getRegionErrors(grid, region, [...negatedCells, ...negatedErasers]);
             const isValid = errorCells.length === 0;
             if (isValid) {
@@ -284,8 +331,10 @@ var PuzzleValidator = class {
                   const subset = [...negatedItems.slice(0, i), ...negatedItems.slice(i + 1)];
                   const subsetCells = subset.filter((it) => it.type === "cell").map((it) => it.pos);
                   const subsetHexIndices = new Set(subset.filter((it) => it.type === "hex").map((it) => it.index));
+                  const subsetNodeHexIndices = new Set(subset.filter((it) => it.type === "nodeHex").map((it) => it.index));
                   const allHexSatisfied = adjacentMissedHexagons.every((idx) => subsetHexIndices.has(idx));
-                  if (this.getRegionErrors(grid, region, subsetCells).length === 0 && allHexSatisfied) {
+                  const allNodeHexSatisfied = adjacentMissedNodeHexagons.every((idx) => subsetNodeHexIndices.has(idx));
+                  if (this.getRegionErrors(grid, region, subsetCells).length === 0 && allHexSatisfied && allNodeHexSatisfied) {
                     isUseful = false;
                     break;
                   }
@@ -295,6 +344,7 @@ var PuzzleValidator = class {
                 results.push({
                   invalidatedCells: [...negatedCells, ...negatedErasers],
                   invalidatedHexagons: negatedHexIndices,
+                  invalidatedNodeHexagons: negatedNodeHexIndices,
                   isValid: true,
                   errorCells: []
                 });
@@ -309,29 +359,32 @@ var PuzzleValidator = class {
   /**
    * エラーが解消できなかった場合のベストエフォートな削除（可能な限り消しゴムを適用）を取得する
    */
-  getBestEffortErasures(grid, region, erasers, otherMarks, adjacentMissedHexagons) {
+  getBestEffortErasures(grid, region, erasers, otherMarks, adjacentMissedHexagons, adjacentMissedNodeHexagons) {
     const naturalErrors = this.getRegionErrors(grid, region, []);
-    const initiallyValid = naturalErrors.length === 0 && adjacentMissedHexagons.length === 0;
+    const initiallyValid = naturalErrors.length === 0 && adjacentMissedHexagons.length === 0 && adjacentMissedNodeHexagons.length === 0;
     if (initiallyValid) {
       return {
         invalidatedCells: [],
         invalidatedHexagons: [],
+        invalidatedNodeHexagons: [],
         isValid: false,
         errorCells: [...erasers]
       };
     }
     if (erasers.length > 0) {
-      const itemsToNegate = [...otherMarks.map((p) => ({ type: "cell", pos: p })), ...adjacentMissedHexagons.map((idx) => ({ type: "hex", index: idx }))];
+      const itemsToNegate = [...otherMarks.map((p) => ({ type: "cell", pos: p })), ...adjacentMissedHexagons.map((idx) => ({ type: "hex", index: idx })), ...adjacentMissedNodeHexagons.map((idx) => ({ type: "nodeHex", index: idx }))];
       let bestResult = null;
       let minErrorCount = Infinity;
       const tryNegate = (priorityItems) => {
         const toInvalidateCells = [];
         const toInvalidateHexagons = [];
+        const toInvalidateNodeHexagons = [];
         let usedErasersCount = 0;
         for (const item of priorityItems) {
           if (usedErasersCount < erasers.length) {
             if (item.type === "cell") toInvalidateCells.push(item.pos);
-            else toInvalidateHexagons.push(item.index);
+            else if (item.type === "hex") toInvalidateHexagons.push(item.index);
+            else toInvalidateNodeHexagons.push(item.index);
             usedErasersCount++;
           }
         }
@@ -349,12 +402,13 @@ var PuzzleValidator = class {
           bestResult = {
             invalidatedCells: [...toInvalidateCells, ...negatedErasers],
             invalidatedHexagons: toInvalidateHexagons,
+            invalidatedNodeHexagons: toInvalidateNodeHexagons,
             isValid: false,
             errorCells: errorCells2
           };
         }
       };
-      tryNegate([...naturalErrors.map((p) => ({ type: "cell", pos: p })), ...adjacentMissedHexagons.map((idx) => ({ type: "hex", index: idx }))]);
+      tryNegate([...naturalErrors.map((p) => ({ type: "cell", pos: p })), ...adjacentMissedHexagons.map((idx) => ({ type: "hex", index: idx })), ...adjacentMissedNodeHexagons.map((idx) => ({ type: "nodeHex", index: idx }))]);
       tryNegate(itemsToNegate);
       for (const errCell of naturalErrors) {
         tryNegate([{ type: "cell", pos: errCell }]);
@@ -365,6 +419,7 @@ var PuzzleValidator = class {
     return {
       invalidatedCells: [],
       invalidatedHexagons: [],
+      invalidatedNodeHexagons: [],
       isValid: false,
       errorCells
     };
@@ -451,13 +506,15 @@ var PuzzleValidator = class {
   /**
    * グローバルな制約（六角形）の割り当てをバックトラッキングで探索する
    */
-  findGlobalAssignment(regionResults, totalMissedHexagons) {
+  findGlobalAssignment(regionResults, totalMissedHexagons, totalMissedNodeHexagons) {
     const numRegions = regionResults.length;
     const currentHexErasures = new Array(totalMissedHexagons).fill(0);
+    const currentNodeHexErasures = new Array(totalMissedNodeHexagons).fill(0);
     const allInvalidatedCells = [];
     const allInvalidatedHexIndices = [];
+    const allInvalidatedNodeHexIndices = [];
     const backtrack = (regionIdx) => {
-      if (regionIdx === numRegions) return currentHexErasures.every((count) => count === 1);
+      if (regionIdx === numRegions) return currentHexErasures.every((count) => count === 1) && currentNodeHexErasures.every((count) => count === 1);
       for (const option of regionResults[regionIdx]) {
         let possible = true;
         for (const hexIdx of option.invalidatedHexagons)
@@ -466,9 +523,20 @@ var PuzzleValidator = class {
             break;
           }
         if (possible) {
+          for (const hexIdx of option.invalidatedNodeHexagons)
+            if (currentNodeHexErasures[hexIdx] > 0) {
+              possible = false;
+              break;
+            }
+        }
+        if (possible) {
           for (const hexIdx of option.invalidatedHexagons) {
             currentHexErasures[hexIdx]++;
             allInvalidatedHexIndices.push(hexIdx);
+          }
+          for (const hexIdx of option.invalidatedNodeHexagons) {
+            currentNodeHexErasures[hexIdx]++;
+            allInvalidatedNodeHexIndices.push(hexIdx);
           }
           allInvalidatedCells.push(...option.invalidatedCells);
           if (backtrack(regionIdx + 1)) return true;
@@ -476,12 +544,21 @@ var PuzzleValidator = class {
             currentHexErasures[hexIdx]--;
             allInvalidatedHexIndices.pop();
           }
+          for (const hexIdx of option.invalidatedNodeHexagons) {
+            currentNodeHexErasures[hexIdx]--;
+            allInvalidatedNodeHexIndices.pop();
+          }
           for (let i = 0; i < option.invalidatedCells.length; i++) allInvalidatedCells.pop();
         }
       }
       return false;
     };
-    if (backtrack(0)) return { invalidatedCells: allInvalidatedCells, invalidatedHexIndices: allInvalidatedHexIndices };
+    if (backtrack(0))
+      return {
+        invalidatedCells: allInvalidatedCells,
+        invalidatedHexIndices: allInvalidatedHexIndices,
+        invalidatedNodeHexIndices: allInvalidatedNodeHexIndices
+      };
     return null;
   }
   /**
@@ -693,11 +770,13 @@ var PuzzleValidator = class {
     const startNodes = [];
     const endNodes = [];
     const hexagonEdges = /* @__PURE__ */ new Set();
+    const hexagonNodes = /* @__PURE__ */ new Set();
     for (let r = 0; r <= rows; r++) {
       for (let c = 0; c <= cols; c++) {
         const u = r * nodeCols + c;
         if (grid.nodes[r][c].type === 1 /* Start */) startNodes.push(u);
         if (grid.nodes[r][c].type === 2 /* End */) endNodes.push(u);
+        if (grid.nodes[r][c].type === 3 /* Hexagon */) hexagonNodes.add(u);
         if (c < cols) {
           const v = u + 1;
           const type = grid.hEdges[r][c].type;
@@ -719,14 +798,15 @@ var PuzzleValidator = class {
       }
     }
     const stats = { totalNodesVisited: 0, branchingPoints: 0, solutions: 0, maxDepth: 0, backtracks: 0 };
-    const totalHexagons = hexagonEdges.size;
+    const totalHexagons = hexagonEdges.size + hexagonNodes.size;
     const fingerprints = /* @__PURE__ */ new Set();
     const searchLimit = Math.max(1e3, rows * cols * 200);
     for (const startIdx of startNodes) {
-      this.exploreSearchSpace(grid, startIdx, 1n << BigInt(startIdx), [startIdx], 0, totalHexagons, adj, endNodes, fingerprints, stats, searchLimit);
+      const startIsHex = hexagonNodes.has(startIdx) ? 1 : 0;
+      this.exploreSearchSpace(grid, startIdx, 1n << BigInt(startIdx), [startIdx], startIsHex, totalHexagons, adj, endNodes, fingerprints, stats, searchLimit);
     }
     if (stats.solutions === 0) return 0;
-    let constraintCount = hexagonEdges.size;
+    let constraintCount = hexagonEdges.size + hexagonNodes.size;
     const constraintTypes = /* @__PURE__ */ new Set();
     if (hexagonEdges.size > 0) constraintTypes.add(999);
     let tetrisCount = 0;
@@ -748,6 +828,8 @@ var PuzzleValidator = class {
     const branchingFactor = stats.branchingPoints / (stats.totalNodesVisited || 1);
     const searchComplexity = Math.log10(stats.totalNodesVisited + 1);
     let difficulty = (branchingFactor * 10 + searchComplexity * 1.5) / (Math.log2(stats.solutions + 1) * 0.5 + 1);
+    difficulty -= hexagonEdges.size * 0.05;
+    difficulty += hexagonNodes.size * 0.12;
     if (tetrisCount > 0) {
       difficulty += rotatedTetrisCount * 0.5;
       difficulty += (tetrisCount - rotatedTetrisCount) * 0.2;
@@ -809,9 +891,11 @@ var PuzzleValidator = class {
         [validMoves[i], validMoves[j]] = [validMoves[j], validMoves[i]];
       }
     }
+    const nodeCols = grid.cols + 1;
     for (const move of validMoves) {
+      const nodeIsHex = grid.nodes[Math.floor(move.next / nodeCols)][move.next % nodeCols].type === 3 /* Hexagon */ ? 1 : 0;
       path.push(move.next);
-      this.exploreSearchSpace(grid, move.next, visitedMask | 1n << BigInt(move.next), path, hexagonsOnPath + (move.isHexagon ? 1 : 0), totalHexagons, adj, endNodes, fingerprints, stats, limit);
+      this.exploreSearchSpace(grid, move.next, visitedMask | 1n << BigInt(move.next), path, hexagonsOnPath + (move.isHexagon ? 1 : 0) + nodeIsHex, totalHexagons, adj, endNodes, fingerprints, stats, limit);
       path.pop();
       if (stats.totalNodesVisited > limit) return;
     }
@@ -828,11 +912,13 @@ var PuzzleValidator = class {
     const startNodes = [];
     const endNodes = [];
     const hexagonEdges = /* @__PURE__ */ new Set();
+    const hexagonNodes = /* @__PURE__ */ new Set();
     for (let r = 0; r <= rows; r++) {
       for (let c = 0; c <= cols; c++) {
         const u = r * nodeCols + c;
         if (grid.nodes[r][c].type === 1 /* Start */) startNodes.push(u);
         if (grid.nodes[r][c].type === 2 /* End */) endNodes.push(u);
+        if (grid.nodes[r][c].type === 3 /* Hexagon */) hexagonNodes.add(u);
         if (c < cols) {
           const v = u + 1;
           const type = grid.hEdges[r][c].type;
@@ -854,9 +940,10 @@ var PuzzleValidator = class {
       }
     }
     const fingerprints = /* @__PURE__ */ new Set();
-    const totalHexagons = hexagonEdges.size;
+    const totalHexagons = hexagonEdges.size + hexagonNodes.size;
     for (const startIdx of startNodes) {
-      this.findPathsOptimized(grid, startIdx, 1n << BigInt(startIdx), [startIdx], 0, totalHexagons, adj, endNodes, fingerprints, limit);
+      const startIsHex = hexagonNodes.has(startIdx) ? 1 : 0;
+      this.findPathsOptimized(grid, startIdx, 1n << BigInt(startIdx), [startIdx], startIsHex, totalHexagons, adj, endNodes, fingerprints, limit);
     }
     return fingerprints.size;
   }
@@ -885,8 +972,10 @@ var PuzzleValidator = class {
         }
       }
       if (!possible) continue;
+      const nodeCols = grid.cols + 1;
+      const nodeIsHex = grid.nodes[Math.floor(edge.next / nodeCols)][edge.next % nodeCols].type === 3 /* Hexagon */ ? 1 : 0;
       path.push(edge.next);
-      this.findPathsOptimized(grid, edge.next, visitedMask | 1n << BigInt(edge.next), path, hexagonsOnPath + (edge.isHexagon ? 1 : 0), totalHexagons, adj, endNodes, fingerprints, limit);
+      this.findPathsOptimized(grid, edge.next, visitedMask | 1n << BigInt(edge.next), path, hexagonsOnPath + (edge.isHexagon ? 1 : 0) + nodeIsHex, totalHexagons, adj, endNodes, fingerprints, limit);
       path.pop();
       if (fingerprints.size >= limit) return;
     }
@@ -1366,10 +1455,20 @@ var PuzzleGenerator = class {
       for (let i = 0; i < path.length - 1; i++) {
         const neighbors = this.getValidNeighbors(grid, path[i], /* @__PURE__ */ new Set());
         const isBranching = neighbors.length > 2;
-        let prob = complexity * 0.4;
+        let prob = complexity * (targetDifficulty < 0.4 ? 0.6 : 0.3);
         if (isBranching) prob = targetDifficulty < 0.4 ? prob * 1 : prob * 0.5;
         if (Math.random() < prob) {
           this.setEdgeHexagon(grid, path[i], path[i + 1]);
+          hexagonsPlaced++;
+        }
+      }
+      for (let i = 0; i < path.length; i++) {
+        const node = path[i];
+        if (grid.nodes[node.y][node.x].type !== 0 /* Normal */) continue;
+        if (this.hasIncidentHexagonEdge(grid, node)) continue;
+        let prob = complexity * (targetDifficulty > 0.6 ? 0.15 : 0.05);
+        if (Math.random() < prob) {
+          grid.nodes[node.y][node.x].type = 3 /* Hexagon */;
           hexagonsPlaced++;
         }
       }
@@ -1472,11 +1571,14 @@ var PuzzleGenerator = class {
             if (potentialCells.length >= 2 && (!errorType || Math.random() < 0.01)) errorType = "eraser";
             let errorPlaced = false;
             if (errorType === "hexagon") {
-              const edge = boundaryEdges[Math.floor(Math.random() * boundaryEdges.length)];
-              if (edge.type === "h") grid.hEdges[edge.r][edge.c].type = 3 /* Hexagon */;
-              else grid.vEdges[edge.r][edge.c].type = 3 /* Hexagon */;
-              hexagonsPlaced++;
-              errorPlaced = true;
+              const validEdges = boundaryEdges.filter((e) => !this.isEdgeAdjacentToHexagonNode(grid, e));
+              if (validEdges.length > 0) {
+                const edge = validEdges[Math.floor(Math.random() * validEdges.length)];
+                if (edge.type === "h") grid.hEdges[edge.r][edge.c].type = 3 /* Hexagon */;
+                else grid.vEdges[edge.r][edge.c].type = 3 /* Hexagon */;
+                hexagonsPlaced++;
+                errorPlaced = true;
+              }
             } else if (errorType === "square" && potentialCells.length >= 2) {
               const errCell = potentialCells.pop();
               grid.cells[errCell.y][errCell.x].type = 1 /* Square */;
@@ -1670,6 +1772,20 @@ var PuzzleGenerator = class {
     if (p1.x === p2.x) grid.vEdges[Math.min(p1.y, p2.y)][p1.x].type = 3 /* Hexagon */;
     else grid.hEdges[p1.y][Math.min(p1.x, p2.x)].type = 3 /* Hexagon */;
   }
+  hasIncidentHexagonEdge(grid, p) {
+    if (p.x > 0 && grid.hEdges[p.y][p.x - 1].type === 3 /* Hexagon */) return true;
+    if (p.x < grid.cols && grid.hEdges[p.y][p.x].type === 3 /* Hexagon */) return true;
+    if (p.y > 0 && grid.vEdges[p.y - 1][p.x].type === 3 /* Hexagon */) return true;
+    if (p.y < grid.rows && grid.vEdges[p.y][p.x].type === 3 /* Hexagon */) return true;
+    return false;
+  }
+  isEdgeAdjacentToHexagonNode(grid, edge) {
+    if (edge.type === "h") {
+      return grid.nodes[edge.r][edge.c].type === 3 /* Hexagon */ || grid.nodes[edge.r][edge.c + 1].type === 3 /* Hexagon */;
+    } else {
+      return grid.nodes[edge.r][edge.c].type === 3 /* Hexagon */ || grid.nodes[edge.r + 1][edge.c].type === 3 /* Hexagon */;
+    }
+  }
   /**
    * 要求された制約が全て含まれているか確認する
    */
@@ -1710,6 +1826,14 @@ var PuzzleGenerator = class {
         for (let r = 0; r < grid.rows; r++)
           for (let c = 0; c <= grid.cols; c++)
             if (grid.vEdges[r][c].type === 3 /* Hexagon */) {
+              found = true;
+              break;
+            }
+      }
+      if (!found) {
+        for (let r = 0; r <= grid.rows; r++)
+          for (let c = 0; c <= grid.cols; c++)
+            if (grid.nodes[r][c].type === 3 /* Hexagon */) {
               found = true;
               break;
             }
@@ -2029,8 +2153,10 @@ var WitnessUI = class {
   // アニメーション・状態表示用
   invalidatedCells = [];
   invalidatedEdges = [];
+  invalidatedNodes = [];
   errorCells = [];
   errorEdges = [];
+  errorNodes = [];
   eraserAnimationStartTime = 0;
   isFading = false;
   fadeOpacity = 1;
@@ -2091,7 +2217,7 @@ var WitnessUI = class {
         interrupted: options.colors?.interrupted ?? "#ffcc00",
         grid: options.colors?.grid ?? "#555",
         node: options.colors?.node ?? "#555",
-        hexagon: options.colors?.hexagon ?? "#ffcc00",
+        hexagon: options.colors?.hexagon ?? "#000",
         colorMap: options.colors?.colorMap ?? {
           [Color.Black]: "#000",
           [Color.White]: "#fff",
@@ -2115,8 +2241,10 @@ var WitnessUI = class {
     this.exitTipPos = null;
     this.invalidatedCells = [];
     this.invalidatedEdges = [];
+    this.invalidatedNodes = [];
     this.errorCells = [];
     this.errorEdges = [];
+    this.errorNodes = [];
     this.cancelFade();
     if (this.options.autoResize) {
       this.resizeCanvas();
@@ -2136,11 +2264,13 @@ var WitnessUI = class {
   /**
    * 検証結果を反映させる（不正解時の赤点滅や、消しゴムによる無効化の表示）
    */
-  setValidationResult(isValid, invalidatedCells = [], invalidatedEdges = [], errorCells = [], errorEdges = []) {
+  setValidationResult(isValid, invalidatedCells = [], invalidatedEdges = [], errorCells = [], errorEdges = [], invalidatedNodes = [], errorNodes = []) {
     this.invalidatedCells = invalidatedCells;
     this.invalidatedEdges = invalidatedEdges;
+    this.invalidatedNodes = invalidatedNodes;
     this.errorCells = errorCells;
     this.errorEdges = errorEdges;
+    this.errorNodes = errorNodes;
     this.eraserAnimationStartTime = Date.now();
     if (isValid) {
       this.isSuccessFading = true;
@@ -2222,8 +2352,10 @@ var WitnessUI = class {
             this.isInvalidPath = false;
             this.invalidatedCells = [];
             this.invalidatedEdges = [];
+            this.invalidatedNodes = [];
             this.errorCells = [];
             this.errorEdges = [];
+            this.errorNodes = [];
             this.isDrawing = true;
             this.path = [{ x: c, y: r }];
             this.currentMousePos = nodePos;
@@ -2385,7 +2517,7 @@ var WitnessUI = class {
         const blinkDuration = this.options.animations.blinkDuration;
         if (elapsed < blinkDuration) {
           if (this.isSuccessFading) {
-            const hasNegation = this.invalidatedCells.length > 0 || this.invalidatedEdges.length > 0;
+            const hasNegation = this.invalidatedCells.length > 0 || this.invalidatedEdges.length > 0 || this.invalidatedNodes.length > 0;
             if (hasNegation) {
               color = this.options.colors.error;
             }
@@ -2577,6 +2709,37 @@ var WitnessUI = class {
         }
       }
     }
+    for (let r = 0; r <= this.puzzle.rows; r++) {
+      for (let c = 0; c <= this.puzzle.cols; c++) {
+        if (this.puzzle.nodes[r][c].type === 3 /* Hexagon */) {
+          const pos = this.getCanvasCoords(c, r);
+          ctx.save();
+          const isInvalidated = this.invalidatedNodes.some((p) => p.x === c && p.y === r);
+          const isError = this.errorNodes.some((p) => p.x === c && p.y === r);
+          if (isError) {
+            const color = this.lerpColor(this.options.colors.hexagon, this.options.colors.error, blinkFactor);
+            this.drawHexagon(ctx, pos.x, pos.y, hexRadius, color);
+          } else if (isInvalidated) {
+            const elapsed = now - (this.isSuccessFading ? this.successFadeStartTime : this.eraserAnimationStartTime);
+            const blinkDuration = this.options.animations.blinkDuration;
+            if (this.isFading) ctx.globalAlpha *= this.fadeOpacity;
+            else if (elapsed < blinkDuration) {
+              const transitionIn = Math.min(1, elapsed / 200);
+              const transitionOut = elapsed > blinkDuration * 0.8 ? (blinkDuration - elapsed) / (blinkDuration * 0.2) : 1;
+              const transitionFactor = Math.min(transitionIn, transitionOut);
+              const color = this.lerpColor(this.options.colors.hexagon, this.options.colors.error, blinkFactor * transitionFactor);
+              this.drawHexagon(ctx, pos.x, pos.y, hexRadius, color);
+            } else {
+              ctx.globalAlpha *= Math.max(0.3, 1 - (elapsed - blinkDuration) / this.options.animations.fadeDuration);
+              this.drawHexagon(ctx, pos.x, pos.y, hexRadius);
+            }
+          } else {
+            this.drawHexagon(ctx, pos.x, pos.y, hexRadius);
+          }
+          ctx.restore();
+        }
+      }
+    }
   }
   /**
    * 単一の制約アイテムを描画（座標はキャンバス全体に対する絶対座標）
@@ -2609,6 +2772,7 @@ var WitnessUI = class {
       for (let c = 0; c <= this.puzzle.cols; c++) {
         if (isNodeIsolated(c, r)) continue;
         const node = this.puzzle.nodes[r][c];
+        if (node.type === 3 /* Hexagon */) continue;
         const pos = this.getCanvasCoords(c, r);
         if (node.type === 1 /* Start */) {
           if (this.options.colors.node) ctx.fillStyle = this.options.colors.node;

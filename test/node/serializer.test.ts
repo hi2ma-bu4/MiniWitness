@@ -27,7 +27,7 @@ test("PuzzleSerializer: serialize and deserialize", async () => {
 		],
 		nodes: [
 			[{ type: 1 }, { type: 0 }, { type: 0 }],
-			[{ type: 0 }, { type: 0 }, { type: 0 }],
+			[{ type: 0 }, { type: 3 }, { type: 0 }],
 			[{ type: 0 }, { type: 0 }, { type: 2 }],
 		],
 	};

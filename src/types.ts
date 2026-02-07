@@ -25,6 +25,7 @@ export enum NodeType {
 	Normal = 0,
 	Start = 1,
 	End = 2,
+	Hexagon = 3, // 通過必須
 }
 
 /**
@@ -83,8 +84,10 @@ export interface ValidationResult {
 	errorReason?: string;
 	invalidatedCells?: Point[];
 	invalidatedEdges?: { type: "h" | "v"; r: number; c: number }[];
+	invalidatedNodes?: Point[];
 	errorCells?: Point[];
 	errorEdges?: { type: "h" | "v"; r: number; c: number }[];
+	errorNodes?: Point[];
 }
 
 /**

@@ -70,8 +70,10 @@ export class WitnessUI {
 	// アニメーション・状態表示用
 	private invalidatedCells: Point[] = [];
 	private invalidatedEdges: { type: "h" | "v"; r: number; c: number }[] = [];
+	private invalidatedNodes: Point[] = [];
 	private errorCells: Point[] = [];
 	private errorEdges: { type: "h" | "v"; r: number; c: number }[] = [];
+	private errorNodes: Point[] = [];
 	private eraserAnimationStartTime = 0;
 	private isFading = false;
 	private fadeOpacity = 1.0;
@@ -142,7 +144,7 @@ export class WitnessUI {
 				interrupted: options.colors?.interrupted ?? "#ffcc00",
 				grid: options.colors?.grid ?? "#555",
 				node: options.colors?.node ?? "#555",
-				hexagon: options.colors?.hexagon ?? "#ffcc00",
+				hexagon: options.colors?.hexagon ?? "#000",
 				colorMap: options.colors?.colorMap ?? {
 					[Color.Black]: "#000",
 					[Color.White]: "#fff",
@@ -166,8 +168,10 @@ export class WitnessUI {
 		this.exitTipPos = null;
 		this.invalidatedCells = [];
 		this.invalidatedEdges = [];
+		this.invalidatedNodes = [];
 		this.errorCells = [];
 		this.errorEdges = [];
+		this.errorNodes = [];
 		this.cancelFade();
 
 		if (this.options.autoResize) {
@@ -190,11 +194,13 @@ export class WitnessUI {
 	/**
 	 * 検証結果を反映させる（不正解時の赤点滅や、消しゴムによる無効化の表示）
 	 */
-	public setValidationResult(isValid: boolean, invalidatedCells: Point[] = [], invalidatedEdges: { type: "h" | "v"; r: number; c: number }[] = [], errorCells: Point[] = [], errorEdges: { type: "h" | "v"; r: number; c: number }[] = []) {
+	public setValidationResult(isValid: boolean, invalidatedCells: Point[] = [], invalidatedEdges: { type: "h" | "v"; r: number; c: number }[] = [], errorCells: Point[] = [], errorEdges: { type: "h" | "v"; r: number; c: number }[] = [], invalidatedNodes: Point[] = [], errorNodes: Point[] = []) {
 		this.invalidatedCells = invalidatedCells;
 		this.invalidatedEdges = invalidatedEdges;
+		this.invalidatedNodes = invalidatedNodes;
 		this.errorCells = errorCells;
 		this.errorEdges = errorEdges;
+		this.errorNodes = errorNodes;
 		this.eraserAnimationStartTime = Date.now();
 
 		if (isValid) {
@@ -288,8 +294,10 @@ export class WitnessUI {
 						this.isInvalidPath = false;
 						this.invalidatedCells = [];
 						this.invalidatedEdges = [];
+						this.invalidatedNodes = [];
 						this.errorCells = [];
 						this.errorEdges = [];
+						this.errorNodes = [];
 
 						this.isDrawing = true;
 						this.path = [{ x: c, y: r }];
@@ -485,7 +493,7 @@ export class WitnessUI {
 				const blinkDuration = this.options.animations.blinkDuration!;
 				if (elapsed < blinkDuration) {
 					if (this.isSuccessFading) {
-						const hasNegation = this.invalidatedCells.length > 0 || this.invalidatedEdges.length > 0;
+						const hasNegation = this.invalidatedCells.length > 0 || this.invalidatedEdges.length > 0 || this.invalidatedNodes.length > 0;
 						if (hasNegation) {
 							// 消しゴム無効化がある成功時は、アニメーション中のみ赤色（一瞬で切り替え）
 							color = this.options.colors.error as string;
@@ -705,6 +713,39 @@ export class WitnessUI {
 				}
 			}
 		}
+
+		for (let r = 0; r <= this.puzzle.rows; r++) {
+			for (let c = 0; c <= this.puzzle.cols; c++) {
+				if (this.puzzle.nodes[r][c].type === NodeType.Hexagon) {
+					const pos = this.getCanvasCoords(c, r);
+					ctx.save();
+					const isInvalidated = this.invalidatedNodes.some((p) => p.x === c && p.y === r);
+					const isError = this.errorNodes.some((p) => p.x === c && p.y === r);
+
+					if (isError) {
+						const color = this.lerpColor(this.options.colors.hexagon as string, this.options.colors.error as string, blinkFactor);
+						this.drawHexagon(ctx, pos.x, pos.y, hexRadius, color);
+					} else if (isInvalidated) {
+						const elapsed = now - (this.isSuccessFading ? this.successFadeStartTime : this.eraserAnimationStartTime);
+						const blinkDuration = this.options.animations.blinkDuration!;
+						if (this.isFading) ctx.globalAlpha *= this.fadeOpacity;
+						else if (elapsed < blinkDuration) {
+							const transitionIn = Math.min(1.0, elapsed / 200);
+							const transitionOut = elapsed > blinkDuration * 0.8 ? (blinkDuration - elapsed) / (blinkDuration * 0.2) : 1.0;
+							const transitionFactor = Math.min(transitionIn, transitionOut);
+							const color = this.lerpColor(this.options.colors.hexagon as string, this.options.colors.error as string, blinkFactor * transitionFactor);
+							this.drawHexagon(ctx, pos.x, pos.y, hexRadius, color);
+						} else {
+							ctx.globalAlpha *= Math.max(0.3, 1.0 - (elapsed - blinkDuration) / this.options.animations.fadeDuration!);
+							this.drawHexagon(ctx, pos.x, pos.y, hexRadius);
+						}
+					} else {
+						this.drawHexagon(ctx, pos.x, pos.y, hexRadius);
+					}
+					ctx.restore();
+				}
+			}
+		}
 	}
 
 	/**
@@ -741,6 +782,8 @@ export class WitnessUI {
 				if (isNodeIsolated(c, r)) continue;
 
 				const node = this.puzzle.nodes[r][c];
+				if (node.type === NodeType.Hexagon) continue;
+
 				const pos = this.getCanvasCoords(c, r);
 
 				if (node.type === NodeType.Start) {

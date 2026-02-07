@@ -124,7 +124,7 @@ class WitnessGame {
 
 	validate(path) {
 		const result = this.core.validateSolution(this.puzzle, { points: path });
-		this.ui.setValidationResult(result.isValid, result.invalidatedCells, result.invalidatedEdges, result.errorCells, result.errorEdges);
+		this.ui.setValidationResult(result.isValid, result.invalidatedCells, result.invalidatedEdges, result.errorCells, result.errorEdges, result.invalidatedNodes, result.errorNodes);
 
 		if (result.isValid) {
 			this.updateStatus("Correct! Well done!", "#4f4");

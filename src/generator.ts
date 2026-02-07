@@ -522,16 +522,33 @@ export class PuzzleGenerator {
 		// 六角形の配置
 		if (useHexagons) {
 			const targetDifficulty = options.difficulty ?? 0.5;
+			// エッジ六角形 (線上・中心)
 			for (let i = 0; i < path.length - 1; i++) {
 				const neighbors = this.getValidNeighbors(grid, path[i], new Set());
 				const isBranching = neighbors.length > 2;
-				let prob = complexity * 0.4;
+				// 難易度が低いときはエッジ六角形を多くしてガイドにする
+				let prob = complexity * (targetDifficulty < 0.4 ? 0.6 : 0.3);
 				if (isBranching) prob = targetDifficulty < 0.4 ? prob * 1.0 : prob * 0.5;
 				if (Math.random() < prob) {
 					this.setEdgeHexagon(grid, path[i], path[i + 1]);
 					hexagonsPlaced++;
 				}
 			}
+			// ノード六角形 (線上・交点)
+			for (let i = 0; i < path.length; i++) {
+				const node = path[i];
+				if (grid.nodes[node.y][node.x].type !== NodeType.Normal) continue;
+				// EdgeのHexagonと隣接している場合はスキップ
+				if (this.hasIncidentHexagonEdge(grid, node)) continue;
+
+				// 難易度が高いときにノード六角形を配置
+				let prob = complexity * (targetDifficulty > 0.6 ? 0.15 : 0.05);
+				if (Math.random() < prob) {
+					grid.nodes[node.y][node.x].type = NodeType.Hexagon;
+					hexagonsPlaced++;
+				}
+			}
+
 			if (hexagonsPlaced === 0 && path.length >= 2) {
 				const idx = Math.floor(Math.random() * (path.length - 1));
 				this.setEdgeHexagon(grid, path[idx], path[idx + 1]);
@@ -658,11 +675,15 @@ export class PuzzleGenerator {
 						let errorPlaced = false;
 
 						if (errorType === "hexagon") {
-							const edge = boundaryEdges[Math.floor(Math.random() * boundaryEdges.length)];
-							if (edge.type === "h") grid.hEdges[edge.r][edge.c].type = EdgeType.Hexagon;
-							else grid.vEdges[edge.r][edge.c].type = EdgeType.Hexagon;
-							hexagonsPlaced++;
-							errorPlaced = true;
+							// NodeのHexagonと隣接しないEdgeを選択
+							const validEdges = boundaryEdges.filter((e) => !this.isEdgeAdjacentToHexagonNode(grid, e));
+							if (validEdges.length > 0) {
+								const edge = validEdges[Math.floor(Math.random() * validEdges.length)];
+								if (edge.type === "h") grid.hEdges[edge.r][edge.c].type = EdgeType.Hexagon;
+								else grid.vEdges[edge.r][edge.c].type = EdgeType.Hexagon;
+								hexagonsPlaced++;
+								errorPlaced = true;
+							}
 						} else if (errorType === "square" && potentialCells.length >= 2) {
 							const errCell = potentialCells.pop()!;
 							grid.cells[errCell.y][errCell.x].type = CellType.Square;
@@ -874,6 +895,22 @@ export class PuzzleGenerator {
 		else grid.hEdges[p1.y][Math.min(p1.x, p2.x)].type = EdgeType.Hexagon;
 	}
 
+	private hasIncidentHexagonEdge(grid: Grid, p: Point): boolean {
+		if (p.x > 0 && grid.hEdges[p.y][p.x - 1].type === EdgeType.Hexagon) return true;
+		if (p.x < grid.cols && grid.hEdges[p.y][p.x].type === EdgeType.Hexagon) return true;
+		if (p.y > 0 && grid.vEdges[p.y - 1][p.x].type === EdgeType.Hexagon) return true;
+		if (p.y < grid.rows && grid.vEdges[p.y][p.x].type === EdgeType.Hexagon) return true;
+		return false;
+	}
+
+	private isEdgeAdjacentToHexagonNode(grid: Grid, edge: { type: "h" | "v"; r: number; c: number }): boolean {
+		if (edge.type === "h") {
+			return grid.nodes[edge.r][edge.c].type === NodeType.Hexagon || grid.nodes[edge.r][edge.c + 1].type === NodeType.Hexagon;
+		} else {
+			return grid.nodes[edge.r][edge.c].type === NodeType.Hexagon || grid.nodes[edge.r + 1][edge.c].type === NodeType.Hexagon;
+		}
+	}
+
 	/**
 	 * 要求された制約が全て含まれているか確認する
 	 */
@@ -914,6 +951,13 @@ export class PuzzleGenerator {
 				for (let r = 0; r < grid.rows; r++)
 					for (let c = 0; c <= grid.cols; c++)
 						if (grid.vEdges[r][c].type === EdgeType.Hexagon) {
+							found = true;
+							break;
+						}
+			if (!found)
+				for (let r = 0; r <= grid.rows; r++)
+					for (let c = 0; c <= grid.cols; c++)
+						if (grid.nodes[r][c].type === NodeType.Hexagon) {
 							found = true;
 							break;
 						}

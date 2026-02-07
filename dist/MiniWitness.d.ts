@@ -23,7 +23,8 @@ export declare enum EdgeType {
 export declare enum NodeType {
 	Normal = 0,
 	Start = 1,
-	End = 2
+	End = 2,
+	Hexagon = 3
 }
 /**
  * 使用可能色
@@ -78,12 +79,14 @@ export interface ValidationResult {
 		r: number;
 		c: number;
 	}[];
+	invalidatedNodes?: Point[];
 	errorCells?: Point[];
 	errorEdges?: {
 		type: "h" | "v";
 		r: number;
 		c: number;
 	}[];
+	errorNodes?: Point[];
 }
 /**
  * パズル生成のオプション
@@ -177,6 +180,8 @@ export declare class PuzzleGenerator {
 	 */
 	private getRegionBoundaryEdges;
 	private setEdgeHexagon;
+	private hasIncidentHexagonEdge;
+	private isEdgeAdjacentToHexagonNode;
 	/**
 	 * 要求された制約が全て含まれているか確認する
 	 */
@@ -270,8 +275,10 @@ export declare class WitnessUI {
 	private isInvalidPath;
 	private invalidatedCells;
 	private invalidatedEdges;
+	private invalidatedNodes;
 	private errorCells;
 	private errorEdges;
+	private errorNodes;
 	private eraserAnimationStartTime;
 	private isFading;
 	private fadeOpacity;
@@ -304,7 +311,7 @@ export declare class WitnessUI {
 		type: "h" | "v";
 		r: number;
 		c: number;
-	}[]): void;
+	}[], invalidatedNodes?: Point[], errorNodes?: Point[]): void;
 	private resizeCanvas;
 	private initEvents;
 	private getCanvasCoords;
@@ -358,7 +365,7 @@ export declare class PuzzleValidator {
 	 */
 	private isAbsentEdge;
 	/**
-	 * 回答パスが通過しなかった六角形エッジをリストアップする
+	 * 回答パスが通過しなかった六角形（エッジ・ノード）をリストアップする
 	 */
 	private getMissedHexagons;
 	/**
@@ -369,6 +376,10 @@ export declare class PuzzleValidator {
 	 * 指定されたエッジが特定の区画に隣接しているか確認する
 	 */
 	private isHexagonAdjacentToRegion;
+	/**
+	 * 指定されたノードが特定の区画に隣接しているか確認する
+	 */
+	private isNodeHexagonAdjacentToRegion;
 	/**
 	 * 区画内のエラー削除可能な全パターンを取得する
 	 */
