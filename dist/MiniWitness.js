@@ -165,6 +165,14 @@ var PuzzleValidator = class {
     return result;
   }
   /**
+   * 高速化された検証（内部探索用）
+   */
+  validateFast(grid, path, symPath, externalCells) {
+    const regions = this.calculateRegions(grid, path, symPath, externalCells);
+    const missed = this.getMissedHexagons(grid, path, symPath);
+    return this.validateWithErasers(grid, regions, missed.edges, missed.nodes);
+  }
+  /**
    * 二点間が断線（Broken or Absent）しているか確認する
    */
   isBrokenEdge(grid, p1, p2) {
@@ -716,36 +724,70 @@ var PuzzleValidator = class {
    */
   calculateRegions(grid, path, symPath = [], externalCellsPrecalculated) {
     const regions = [];
-    const visitedCells = /* @__PURE__ */ new Set();
-    const pathEdges = /* @__PURE__ */ new Set();
-    for (let i = 0; i < path.length - 1; i++) pathEdges.add(this.getEdgeKey(path[i], path[i + 1]));
-    for (let i = 0; i < symPath.length - 1; i++) pathEdges.add(this.getEdgeKey(symPath[i], symPath[i + 1]));
+    const rows = grid.rows;
+    const cols = grid.cols;
+    const visitedCells = new Uint8Array(rows * cols);
+    const hEdgesMask = new Uint8Array((rows + 1) * cols);
+    const vEdgesMask = new Uint8Array(rows * (cols + 1));
+    const setEdge = (p1, p2) => {
+      if (p1.x === p2.x) {
+        vEdgesMask[Math.min(p1.y, p2.y) * (cols + 1) + p1.x] = 1;
+      } else {
+        hEdgesMask[p1.y * cols + Math.min(p1.x, p2.x)] = 1;
+      }
+    };
+    for (let i = 0; i < path.length - 1; i++) setEdge(path[i], path[i + 1]);
+    for (let i = 0; i < symPath.length - 1; i++) setEdge(symPath[i], symPath[i + 1]);
+    for (let r = 0; r <= rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        if (grid.hEdges[r][c].type === 2 /* Absent */) hEdgesMask[r * cols + c] = 1;
+      }
+    }
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c <= cols; c++) {
+        if (grid.vEdges[r][c].type === 2 /* Absent */) vEdgesMask[r * (cols + 1) + c] = 1;
+      }
+    }
     const externalCells = externalCellsPrecalculated || this.getExternalCells(grid);
-    for (let r = 0; r < grid.rows; r++) {
-      for (let c = 0; c < grid.cols; c++) {
-        if (visitedCells.has(`${c},${r}`) || externalCells && externalCells.has(`${c},${r}`)) continue;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const idx = r * cols + c;
+        if (visitedCells[idx] || externalCells && externalCells.has(`${c},${r}`)) continue;
         const region = [];
-        const queue = [{ x: c, y: r }];
-        visitedCells.add(`${c},${r}`);
-        while (queue.length > 0) {
-          const curr = queue.shift();
-          region.push(curr);
-          const neighbors = [
-            { nx: curr.x, ny: curr.y - 1, p1: { x: curr.x, y: curr.y }, p2: { x: curr.x + 1, y: curr.y } },
-            { nx: curr.x, ny: curr.y + 1, p1: { x: curr.x, y: curr.y + 1 }, p2: { x: curr.x + 1, y: curr.y + 1 } },
-            { nx: curr.x - 1, ny: curr.y, p1: { x: curr.x, y: curr.y }, p2: { x: curr.x, y: curr.y + 1 } },
-            { nx: curr.x + 1, ny: curr.y, p1: { x: curr.x + 1, y: curr.y }, p2: { x: curr.x + 1, y: curr.y + 1 } }
-          ];
-          for (const n of neighbors) {
-            if (n.nx >= 0 && n.nx < grid.cols && n.ny >= 0 && n.ny < grid.rows) {
-              const neighborKey = `${n.nx},${n.ny}`;
-              if (!visitedCells.has(neighborKey) && !externalCells.has(neighborKey)) {
-                const edgeKey = this.getEdgeKey(n.p1, n.p2);
-                if (!pathEdges.has(edgeKey) && !this.isAbsentEdge(grid, n.p1, n.p2)) {
-                  visitedCells.add(neighborKey);
-                  queue.push({ x: n.nx, y: n.ny });
-                }
-              }
+        const queue = [idx];
+        visitedCells[idx] = 1;
+        let head = 0;
+        while (head < queue.length) {
+          const currIdx = queue[head++];
+          const cx = currIdx % cols;
+          const cy = Math.floor(currIdx / cols);
+          region.push({ x: cx, y: cy });
+          if (cy > 0 && !hEdgesMask[cy * cols + cx]) {
+            const nIdx = (cy - 1) * cols + cx;
+            if (!visitedCells[nIdx] && (!externalCells || !externalCells.has(`${cx},${cy - 1}`))) {
+              visitedCells[nIdx] = 1;
+              queue.push(nIdx);
+            }
+          }
+          if (cy < rows - 1 && !hEdgesMask[(cy + 1) * cols + cx]) {
+            const nIdx = (cy + 1) * cols + cx;
+            if (!visitedCells[nIdx] && (!externalCells || !externalCells.has(`${cx},${cy + 1}`))) {
+              visitedCells[nIdx] = 1;
+              queue.push(nIdx);
+            }
+          }
+          if (cx > 0 && !vEdgesMask[cy * (cols + 1) + cx]) {
+            const nIdx = cy * cols + (cx - 1);
+            if (!visitedCells[nIdx] && (!externalCells || !externalCells.has(`${cx - 1},${cy}`))) {
+              visitedCells[nIdx] = 1;
+              queue.push(nIdx);
+            }
+          }
+          if (cx < cols - 1 && !vEdgesMask[cy * (cols + 1) + (cx + 1)]) {
+            const nIdx = cy * cols + (cx + 1);
+            if (!visitedCells[nIdx] && (!externalCells || !externalCells.has(`${cx + 1},${cy}`))) {
+              visitedCells[nIdx] = 1;
+              queue.push(nIdx);
             }
           }
         }
@@ -957,16 +999,17 @@ var PuzzleValidator = class {
           const nodeCols2 = grid.cols + 1;
           if (grid.nodes[Math.floor(snEnd / nodeCols2)][snEnd % nodeCols2].type !== 2 /* End */) return;
         }
+        const symPathPoints = symmetry !== 0 /* None */ ? points.map((p) => this.getSymmetricalPoint(grid, p)) : [];
         if (!hasCellMarks) {
-          const fp = this.getFingerprint(grid, points, void 0, externalCells);
+          const fp = this.getFingerprint(grid, points, symPathPoints, void 0, externalCells);
           if (!fingerprints.has(fp)) {
             fingerprints.add(fp);
             stats.solutions++;
           }
         } else {
-          const result = this.validate(grid, solutionPath, externalCells);
+          const result = this.validateFast(grid, points, symPathPoints, externalCells);
           if (result.isValid) {
-            const fp = this.getFingerprint(grid, points, result.regions, externalCells);
+            const fp = this.getFingerprint(grid, points, symPathPoints, result.regions, externalCells);
             if (!fingerprints.has(fp)) {
               fingerprints.add(fp);
               stats.solutions++;
@@ -1100,13 +1143,13 @@ var PuzzleValidator = class {
           const nodeCols = grid.cols + 1;
           if (grid.nodes[Math.floor(snEnd / nodeCols)][snEnd % nodeCols].type !== 2 /* End */) return;
         }
+        const symPathPoints = symmetry !== 0 /* None */ ? points.map((p) => this.getSymmetricalPoint(grid, p)) : [];
         if (!hasCellMarks) {
-          fingerprints.add(this.getFingerprint(grid, points, void 0, externalCells));
+          fingerprints.add(this.getFingerprint(grid, points, symPathPoints, void 0, externalCells));
         } else {
-          const solutionPath = { points };
-          const result = this.validate(grid, solutionPath, externalCells);
+          const result = this.validateFast(grid, points, symPathPoints, externalCells);
           if (result.isValid) {
-            fingerprints.add(this.getFingerprint(grid, points, result.regions, externalCells));
+            fingerprints.add(this.getFingerprint(grid, points, symPathPoints, result.regions, externalCells));
           }
         }
       }
@@ -1168,18 +1211,35 @@ var PuzzleValidator = class {
   /**
    * パスの論理的な指紋を取得する（区画分けに基づき、同一解を排除するため）
    */
-  getFingerprint(grid, path, precalculatedRegions, externalCells) {
-    const regions = precalculatedRegions || this.calculateRegions(grid, path, [], externalCells);
+  getFingerprint(grid, path, symPath, precalculatedRegions, externalCells) {
+    const regions = precalculatedRegions || this.calculateRegions(grid, path, symPath, externalCells);
     const regionFingerprints = regions.map((region) => {
-      const marks = region.map((p) => grid.cells[p.y][p.x]).filter((c) => c.type !== 0 /* None */).map((c) => `${c.type}:${c.color}`).sort();
-      return marks.join(",");
+      let regionStr = "";
+      const marks = [];
+      for (const p of region) {
+        const c = grid.cells[p.y][p.x];
+        if (c.type !== 0 /* None */) {
+          marks.push(c.type << 8 | c.color);
+        }
+      }
+      marks.sort((a, b) => a - b);
+      for (const m of marks) regionStr += m.toString(36) + ",";
+      return regionStr;
     }).sort();
-    return regionFingerprints.filter((f) => f.length > 0).join("|") || "empty";
+    let finalFp = "";
+    for (const rf of regionFingerprints) {
+      if (rf.length > 0) finalFp += rf + "|";
+    }
+    return finalFp || "empty";
   }
 };
 
 // src/generator.ts
 var PuzzleGenerator = class {
+  isWorker;
+  constructor() {
+    this.isWorker = typeof self !== "undefined" && "postMessage" in self && !("document" in self);
+  }
   /**
    * パズルを生成する
    * @param rows 行数
@@ -1192,8 +1252,8 @@ var PuzzleGenerator = class {
     const validator = new PuzzleValidator();
     let bestGrid = null;
     let bestScore = -1;
-    const maxAttempts = rows * cols > 30 ? 100 : 80;
-    const markAttemptsPerPath = 5;
+    const maxAttempts = this.isWorker ? rows * cols > 30 ? 150 : 120 : rows * cols > 30 ? 100 : 80;
+    const markAttemptsPerPath = this.isWorker ? 8 : 5;
     const symmetry = options.symmetry || 0 /* None */;
     let startPoint = { x: 0, y: rows };
     let endPoint = { x: cols, y: 0 };
@@ -1364,8 +1424,16 @@ var PuzzleGenerator = class {
    */
   applyBrokenEdges(grid, path, options) {
     const complexity = options.complexity ?? 0.5;
+    const symmetry = options.symmetry ?? 0 /* None */;
     const pathEdges = /* @__PURE__ */ new Set();
-    for (let i = 0; i < path.length - 1; i++) pathEdges.add(this.getEdgeKey(path[i], path[i + 1]));
+    for (let i = 0; i < path.length - 1; i++) {
+      pathEdges.add(this.getEdgeKey(path[i], path[i + 1]));
+      if (symmetry !== 0 /* None */) {
+        const p1 = this.getSymmetricalPoint(grid, path[i], symmetry);
+        const p2 = this.getSymmetricalPoint(grid, path[i + 1], symmetry);
+        pathEdges.add(this.getEdgeKey(p1, p2));
+      }
+    }
     const unusedEdges = [];
     for (let r = 0; r <= grid.rows; r++) {
       for (let c = 0; c < grid.cols; c++) {
@@ -1926,37 +1994,73 @@ var PuzzleGenerator = class {
    */
   calculateRegions(grid, path, symPath = []) {
     const regions = [];
-    const visitedCells = /* @__PURE__ */ new Set();
-    const pathEdges = /* @__PURE__ */ new Set();
-    for (let i = 0; i < path.length - 1; i++) pathEdges.add(this.getEdgeKey(path[i], path[i + 1]));
-    for (let i = 0; i < symPath.length - 1; i++) pathEdges.add(this.getEdgeKey(symPath[i], symPath[i + 1]));
-    for (let r = 0; r < grid.rows; r++) {
-      for (let c = 0; c < grid.cols; c++) {
-        if (visitedCells.has(`${c},${r}`)) continue;
-        const currentRegion = [];
-        const queue = [{ x: c, y: r }];
-        visitedCells.add(`${c},${r}`);
-        while (queue.length > 0) {
-          const cell = queue.shift();
-          currentRegion.push(cell);
-          const neighbors = [
-            { dx: 0, dy: -1, p1: { x: cell.x, y: cell.y }, p2: { x: cell.x + 1, y: cell.y } },
-            { dx: 0, dy: 1, p1: { x: cell.x, y: cell.y + 1 }, p2: { x: cell.x + 1, y: cell.y + 1 } },
-            { dx: -1, dy: 0, p1: { x: cell.x, y: cell.y }, p2: { x: cell.x, y: cell.y + 1 } },
-            { dx: 1, dy: 0, p1: { x: cell.x + 1, y: cell.y }, p2: { x: cell.x + 1, y: cell.y + 1 } }
-          ];
-          for (const n of neighbors) {
-            const nx = cell.x + n.dx;
-            const ny = cell.y + n.dy;
-            if (nx >= 0 && nx < grid.cols && ny >= 0 && ny < grid.rows) {
-              if (!visitedCells.has(`${nx},${ny}`) && !pathEdges.has(this.getEdgeKey(n.p1, n.p2)) && !this.isAbsentEdge(grid, n.p1, n.p2)) {
-                visitedCells.add(`${nx},${ny}`);
-                queue.push({ x: nx, y: ny });
-              }
+    const rows = grid.rows;
+    const cols = grid.cols;
+    const visitedCells = new Uint8Array(rows * cols);
+    const hEdgesMask = new Uint8Array((rows + 1) * cols);
+    const vEdgesMask = new Uint8Array(rows * (cols + 1));
+    const setEdge = (p1, p2) => {
+      if (p1.x === p2.x) {
+        vEdgesMask[Math.min(p1.y, p2.y) * (cols + 1) + p1.x] = 1;
+      } else {
+        hEdgesMask[p1.y * cols + Math.min(p1.x, p2.x)] = 1;
+      }
+    };
+    for (let i = 0; i < path.length - 1; i++) setEdge(path[i], path[i + 1]);
+    for (let i = 0; i < symPath.length - 1; i++) setEdge(symPath[i], symPath[i + 1]);
+    for (let r = 0; r <= rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        if (grid.hEdges[r][c].type === 2 /* Absent */) hEdgesMask[r * cols + c] = 1;
+      }
+    }
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c <= cols; c++) {
+        if (grid.vEdges[r][c].type === 2 /* Absent */) vEdgesMask[r * (cols + 1) + c] = 1;
+      }
+    }
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const idx = r * cols + c;
+        if (visitedCells[idx]) continue;
+        const region = [];
+        const queue = [idx];
+        visitedCells[idx] = 1;
+        let head = 0;
+        while (head < queue.length) {
+          const currIdx = queue[head++];
+          const cx = currIdx % cols;
+          const cy = Math.floor(currIdx / cols);
+          region.push({ x: cx, y: cy });
+          if (cy > 0 && !hEdgesMask[cy * cols + cx]) {
+            const nIdx = (cy - 1) * cols + cx;
+            if (!visitedCells[nIdx]) {
+              visitedCells[nIdx] = 1;
+              queue.push(nIdx);
+            }
+          }
+          if (cy < rows - 1 && !hEdgesMask[(cy + 1) * cols + cx]) {
+            const nIdx = (cy + 1) * cols + cx;
+            if (!visitedCells[nIdx]) {
+              visitedCells[nIdx] = 1;
+              queue.push(nIdx);
+            }
+          }
+          if (cx > 0 && !vEdgesMask[cy * (cols + 1) + cx]) {
+            const nIdx = cy * cols + (cx - 1);
+            if (!visitedCells[nIdx]) {
+              visitedCells[nIdx] = 1;
+              queue.push(nIdx);
+            }
+          }
+          if (cx < cols - 1 && !vEdgesMask[cy * (cols + 1) + (cx + 1)]) {
+            const nIdx = cy * cols + (cx + 1);
+            if (!visitedCells[nIdx]) {
+              visitedCells[nIdx] = 1;
+              queue.push(nIdx);
             }
           }
         }
-        regions.push(currentRegion);
+        regions.push(region);
       }
     }
     return regions;

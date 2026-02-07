@@ -189,3 +189,27 @@ test("Generator - supports rotational symmetry solvability", () => {
 		assert.ok(solutions >= 1, `Generated rotational symmetry puzzle should be solvable (attempt ${i})`);
 	}
 });
+
+test("Generator - Symmetry and Broken Edges (asymmetrical cuts)", () => {
+	const generator = new PuzzleGenerator();
+	const validator = new PuzzleValidator();
+	const rows = 4;
+	const cols = 4;
+
+	const symmetries = [SymmetryType.Horizontal, SymmetryType.Vertical, SymmetryType.Rotational];
+
+	for (const symmetry of symmetries) {
+		for (let i = 0; i < 5; i++) {
+			const options = {
+				useBrokenEdges: true,
+				symmetry: symmetry,
+				difficulty: 0.5,
+				complexity: 0.8,
+			};
+
+			const grid = generator.generate(rows, cols, options);
+			const solutions = validator.countSolutions(grid, 1);
+			assert.ok(solutions > 0, `Puzzle with symmetry ${symmetry} and asymmetrical cuts should be solvable (attempt ${i})`);
+		}
+	}
+});

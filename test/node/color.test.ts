@@ -1,7 +1,6 @@
 import assert from "node:assert";
 import { describe, it } from "node:test";
-import { WitnessCore } from "../../src/index";
-import { CellType } from "../../src/types";
+import { CellType, WitnessCore } from "../../dist/MiniWitness.js";
 
 describe("Color Options", () => {
 	const core = new WitnessCore();

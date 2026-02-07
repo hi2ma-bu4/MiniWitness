@@ -134,6 +134,8 @@ export declare class Grid {
  * パズルを自動生成するクラス
  */
 export declare class PuzzleGenerator {
+	private isWorker;
+	constructor();
 	/**
 	 * パズルを生成する
 	 * @param rows 行数
@@ -392,6 +394,10 @@ export declare class PuzzleValidator {
 	 * @returns 検証結果（正誤、エラー理由、無効化された記号など）
 	 */
 	validate(grid: Grid, solution: SolutionPath, externalCellsPrecalculated?: Set<string>): ValidationResult;
+	/**
+	 * 高速化された検証（内部探索用）
+	 */
+	private validateFast;
 	/**
 	 * 二点間が断線（Broken or Absent）しているか確認する
 	 */

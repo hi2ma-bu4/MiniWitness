@@ -89,6 +89,15 @@ export class PuzzleValidator {
 	}
 
 	/**
+	 * 高速化された検証（内部探索用）
+	 */
+	private validateFast(grid: Grid, path: Point[], symPath: Point[], externalCells?: Set<string>): ValidationResult {
+		const regions = this.calculateRegions(grid, path, symPath, externalCells);
+		const missed = this.getMissedHexagons(grid, path, symPath);
+		return this.validateWithErasers(grid, regions, missed.edges, missed.nodes);
+	}
+
+	/**
 	 * 二点間が断線（Broken or Absent）しているか確認する
 	 */
 	private isBrokenEdge(grid: Grid, p1: Point, p2: Point): boolean {
@@ -730,37 +739,85 @@ export class PuzzleValidator {
 	 */
 	private calculateRegions(grid: Grid, path: Point[], symPath: Point[] = [], externalCellsPrecalculated?: Set<string>): Point[][] {
 		const regions: Point[][] = [];
-		const visitedCells = new Set<string>();
-		const pathEdges = new Set<string>();
-		for (let i = 0; i < path.length - 1; i++) pathEdges.add(this.getEdgeKey(path[i], path[i + 1]));
-		for (let i = 0; i < symPath.length - 1; i++) pathEdges.add(this.getEdgeKey(symPath[i], symPath[i + 1]));
+		const rows = grid.rows;
+		const cols = grid.cols;
+		const visitedCells = new Uint8Array(rows * cols);
+
+		// エッジのマスク作成 (高速化)
+		const hEdgesMask = new Uint8Array((rows + 1) * cols);
+		const vEdgesMask = new Uint8Array(rows * (cols + 1));
+
+		const setEdge = (p1: Point, p2: Point) => {
+			if (p1.x === p2.x) {
+				vEdgesMask[Math.min(p1.y, p2.y) * (cols + 1) + p1.x] = 1;
+			} else {
+				hEdgesMask[p1.y * cols + Math.min(p1.x, p2.x)] = 1;
+			}
+		};
+
+		for (let i = 0; i < path.length - 1; i++) setEdge(path[i], path[i + 1]);
+		for (let i = 0; i < symPath.length - 1; i++) setEdge(symPath[i], symPath[i + 1]);
+
+		// Absentエッジもマスクに追加
+		for (let r = 0; r <= rows; r++) {
+			for (let c = 0; c < cols; c++) {
+				if (grid.hEdges[r][c].type === EdgeType.Absent) hEdgesMask[r * cols + c] = 1;
+			}
+		}
+		for (let r = 0; r < rows; r++) {
+			for (let c = 0; c <= cols; c++) {
+				if (grid.vEdges[r][c].type === EdgeType.Absent) vEdgesMask[r * (cols + 1) + c] = 1;
+			}
+		}
 
 		const externalCells = externalCellsPrecalculated || this.getExternalCells(grid);
-		for (let r = 0; r < grid.rows; r++) {
-			for (let c = 0; c < grid.cols; c++) {
-				if (visitedCells.has(`${c},${r}`) || (externalCells && externalCells.has(`${c},${r}`))) continue;
+		for (let r = 0; r < rows; r++) {
+			for (let c = 0; c < cols; c++) {
+				const idx = r * cols + c;
+				if (visitedCells[idx] || (externalCells && externalCells.has(`${c},${r}`))) continue;
+
 				const region: Point[] = [];
-				const queue: Point[] = [{ x: c, y: r }];
-				visitedCells.add(`${c},${r}`);
-				while (queue.length > 0) {
-					const curr = queue.shift()!;
-					region.push(curr);
-					const neighbors = [
-						{ nx: curr.x, ny: curr.y - 1, p1: { x: curr.x, y: curr.y }, p2: { x: curr.x + 1, y: curr.y } },
-						{ nx: curr.x, ny: curr.y + 1, p1: { x: curr.x, y: curr.y + 1 }, p2: { x: curr.x + 1, y: curr.y + 1 } },
-						{ nx: curr.x - 1, ny: curr.y, p1: { x: curr.x, y: curr.y }, p2: { x: curr.x, y: curr.y + 1 } },
-						{ nx: curr.x + 1, ny: curr.y, p1: { x: curr.x + 1, y: curr.y }, p2: { x: curr.x + 1, y: curr.y + 1 } },
-					];
-					for (const n of neighbors) {
-						if (n.nx >= 0 && n.nx < grid.cols && n.ny >= 0 && n.ny < grid.rows) {
-							const neighborKey = `${n.nx},${n.ny}`;
-							if (!visitedCells.has(neighborKey) && !externalCells.has(neighborKey)) {
-								const edgeKey = this.getEdgeKey(n.p1, n.p2);
-								if (!pathEdges.has(edgeKey) && !this.isAbsentEdge(grid, n.p1, n.p2)) {
-									visitedCells.add(neighborKey);
-									queue.push({ x: n.nx, y: n.ny });
-								}
-							}
+				const queue: number[] = [idx];
+				visitedCells[idx] = 1;
+
+				let head = 0;
+				while (head < queue.length) {
+					const currIdx = queue[head++];
+					const cx = currIdx % cols;
+					const cy = Math.floor(currIdx / cols);
+					region.push({ x: cx, y: cy });
+
+					// Neighbors: Up, Down, Left, Right
+					// Up
+					if (cy > 0 && !hEdgesMask[cy * cols + cx]) {
+						const nIdx = (cy - 1) * cols + cx;
+						if (!visitedCells[nIdx] && (!externalCells || !externalCells.has(`${cx},${cy - 1}`))) {
+							visitedCells[nIdx] = 1;
+							queue.push(nIdx);
+						}
+					}
+					// Down
+					if (cy < rows - 1 && !hEdgesMask[(cy + 1) * cols + cx]) {
+						const nIdx = (cy + 1) * cols + cx;
+						if (!visitedCells[nIdx] && (!externalCells || !externalCells.has(`${cx},${cy + 1}`))) {
+							visitedCells[nIdx] = 1;
+							queue.push(nIdx);
+						}
+					}
+					// Left
+					if (cx > 0 && !vEdgesMask[cy * (cols + 1) + cx]) {
+						const nIdx = cy * cols + (cx - 1);
+						if (!visitedCells[nIdx] && (!externalCells || !externalCells.has(`${cx - 1},${cy}`))) {
+							visitedCells[nIdx] = 1;
+							queue.push(nIdx);
+						}
+					}
+					// Right
+					if (cx < cols - 1 && !vEdgesMask[cy * (cols + 1) + (cx + 1)]) {
+						const nIdx = cy * cols + (cx + 1);
+						if (!visitedCells[nIdx] && (!externalCells || !externalCells.has(`${cx + 1},${cy}`))) {
+							visitedCells[nIdx] = 1;
+							queue.push(nIdx);
 						}
 					}
 				}
@@ -1006,18 +1063,19 @@ export class PuzzleValidator {
 					if (grid.nodes[Math.floor(snEnd / nodeCols)][snEnd % nodeCols].type !== NodeType.End) return;
 				}
 
+				const symPathPoints = symmetry !== SymmetryType.None ? points.map((p) => this.getSymmetricalPoint(grid, p)) : [];
 				// セルマークがない場合は、この時点で有効な解として確定できる（DFSによりパスの正当性と全六角形通過は保証済み）
 				if (!hasCellMarks) {
-					const fp = this.getFingerprint(grid, points, undefined, externalCells);
+					const fp = this.getFingerprint(grid, points, symPathPoints, undefined, externalCells);
 					if (!fingerprints.has(fp)) {
 						fingerprints.add(fp);
 						stats.solutions++;
 					}
 				} else {
 					// セルマークがある場合は詳細な検証を行う
-					const result = this.validate(grid, solutionPath, externalCells);
+					const result = this.validateFast(grid, points, symPathPoints, externalCells);
 					if (result.isValid) {
-						const fp = this.getFingerprint(grid, points, result.regions, externalCells);
+						const fp = this.getFingerprint(grid, points, symPathPoints, result.regions, externalCells);
 						if (!fingerprints.has(fp)) {
 							fingerprints.add(fp);
 							stats.solutions++;
@@ -1175,13 +1233,13 @@ export class PuzzleValidator {
 					if (grid.nodes[Math.floor(snEnd / nodeCols)][snEnd % nodeCols].type !== NodeType.End) return;
 				}
 
+				const symPathPoints = symmetry !== SymmetryType.None ? points.map((p) => this.getSymmetricalPoint(grid, p)) : [];
 				if (!hasCellMarks) {
-					fingerprints.add(this.getFingerprint(grid, points, undefined, externalCells));
+					fingerprints.add(this.getFingerprint(grid, points, symPathPoints, undefined, externalCells));
 				} else {
-					const solutionPath = { points };
-					const result = this.validate(grid, solutionPath, externalCells);
+					const result = this.validateFast(grid, points, symPathPoints, externalCells);
 					if (result.isValid) {
-						fingerprints.add(this.getFingerprint(grid, points, result.regions, externalCells));
+						fingerprints.add(this.getFingerprint(grid, points, symPathPoints, result.regions, externalCells));
 					}
 				}
 			}
@@ -1250,18 +1308,28 @@ export class PuzzleValidator {
 	/**
 	 * パスの論理的な指紋を取得する（区画分けに基づき、同一解を排除するため）
 	 */
-	private getFingerprint(grid: Grid, path: Point[], precalculatedRegions?: Point[][], externalCells?: Set<string>): string {
-		const regions = precalculatedRegions || this.calculateRegions(grid, path, [], externalCells);
+	private getFingerprint(grid: Grid, path: Point[], symPath: Point[], precalculatedRegions?: Point[][], externalCells?: Set<string>): string {
+		const regions = precalculatedRegions || this.calculateRegions(grid, path, symPath, externalCells);
 		const regionFingerprints = regions
 			.map((region) => {
-				const marks = region
-					.map((p) => grid.cells[p.y][p.x])
-					.filter((c) => c.type !== CellType.None)
-					.map((c) => `${c.type}:${c.color}`)
-					.sort();
-				return marks.join(",");
+				let regionStr = "";
+				const marks = [];
+				for (const p of region) {
+					const c = grid.cells[p.y][p.x];
+					if (c.type !== CellType.None) {
+						marks.push((c.type << 8) | c.color);
+					}
+				}
+				marks.sort((a, b) => a - b);
+				for (const m of marks) regionStr += m.toString(36) + ",";
+				return regionStr;
 			})
 			.sort();
-		return regionFingerprints.filter((f) => f.length > 0).join("|") || "empty";
+
+		let finalFp = "";
+		for (const rf of regionFingerprints) {
+			if (rf.length > 0) finalFp += rf + "|";
+		}
+		return finalFp || "empty";
 	}
 }

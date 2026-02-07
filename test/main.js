@@ -29,7 +29,11 @@ class WitnessGame {
 		});
 
 		const params = new URLSearchParams(window.location.search);
-		this.isWorkerMode = params.get("worker") === "1";
+		if (params.get("worker") == null) {
+			this.isWorkerMode = !!window.Worker && !!this.canvas.transferControlToOffscreen;
+		} else {
+			this.isWorkerMode = params.get("worker") === "1";
+		}
 		useWorkerCheckbox.checked = this.isWorkerMode;
 
 		if (this.isWorkerMode && this.canvas.transferControlToOffscreen) {
