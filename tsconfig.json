@@ -5,7 +5,11 @@
         "module": "ESNext",
         "moduleResolution": "bundler",
         "skipDefaultLibCheck": true,
-        "strict": true
+        "strict": true,
+        "noImplicitAny": true,
+        "noImplicitOverride": true,
+        "noImplicitReturns": true,
+        "noImplicitThis": true,
     },
     "files": [
         "src/index.ts"

@@ -1,4 +1,4 @@
-import { CellType, Color, EdgeType, NodeType, SymmetryType, type Point, type PuzzleData } from "./types";
+import { CellType, Color, EdgeType, NodeType, SymmetryType, type CellConstraint, type Point, type PuzzleData } from "./types";
 
 /**
  * UI表示設定
@@ -54,12 +54,14 @@ export interface WitnessUIOptions {
 	onPathComplete?: (path: Point[]) => void;
 }
 
+type WitnessContext = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+
 /**
  * the witnessパズルの描画とユーザー操作を管理するクラス
  */
 export class WitnessUI {
-	private canvas: HTMLCanvasElement;
-	private ctx: CanvasRenderingContext2D;
+	private canvas: HTMLCanvasElement | OffscreenCanvas;
+	private ctx: WitnessContext;
 	private puzzle: PuzzleData | null = null;
 	private options: Required<WitnessUIOptions>;
 
@@ -88,19 +90,16 @@ export class WitnessUI {
 	private startTime = Date.now();
 
 	// 透過描画用のオフスクリーンCanvas
-	private offscreenCanvas: HTMLCanvasElement | null = null;
-	private offscreenCtx: CanvasRenderingContext2D | null = null;
+	private offscreenCanvas: HTMLCanvasElement | OffscreenCanvas | null = null;
+	private offscreenCtx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null = null;
 
-	constructor(canvasOrId: HTMLCanvasElement | string, puzzle?: PuzzleData, options: WitnessUIOptions = {}) {
-		if (typeof window === "undefined") {
-			// Node.js環境などでの実行
-			this.canvas = {} as HTMLCanvasElement;
-			this.ctx = {} as CanvasRenderingContext2D;
-			this.options = this.mergeOptions(options);
-			return;
-		}
+	private canvasRect: { left: number; top: number; width: number; height: number } | null = null;
 
+	constructor(canvasOrId: HTMLCanvasElement | OffscreenCanvas | string, puzzle?: PuzzleData, options: WitnessUIOptions = {}) {
 		if (typeof canvasOrId === "string") {
+			if (typeof document === "undefined") {
+				throw new Error("Cannot look up canvas by ID in a non-browser environment.");
+			}
 			const el = document.getElementById(canvasOrId);
 			if (!(el instanceof HTMLCanvasElement)) {
 				throw new Error(`Element with id "${canvasOrId}" is not a canvas.`);
@@ -110,7 +109,7 @@ export class WitnessUI {
 			this.canvas = canvasOrId;
 		}
 
-		const context = this.canvas.getContext("2d");
+		const context = (this.canvas as HTMLCanvasElement).getContext("2d") as WitnessContext | null;
 		if (!context) throw new Error("Could not get 2D context.");
 		this.ctx = context;
 		this.ctx.imageSmoothingEnabled = false;
@@ -225,8 +224,15 @@ export class WitnessUI {
 		this.canvas.height = this.puzzle.rows * this.options.cellSize + this.options.gridPadding * 2;
 	}
 
+	/**
+	 * Canvasの表示上の矩形情報を設定する（Worker時などに必要）
+	 */
+	public setCanvasRect(rect: { left: number; top: number; width: number; height: number }) {
+		this.canvasRect = rect;
+	}
+
 	private initEvents() {
-		if (typeof window === "undefined") return;
+		if (typeof window === "undefined" || !(this.canvas instanceof HTMLCanvasElement)) return;
 		this.canvas.addEventListener("mousedown", (e) => this.handleStart(e));
 		window.addEventListener("mousemove", (e) => this.handleMove(e));
 		window.addEventListener("mouseup", (e) => this.handleEnd(e));
@@ -283,10 +289,10 @@ export class WitnessUI {
 
 	// --- イベントハンドラ ---
 
-	private handleStart(e: { clientX: number; clientY: number }): boolean {
+	public handleStart(e: { clientX: number; clientY: number }): boolean {
 		if (!this.puzzle) return false;
 
-		const rect = this.canvas.getBoundingClientRect();
+		const rect = this.canvasRect || (this.canvas instanceof HTMLCanvasElement ? this.canvas.getBoundingClientRect() : { left: 0, top: 0, width: this.canvas.width, height: this.canvas.height });
 		const mouseX = (e.clientX - rect.left) * (this.canvas.width / rect.width);
 		const mouseY = (e.clientY - rect.top) * (this.canvas.height / rect.height);
 
@@ -320,10 +326,10 @@ export class WitnessUI {
 		return false;
 	}
 
-	private handleMove(e: { clientX: number; clientY: number }) {
+	public handleMove(e: { clientX: number; clientY: number }) {
 		if (!this.puzzle || !this.isDrawing) return;
 
-		const rect = this.canvas.getBoundingClientRect();
+		const rect = this.canvasRect || (this.canvas instanceof HTMLCanvasElement ? this.canvas.getBoundingClientRect() : { left: 0, top: 0, width: this.canvas.width, height: this.canvas.height });
 		const mouseX = (e.clientX - rect.left) * (this.canvas.width / rect.width);
 		const mouseY = (e.clientY - rect.top) * (this.canvas.height / rect.height);
 
@@ -472,7 +478,7 @@ export class WitnessUI {
 		this.draw();
 	}
 
-	private handleEnd(e: { clientX: number; clientY: number }) {
+	public handleEnd(e: { clientX: number; clientY: number }) {
 		if (!this.puzzle || !this.isDrawing) return;
 		this.isDrawing = false;
 
@@ -527,7 +533,10 @@ export class WitnessUI {
 	}
 
 	private animate() {
-		if (typeof window === "undefined") return;
+		if (typeof requestAnimationFrame === "undefined") {
+			this.draw();
+			return;
+		}
 		this.draw();
 
 		if (this.isFading) {
@@ -658,7 +667,7 @@ export class WitnessUI {
 		}
 	}
 
-	private drawRipples(ctx: CanvasRenderingContext2D) {
+	private drawRipples(ctx: WitnessContext) {
 		if (!this.puzzle) return;
 		const time = (Date.now() - this.startTime) / 500;
 
@@ -688,7 +697,7 @@ export class WitnessUI {
 		}
 	}
 
-	private drawGrid(ctx: CanvasRenderingContext2D) {
+	private drawGrid(ctx: WitnessContext) {
 		if (!this.puzzle || !this.options.colors.grid) return;
 		ctx.strokeStyle = this.options.colors.grid;
 		ctx.lineWidth = 12;
@@ -738,7 +747,7 @@ export class WitnessUI {
 		}
 	}
 
-	private drawConstraints(ctx: CanvasRenderingContext2D) {
+	private drawConstraints(ctx: WitnessContext) {
 		if (!this.puzzle) return;
 		const now = Date.now();
 		const blinkFactor = (Math.sin((now * Math.PI * 2) / this.options.animations.blinkPeriod!) + 1) / 2;
@@ -894,7 +903,7 @@ export class WitnessUI {
 	/**
 	 * 単一の制約アイテムを描画（座標はキャンバス全体に対する絶対座標）
 	 */
-	private drawConstraintItem(ctx: CanvasRenderingContext2D, cell: any, pos: Point, overrideColor?: string) {
+	private drawConstraintItem(ctx: WitnessContext, cell: CellConstraint, pos: Point, overrideColor?: string) {
 		if (cell.type === CellType.Square) {
 			const size = 26;
 			const radius = 8;
@@ -909,7 +918,7 @@ export class WitnessUI {
 		}
 	}
 
-	private drawNodes(ctx: CanvasRenderingContext2D) {
+	private drawNodes(ctx: WitnessContext) {
 		if (!this.puzzle) return;
 		const isNodeIsolated = (c: number, r: number) => {
 			const connectedEdges: EdgeType[] = [];
@@ -954,7 +963,7 @@ export class WitnessUI {
 		}
 	}
 
-	private drawPath(ctx: CanvasRenderingContext2D, path: Point[], isDrawing: boolean, color: string | undefined, opacity: number, tipPos: Point | null = null) {
+	private drawPath(ctx: WitnessContext, path: Point[], isDrawing: boolean, color: string | undefined, opacity: number, tipPos: Point | null = null) {
 		if (path.length === 0 || !color) return;
 
 		let finalOpacity = opacity;
@@ -982,7 +991,7 @@ export class WitnessUI {
 		ctx.restore();
 	}
 
-	private drawPathInternal(ctx: CanvasRenderingContext2D, path: Point[], isDrawing: boolean, color: string, tipPos: Point | null = null) {
+	private drawPathInternal(ctx: WitnessContext, path: Point[], isDrawing: boolean, color: string, tipPos: Point | null = null) {
 		ctx.save();
 		ctx.strokeStyle = color;
 		ctx.fillStyle = color;
@@ -1018,7 +1027,7 @@ export class WitnessUI {
 		ctx.restore();
 	}
 
-	private drawRoundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number) {
+	private drawRoundedRect(ctx: WitnessContext, x: number, y: number, width: number, height: number, radius: number) {
 		ctx.beginPath();
 		ctx.moveTo(x + radius, y);
 		ctx.lineTo(x + width - radius, y);
@@ -1033,7 +1042,7 @@ export class WitnessUI {
 		ctx.fill();
 	}
 
-	private drawHexagon(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, overrideColor?: string) {
+	private drawHexagon(ctx: WitnessContext, x: number, y: number, radius: number, overrideColor?: string) {
 		if (!this.options.colors.hexagon && !overrideColor) return;
 		ctx.fillStyle = (overrideColor || this.options.colors.hexagon) as string;
 		ctx.beginPath();
@@ -1048,7 +1057,7 @@ export class WitnessUI {
 		ctx.fill();
 	}
 
-	private drawEraser(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, points: number, colorEnum: Color, overrideColor?: string) {
+	private drawEraser(ctx: WitnessContext, x: number, y: number, radius: number, points: number, colorEnum: Color, overrideColor?: string) {
 		ctx.strokeStyle = overrideColor || this.getColorCode(colorEnum);
 		ctx.lineWidth = radius * 0.5;
 		ctx.lineCap = "butt";
@@ -1065,7 +1074,7 @@ export class WitnessUI {
 		ctx.stroke();
 	}
 
-	private drawStar(ctx: CanvasRenderingContext2D, x: number, y: number, innerRadius: number, outerRadius: number, points: number, colorEnum: Color, overrideColor?: string) {
+	private drawStar(ctx: WitnessContext, x: number, y: number, innerRadius: number, outerRadius: number, points: number, colorEnum: Color, overrideColor?: string) {
 		ctx.fillStyle = overrideColor || this.getColorCode(colorEnum);
 		ctx.beginPath();
 		for (let i = 0; i < points * 2; i++) {
@@ -1080,7 +1089,7 @@ export class WitnessUI {
 		ctx.fill();
 	}
 
-	private drawTetris(ctx: CanvasRenderingContext2D, x: number, y: number, shape: number[][], rotated: boolean, colorEnum: Color, overrideColor?: string) {
+	private drawTetris(ctx: WitnessContext, x: number, y: number, shape: number[][], rotated: boolean, colorEnum: Color, overrideColor?: string) {
 		if (!shape || shape.length === 0) return;
 		const cellSize = 12;
 		const gap = 2;
@@ -1169,19 +1178,23 @@ export class WitnessUI {
 		return p1.x < p2.x || (p1.x === p2.x && p1.y < p2.y) ? `${p1.x},${p1.y}-${p2.x},${p2.y}` : `${p2.x},${p2.y}-${p1.x},${p1.y}`;
 	}
 
-	private prepareOffscreen() {
-		if (typeof document === "undefined") {
-			return { canvas: {} as HTMLCanvasElement, ctx: {} as CanvasRenderingContext2D };
-		}
+	private prepareOffscreen(): { canvas: HTMLCanvasElement | OffscreenCanvas; ctx: WitnessContext } {
 		if (!this.offscreenCanvas) {
-			this.offscreenCanvas = document.createElement("canvas");
-			this.offscreenCtx = this.offscreenCanvas.getContext("2d");
+			if (typeof document !== "undefined") {
+				this.offscreenCanvas = document.createElement("canvas");
+			} else if (typeof OffscreenCanvas !== "undefined") {
+				this.offscreenCanvas = new OffscreenCanvas(this.canvas.width, this.canvas.height);
+			} else {
+				throw new Error("Offscreen canvas not supported in this environment.");
+			}
+			this.offscreenCtx = (this.offscreenCanvas as HTMLCanvasElement).getContext("2d") as WitnessContext | null;
 		}
 		if (this.offscreenCanvas.width !== this.canvas.width || this.offscreenCanvas.height !== this.canvas.height) {
 			this.offscreenCanvas.width = this.canvas.width;
 			this.offscreenCanvas.height = this.canvas.height;
 		}
-		this.offscreenCtx!.clearRect(0, 0, this.offscreenCanvas.width, this.offscreenCanvas.height);
-		return { canvas: this.offscreenCanvas, ctx: this.offscreenCtx! };
+		if (!this.offscreenCtx) throw new Error("Could not get offscreen 2D context.");
+		this.offscreenCtx.clearRect(0, 0, this.offscreenCanvas.width, this.offscreenCanvas.height);
+		return { canvas: this.offscreenCanvas, ctx: this.offscreenCtx };
 	}
 }

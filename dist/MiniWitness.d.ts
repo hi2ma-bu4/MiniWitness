@@ -303,7 +303,8 @@ export declare class WitnessUI {
 	private startTime;
 	private offscreenCanvas;
 	private offscreenCtx;
-	constructor(canvasOrId: HTMLCanvasElement | string, puzzle?: PuzzleData, options?: WitnessUIOptions);
+	private canvasRect;
+	constructor(canvasOrId: HTMLCanvasElement | OffscreenCanvas | string, puzzle?: PuzzleData, options?: WitnessUIOptions);
 	private mergeOptions;
 	/**
 	 * パズルデータを設定し、再描画する
@@ -326,12 +327,30 @@ export declare class WitnessUI {
 		c: number;
 	}[], invalidatedNodes?: Point[], errorNodes?: Point[]): void;
 	private resizeCanvas;
+	/**
+	 * Canvasの表示上の矩形情報を設定する（Worker時などに必要）
+	 */
+	setCanvasRect(rect: {
+		left: number;
+		top: number;
+		width: number;
+		height: number;
+	}): void;
 	private initEvents;
 	private getCanvasCoords;
 	private getExitDir;
-	private handleStart;
-	private handleMove;
-	private handleEnd;
+	handleStart(e: {
+		clientX: number;
+		clientY: number;
+	}): boolean;
+	handleMove(e: {
+		clientX: number;
+		clientY: number;
+	}): void;
+	handleEnd(e: {
+		clientX: number;
+		clientY: number;
+	}): void;
 	private getEdgeType;
 	private startFade;
 	private cancelFade;

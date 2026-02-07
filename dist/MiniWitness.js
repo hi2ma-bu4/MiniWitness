@@ -1,5 +1,5 @@
 /*!
- * MiniWitness 1.1.6
+ * MiniWitness 1.2.1
  * Copyright 2026 hi2ma-bu4
  * Licensed under the Apache License, Version 2.0
  * http://www.apache.org/licenses/LICENSE-2.0
@@ -2404,14 +2404,12 @@ var WitnessUI = class {
   // 透過描画用のオフスクリーンCanvas
   offscreenCanvas = null;
   offscreenCtx = null;
+  canvasRect = null;
   constructor(canvasOrId, puzzle, options = {}) {
-    if (typeof window === "undefined") {
-      this.canvas = {};
-      this.ctx = {};
-      this.options = this.mergeOptions(options);
-      return;
-    }
     if (typeof canvasOrId === "string") {
+      if (typeof document === "undefined") {
+        throw new Error("Cannot look up canvas by ID in a non-browser environment.");
+      }
       const el = document.getElementById(canvasOrId);
       if (!(el instanceof HTMLCanvasElement)) {
         throw new Error(`Element with id "${canvasOrId}" is not a canvas.`);
@@ -2522,8 +2520,14 @@ var WitnessUI = class {
     this.canvas.width = this.puzzle.cols * this.options.cellSize + this.options.gridPadding * 2;
     this.canvas.height = this.puzzle.rows * this.options.cellSize + this.options.gridPadding * 2;
   }
+  /**
+   * Canvasの表示上の矩形情報を設定する（Worker時などに必要）
+   */
+  setCanvasRect(rect) {
+    this.canvasRect = rect;
+  }
   initEvents() {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined" || !(this.canvas instanceof HTMLCanvasElement)) return;
     this.canvas.addEventListener("mousedown", (e) => this.handleStart(e));
     window.addEventListener("mousemove", (e) => this.handleMove(e));
     window.addEventListener("mouseup", (e) => this.handleEnd(e));
@@ -2576,7 +2580,7 @@ var WitnessUI = class {
   // --- イベントハンドラ ---
   handleStart(e) {
     if (!this.puzzle) return false;
-    const rect = this.canvas.getBoundingClientRect();
+    const rect = this.canvasRect || (this.canvas instanceof HTMLCanvasElement ? this.canvas.getBoundingClientRect() : { left: 0, top: 0, width: this.canvas.width, height: this.canvas.height });
     const mouseX = (e.clientX - rect.left) * (this.canvas.width / rect.width);
     const mouseY = (e.clientY - rect.top) * (this.canvas.height / rect.height);
     for (let r = 0; r <= this.puzzle.rows; r++) {
@@ -2608,7 +2612,7 @@ var WitnessUI = class {
   }
   handleMove(e) {
     if (!this.puzzle || !this.isDrawing) return;
-    const rect = this.canvas.getBoundingClientRect();
+    const rect = this.canvasRect || (this.canvas instanceof HTMLCanvasElement ? this.canvas.getBoundingClientRect() : { left: 0, top: 0, width: this.canvas.width, height: this.canvas.height });
     const mouseX = (e.clientX - rect.left) * (this.canvas.width / rect.width);
     const mouseY = (e.clientY - rect.top) * (this.canvas.height / rect.height);
     const lastPoint = this.path[this.path.length - 1];
@@ -2772,7 +2776,10 @@ var WitnessUI = class {
     this.isFading = false;
   }
   animate() {
-    if (typeof window === "undefined") return;
+    if (typeof requestAnimationFrame === "undefined") {
+      this.draw();
+      return;
+    }
     this.draw();
     if (this.isFading) {
       const step = 1e3 / (this.options.animations.fadeDuration * 60);
@@ -3328,17 +3335,21 @@ var WitnessUI = class {
     return p1.x < p2.x || p1.x === p2.x && p1.y < p2.y ? `${p1.x},${p1.y}-${p2.x},${p2.y}` : `${p2.x},${p2.y}-${p1.x},${p1.y}`;
   }
   prepareOffscreen() {
-    if (typeof document === "undefined") {
-      return { canvas: {}, ctx: {} };
-    }
     if (!this.offscreenCanvas) {
-      this.offscreenCanvas = document.createElement("canvas");
+      if (typeof document !== "undefined") {
+        this.offscreenCanvas = document.createElement("canvas");
+      } else if (typeof OffscreenCanvas !== "undefined") {
+        this.offscreenCanvas = new OffscreenCanvas(this.canvas.width, this.canvas.height);
+      } else {
+        throw new Error("Offscreen canvas not supported in this environment.");
+      }
       this.offscreenCtx = this.offscreenCanvas.getContext("2d");
     }
     if (this.offscreenCanvas.width !== this.canvas.width || this.offscreenCanvas.height !== this.canvas.height) {
       this.offscreenCanvas.width = this.canvas.width;
       this.offscreenCanvas.height = this.canvas.height;
     }
+    if (!this.offscreenCtx) throw new Error("Could not get offscreen 2D context.");
     this.offscreenCtx.clearRect(0, 0, this.offscreenCanvas.width, this.offscreenCanvas.height);
     return { canvas: this.offscreenCanvas, ctx: this.offscreenCtx };
   }

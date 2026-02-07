@@ -3,9 +3,10 @@ import { PuzzleSerializer, WitnessCore, WitnessUI } from "../dist/MiniWitness.js
 class WitnessGame {
 	constructor() {
 		this.core = new WitnessCore();
-		this.ui = new WitnessUI("game-canvas", null, {
-			onPathComplete: (path) => this.validate(path),
-		});
+		this.canvas = document.getElementById("game-canvas");
+		this.ui = null;
+		this.worker = null;
+		this.isWorkerMode = false;
 
 		this.statusMsg = document.getElementById("status-message");
 		this.sizeSelect = document.getElementById("size-select");
@@ -19,21 +20,43 @@ class WitnessGame {
 	}
 
 	async init() {
+		const useWorkerCheckbox = document.getElementById("use-worker");
+		useWorkerCheckbox.addEventListener("change", () => {
+			alert("Mode change requires page reload. Reloading now...");
+			const url = new URL(window.location.href);
+			url.searchParams.set("worker", useWorkerCheckbox.checked ? "1" : "0");
+			window.location.href = url.toString();
+		});
+
+		const params = new URLSearchParams(window.location.search);
+		this.isWorkerMode = params.get("worker") === "1";
+		useWorkerCheckbox.checked = this.isWorkerMode;
+
+		if (this.isWorkerMode && this.canvas.transferControlToOffscreen) {
+			this.initWorker();
+		} else {
+			this.ui = new WitnessUI(this.canvas, null, {
+				onPathComplete: (path) => this.validate(path),
+			});
+		}
+
 		this.newPuzzleBtn.addEventListener("click", () => this.startNewGame());
 		this.sharePuzzleBtn.addEventListener("click", () => this.sharePuzzle());
 
 		document.getElementById("sym-color-select").addEventListener("change", () => {
-			if (this.ui) {
-				this.ui.setOptions({
-					colors: {
-						symmetry: document.getElementById("sym-color-select").value,
-					},
-				});
+			const options = {
+				colors: {
+					symmetry: document.getElementById("sym-color-select").value,
+				},
+			};
+			if (this.isWorkerMode) {
+				this.worker.postMessage({ type: "setOptions", payload: options });
+			} else if (this.ui) {
+				this.ui.setOptions(options);
 			}
 		});
 
 		// URLパラメータからパズルを読み込む
-		const params = new URLSearchParams(window.location.search);
 		const puzzleData = params.get("puzzle");
 		if (puzzleData) {
 			try {
@@ -71,8 +94,12 @@ class WitnessGame {
 
 		this.updateStatus("Generating puzzle... (Searching for optimal difficulty)");
 		setTimeout(() => {
-			const puzzle = this.core.createPuzzle(size, size, options);
-			this.loadPuzzle(puzzle, options);
+			if (this.isWorkerMode) {
+				this.worker.postMessage({ type: "createPuzzle", payload: { rows: size, cols: size, genOptions: options } });
+			} else {
+				const puzzle = this.core.createPuzzle(size, size, options);
+				this.loadPuzzle(puzzle, options);
+			}
 		}, 10);
 	}
 
@@ -101,14 +128,19 @@ class WitnessGame {
 		const diff = this.core.calculateDifficulty(this.puzzle);
 		const symColor = document.getElementById("sym-color-select").value;
 
-		this.ui.setOptions({
+		const uiOptions = {
 			colors: {
 				colorList: colorList,
 				symmetry: symColor,
 			},
-		});
+		};
 
-		this.ui.setPuzzle(this.puzzle);
+		if (this.isWorkerMode) {
+			this.worker.postMessage({ type: "setPuzzle", payload: { puzzle: this.puzzle, options: uiOptions } });
+		} else {
+			this.ui.setOptions(uiOptions);
+			this.ui.setPuzzle(this.puzzle);
+		}
 		this.updateStatus(`Puzzle loaded! (Difficulty: ${diff.toFixed(2)})`);
 	}
 
@@ -137,14 +169,113 @@ class WitnessGame {
 		this.statusMsg.style.color = color;
 	}
 
-	validate(path) {
-		const result = this.core.validateSolution(this.puzzle, { points: path });
-		this.ui.setValidationResult(result.isValid, result.invalidatedCells, result.invalidatedEdges, result.errorCells, result.errorEdges, result.invalidatedNodes, result.errorNodes);
+	initWorker() {
+		this.worker = new Worker("./worker.js", { type: "module" });
+		const offscreen = this.canvas.transferControlToOffscreen();
 
-		if (result.isValid) {
-			this.updateStatus("Correct! Well done!", "#4f4");
+		this.worker.postMessage(
+			{
+				type: "init",
+				payload: {
+					canvas: offscreen,
+					options: {
+						onPathComplete: true, // Marker to indicate we want callbacks
+					},
+				},
+			},
+			[offscreen],
+		);
+
+		this.worker.onmessage = (e) => {
+			const { type, payload } = e.data;
+			if (type === "pathComplete") {
+				this.validate(payload);
+			} else if (type === "puzzleCreated") {
+				this.loadPuzzle(payload.puzzle, payload.genOptions);
+			} else if (type === "validationResult") {
+				const result = payload;
+				if (result.isValid) {
+					this.updateStatus("Correct! Well done!", "#4f4");
+				} else {
+					this.updateStatus("Incorrect: " + (result.errorReason || "Try again"), "#f44");
+				}
+			}
+		};
+
+		// フォワードイベント
+		const forwardEvent = (e) => {
+			const eventData = {
+				clientX: e.clientX || (e.touches && e.touches[0] ? e.touches[0].clientX : 0),
+				clientY: e.clientY || (e.touches && e.touches[0] ? e.touches[0].clientY : 0),
+			};
+			this.worker.postMessage({
+				type: "event",
+				payload: {
+					eventType: e.type,
+					eventData,
+				},
+			});
+		};
+
+		this.canvas.addEventListener("mousedown", forwardEvent);
+		window.addEventListener("mousemove", forwardEvent);
+		window.addEventListener("mouseup", forwardEvent);
+
+		this.canvas.addEventListener(
+			"touchstart",
+			(e) => {
+				forwardEvent(e);
+				e.preventDefault();
+			},
+			{ passive: false },
+		);
+		window.addEventListener(
+			"touchmove",
+			(e) => {
+				forwardEvent(e);
+				e.preventDefault();
+			},
+			{ passive: false },
+		);
+		window.addEventListener(
+			"touchend",
+			(e) => {
+				forwardEvent(e);
+				e.preventDefault();
+			},
+			{ passive: false },
+		);
+
+		// 定期的にRectを更新
+		const updateRect = () => {
+			const rect = this.canvas.getBoundingClientRect();
+			this.worker.postMessage({
+				type: "setCanvasRect",
+				payload: {
+					left: rect.left,
+					top: rect.top,
+					width: rect.width,
+					height: rect.height,
+				},
+			});
+		};
+		window.addEventListener("resize", updateRect);
+		window.addEventListener("scroll", updateRect);
+		updateRect();
+	}
+
+	validate(path) {
+		if (this.isWorkerMode) {
+			this.worker.postMessage({ type: "validate", payload: { path } });
 		} else {
-			this.updateStatus("Incorrect: " + (result.errorReason || "Try again"), "#f44");
+			const result = this.core.validateSolution(this.puzzle, { points: path });
+			this.ui.setValidationResult(result.isValid, result.invalidatedCells, result.invalidatedEdges, result.errorCells, result.errorEdges, result.invalidatedNodes, result.errorNodes);
+
+			if (result.isValid) {
+				this.updateStatus("Correct! Well done!", "#4f4");
+			} else {
+				this.updateStatus("Incorrect: " + (result.errorReason || "Try again"), "#f44");
+			}
 		}
 	}
 }
