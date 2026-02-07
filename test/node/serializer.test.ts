@@ -30,11 +30,13 @@ test("PuzzleSerializer: serialize and deserialize", async () => {
 			[{ type: 0 }, { type: 3 }, { type: 0 }],
 			[{ type: 0 }, { type: 0 }, { type: 2 }],
 		],
+		symmetry: 0,
 	};
 
 	const options = {
 		useSquares: true,
 		difficulty: 0.5,
+		symmetry: 0,
 	};
 
 	const serialized = await PuzzleSerializer.serialize(puzzle as any, options);

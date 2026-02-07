@@ -105,9 +105,10 @@ var PuzzleValidator = class {
    * 与えられたグリッドと回答パスが正当かどうかを検証する
    * @param grid パズルのグリッドデータ
    * @param solution 回答パス
+   * @param externalCellsPrecalculated 既知の外部セル（高速化用）
    * @returns 検証結果（正誤、エラー理由、無効化された記号など）
    */
-  validate(grid, solution) {
+  validate(grid, solution, externalCellsPrecalculated) {
     const path = solution.points;
     if (path.length < 2) return { isValid: false, errorReason: "Path too short" };
     const symmetry = grid.symmetry || 0 /* None */;
@@ -157,9 +158,11 @@ var PuzzleValidator = class {
         visitedEdges.add(edgeKey);
       }
     }
-    const regions = this.calculateRegions(grid, path, symPath);
+    const regions = this.calculateRegions(grid, path, symPath, externalCellsPrecalculated);
     const missed = this.getMissedHexagons(grid, path, symPath);
-    return this.validateWithErasers(grid, regions, missed.edges, missed.nodes);
+    const result = this.validateWithErasers(grid, regions, missed.edges, missed.nodes);
+    result.regions = regions;
+    return result;
   }
   /**
    * 二点間が断線（Broken or Absent）しているか確認する
@@ -711,16 +714,16 @@ var PuzzleValidator = class {
   /**
    * 回答パスによって分割された各区画のセルリストを取得する
    */
-  calculateRegions(grid, path, symPath = []) {
+  calculateRegions(grid, path, symPath = [], externalCellsPrecalculated) {
     const regions = [];
     const visitedCells = /* @__PURE__ */ new Set();
     const pathEdges = /* @__PURE__ */ new Set();
     for (let i = 0; i < path.length - 1; i++) pathEdges.add(this.getEdgeKey(path[i], path[i + 1]));
     for (let i = 0; i < symPath.length - 1; i++) pathEdges.add(this.getEdgeKey(symPath[i], symPath[i + 1]));
-    const externalCells = this.getExternalCells(grid);
+    const externalCells = externalCellsPrecalculated || this.getExternalCells(grid);
     for (let r = 0; r < grid.rows; r++) {
       for (let c = 0; c < grid.cols; c++) {
-        if (visitedCells.has(`${c},${r}`) || externalCells.has(`${c},${r}`)) continue;
+        if (visitedCells.has(`${c},${r}`) || externalCells && externalCells.has(`${c},${r}`)) continue;
         const region = [];
         const queue = [{ x: c, y: r }];
         visitedCells.add(`${c},${r}`);
@@ -877,6 +880,17 @@ var PuzzleValidator = class {
     const totalHexagons = hexagonEdges.size + hexagonNodes.size;
     const fingerprints = /* @__PURE__ */ new Set();
     const searchLimit = Math.max(1e3, rows * cols * 200);
+    const externalCells = this.getExternalCells(grid);
+    let hasCellMarks = false;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        if (grid.cells[r][c].type !== 0 /* None */) {
+          hasCellMarks = true;
+          break;
+        }
+      }
+      if (hasCellMarks) break;
+    }
     for (const startIdx of startNodes) {
       const startIsHex = hexagonNodes.has(startIdx) ? 1 : 0;
       const symmetry = grid.symmetry || 0 /* None */;
@@ -886,7 +900,7 @@ var PuzzleValidator = class {
         if (snStart === startIdx) continue;
         visitedMask |= 1n << BigInt(snStart);
       }
-      this.exploreSearchSpace(grid, startIdx, visitedMask, [startIdx], startIsHex, totalHexagons, adj, endNodes, fingerprints, stats, searchLimit);
+      this.exploreSearchSpace(grid, startIdx, visitedMask, [startIdx], startIsHex, totalHexagons, adj, endNodes, fingerprints, stats, searchLimit, externalCells, hasCellMarks);
     }
     if (stats.solutions === 0) return 0;
     let constraintCount = hexagonEdges.size + hexagonNodes.size;
@@ -929,24 +943,34 @@ var PuzzleValidator = class {
   /**
    * 探索空間を走査して統計情報を収集する
    */
-  exploreSearchSpace(grid, currIdx, visitedMask, path, hexagonsOnPath, totalHexagons, adj, endNodes, fingerprints, stats, limit) {
+  exploreSearchSpace(grid, currIdx, visitedMask, path, hexagonsOnPath, totalHexagons, adj, endNodes, fingerprints, stats, limit, externalCells, hasCellMarks = true) {
     stats.totalNodesVisited++;
     stats.maxDepth = Math.max(stats.maxDepth, path.length);
     if (stats.totalNodesVisited > limit) return;
     const symmetry = grid.symmetry || 0 /* None */;
     if (endNodes.includes(currIdx)) {
       if (hexagonsOnPath === totalHexagons) {
-        const solutionPath = { points: path.map((idx) => ({ x: idx % (grid.cols + 1), y: Math.floor(idx / (grid.cols + 1)) })) };
+        const points = path.map((idx) => ({ x: idx % (grid.cols + 1), y: Math.floor(idx / (grid.cols + 1)) }));
+        const solutionPath = { points };
         if (symmetry !== 0 /* None */) {
           const snEnd = this.getSymmetricalPointIndex(grid, currIdx);
           const nodeCols2 = grid.cols + 1;
           if (grid.nodes[Math.floor(snEnd / nodeCols2)][snEnd % nodeCols2].type !== 2 /* End */) return;
         }
-        if (this.validate(grid, solutionPath).isValid) {
-          const fp = this.getFingerprint(grid, solutionPath.points);
+        if (!hasCellMarks) {
+          const fp = this.getFingerprint(grid, points, void 0, externalCells);
           if (!fingerprints.has(fp)) {
             fingerprints.add(fp);
             stats.solutions++;
+          }
+        } else {
+          const result = this.validate(grid, solutionPath, externalCells);
+          if (result.isValid) {
+            const fp = this.getFingerprint(grid, points, result.regions, externalCells);
+            if (!fingerprints.has(fp)) {
+              fingerprints.add(fp);
+              stats.solutions++;
+            }
           }
         }
       }
@@ -995,7 +1019,7 @@ var PuzzleValidator = class {
         const snNext = this.getSymmetricalPointIndex(grid, move.next);
         nextVisitedMask |= 1n << BigInt(snNext);
       }
-      this.exploreSearchSpace(grid, move.next, nextVisitedMask, path, hexagonsOnPath + (move.isHexagon ? 1 : 0) + nodeIsHex, totalHexagons, adj, endNodes, fingerprints, stats, limit);
+      this.exploreSearchSpace(grid, move.next, nextVisitedMask, path, hexagonsOnPath + (move.isHexagon ? 1 : 0) + nodeIsHex, totalHexagons, adj, endNodes, fingerprints, stats, limit, externalCells, hasCellMarks);
       path.pop();
       if (stats.totalNodesVisited > limit) return;
     }
@@ -1041,6 +1065,17 @@ var PuzzleValidator = class {
     }
     const fingerprints = /* @__PURE__ */ new Set();
     const totalHexagons = hexagonEdges.size + hexagonNodes.size;
+    const externalCells = this.getExternalCells(grid);
+    let hasCellMarks = false;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        if (grid.cells[r][c].type !== 0 /* None */) {
+          hasCellMarks = true;
+          break;
+        }
+      }
+      if (hasCellMarks) break;
+    }
     for (const startIdx of startNodes) {
       const startIsHex = hexagonNodes.has(startIdx) ? 1 : 0;
       const symmetry = grid.symmetry || 0 /* None */;
@@ -1050,22 +1085,30 @@ var PuzzleValidator = class {
         if (snStart === startIdx) continue;
         visitedMask |= 1n << BigInt(snStart);
       }
-      this.findPathsOptimized(grid, startIdx, visitedMask, [startIdx], startIsHex, totalHexagons, adj, endNodes, fingerprints, limit);
+      this.findPathsOptimized(grid, startIdx, visitedMask, [startIdx], startIsHex, totalHexagons, adj, endNodes, fingerprints, limit, externalCells, hasCellMarks);
     }
     return fingerprints.size;
   }
-  findPathsOptimized(grid, currIdx, visitedMask, path, hexagonsOnPath, totalHexagons, adj, endNodes, fingerprints, limit) {
+  findPathsOptimized(grid, currIdx, visitedMask, path, hexagonsOnPath, totalHexagons, adj, endNodes, fingerprints, limit, externalCells, hasCellMarks = true) {
     if (fingerprints.size >= limit) return;
     const symmetry = grid.symmetry || 0 /* None */;
     if (endNodes.includes(currIdx)) {
       if (hexagonsOnPath === totalHexagons) {
+        const points = path.map((idx) => ({ x: idx % (grid.cols + 1), y: Math.floor(idx / (grid.cols + 1)) }));
         if (symmetry !== 0 /* None */) {
           const snEnd = this.getSymmetricalPointIndex(grid, currIdx);
           const nodeCols = grid.cols + 1;
           if (grid.nodes[Math.floor(snEnd / nodeCols)][snEnd % nodeCols].type !== 2 /* End */) return;
         }
-        const solutionPath = { points: path.map((idx) => ({ x: idx % (grid.cols + 1), y: Math.floor(idx / (grid.cols + 1)) })) };
-        if (this.validate(grid, solutionPath).isValid) fingerprints.add(this.getFingerprint(grid, solutionPath.points));
+        if (!hasCellMarks) {
+          fingerprints.add(this.getFingerprint(grid, points, void 0, externalCells));
+        } else {
+          const solutionPath = { points };
+          const result = this.validate(grid, solutionPath, externalCells);
+          if (result.isValid) {
+            fingerprints.add(this.getFingerprint(grid, points, result.regions, externalCells));
+          }
+        }
       }
       return;
     }
@@ -1099,7 +1142,7 @@ var PuzzleValidator = class {
         const snNext = this.getSymmetricalPointIndex(grid, edge.next);
         nextVisitedMask |= 1n << BigInt(snNext);
       }
-      this.findPathsOptimized(grid, edge.next, nextVisitedMask, path, hexagonsOnPath + (edge.isHexagon ? 1 : 0) + nodeIsHex, totalHexagons, adj, endNodes, fingerprints, limit);
+      this.findPathsOptimized(grid, edge.next, nextVisitedMask, path, hexagonsOnPath + (edge.isHexagon ? 1 : 0) + nodeIsHex, totalHexagons, adj, endNodes, fingerprints, limit, externalCells, hasCellMarks);
       path.pop();
       if (fingerprints.size >= limit) return;
     }
@@ -1125,8 +1168,8 @@ var PuzzleValidator = class {
   /**
    * パスの論理的な指紋を取得する（区画分けに基づき、同一解を排除するため）
    */
-  getFingerprint(grid, path) {
-    const regions = this.calculateRegions(grid, path);
+  getFingerprint(grid, path, precalculatedRegions, externalCells) {
+    const regions = precalculatedRegions || this.calculateRegions(grid, path, [], externalCells);
     const regionFingerprints = regions.map((region) => {
       const marks = region.map((p) => grid.cells[p.y][p.x]).filter((c) => c.type !== 0 /* None */).map((c) => `${c.type}:${c.color}`).sort();
       return marks.join(",");
@@ -1149,7 +1192,7 @@ var PuzzleGenerator = class {
     const validator = new PuzzleValidator();
     let bestGrid = null;
     let bestScore = -1;
-    const maxAttempts = rows * cols > 30 ? 50 : 80;
+    const maxAttempts = rows * cols > 30 ? 100 : 80;
     const markAttemptsPerPath = 5;
     const symmetry = options.symmetry || 0 /* None */;
     let startPoint = { x: 0, y: rows };
@@ -1162,11 +1205,17 @@ var PuzzleGenerator = class {
       endPoint = { x: cols, y: rows };
     }
     let currentPath = null;
+    let precalculatedRegions = null;
+    let precalculatedBoundaryEdges = null;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       if (attempt % markAttemptsPerPath === 0) {
         currentPath = this.generateRandomPath(new Grid(rows, cols), startPoint, endPoint, options.pathLength, symmetry);
+        const tempGrid = new Grid(rows, cols);
+        const symPath = symmetry !== 0 /* None */ ? currentPath.map((p) => this.getSymmetricalPoint(tempGrid, p, symmetry)) : [];
+        precalculatedRegions = this.calculateRegions(tempGrid, currentPath, symPath);
+        precalculatedBoundaryEdges = precalculatedRegions.map((region) => this.getRegionBoundaryEdges(tempGrid, region, currentPath, symPath));
       }
-      const grid = this.generateFromPath(rows, cols, currentPath, options);
+      const grid = this.generateFromPath(rows, cols, currentPath, options, precalculatedRegions, precalculatedBoundaryEdges);
       if (!this.checkAllRequestedConstraintsPresent(grid, options)) continue;
       const difficulty = validator.calculateDifficulty(grid);
       if (difficulty === 0) continue;
@@ -1176,10 +1225,10 @@ var PuzzleGenerator = class {
         bestGrid = grid;
       }
       if (targetDifficulty > 0.8 && difficulty > 0.8) break;
-      if (diffFromTarget < 0.05) break;
+      if (diffFromTarget < 0.01) break;
     }
     if (!bestGrid) {
-      const path = this.generateRandomPath(new Grid(rows, cols), startPoint, endPoint, options.pathLength);
+      const path = this.generateRandomPath(new Grid(rows, cols), startPoint, endPoint, options.pathLength, symmetry);
       return this.generateFromPath(rows, cols, path, options);
     }
     return bestGrid;
@@ -1187,7 +1236,7 @@ var PuzzleGenerator = class {
   /**
    * 指定されたパスに基づいてパズルを構築する
    */
-  generateFromPath(rows, cols, solutionPath, options) {
+  generateFromPath(rows, cols, solutionPath, options, precalculatedRegions, precalculatedBoundaryEdges) {
     const grid = new Grid(rows, cols);
     const symmetry = options.symmetry || 0 /* None */;
     grid.symmetry = symmetry;
@@ -1209,7 +1258,7 @@ var PuzzleGenerator = class {
       grid.nodes[symEnd.y][symEnd.x].type = 2 /* End */;
     }
     const symPath = symmetry !== 0 /* None */ ? solutionPath.map((p) => this.getSymmetricalPoint(grid, p, symmetry)) : [];
-    this.applyConstraintsBasedOnPath(grid, solutionPath, options, symPath);
+    this.applyConstraintsBasedOnPath(grid, solutionPath, options, symPath, precalculatedRegions, precalculatedBoundaryEdges);
     if (options.useBrokenEdges) {
       this.applyBrokenEdges(grid, solutionPath, options);
     }
@@ -1229,16 +1278,17 @@ var PuzzleGenerator = class {
     const targetLen = minLen + targetLengthFactor * (maxLen - minLen);
     let bestPath = [];
     let bestDiff = Infinity;
-    const attempts = 50;
+    const attempts = grid.rows * grid.cols > 30 ? 30 : 50;
     for (let i = 0; i < attempts; i++) {
       const currentPath = this.generateSingleRandomPath(grid, start, end, targetLengthFactor, symmetry);
+      if (currentPath.length === 0) continue;
       const currentLen = currentPath.length - 1;
       const diff = Math.abs(currentLen - targetLen);
       if (diff < bestDiff) {
         bestDiff = diff;
         bestPath = currentPath;
       }
-      if (bestDiff <= 1) break;
+      if (bestDiff <= 2) break;
     }
     return bestPath;
   }
@@ -1248,7 +1298,11 @@ var PuzzleGenerator = class {
   generateSingleRandomPath(grid, start, end, biasFactor, symmetry = 0 /* None */) {
     const visited = /* @__PURE__ */ new Set();
     const path = [];
+    let nodesVisited = 0;
+    const limit = grid.rows * grid.cols * 20;
     const findPath = (current) => {
+      nodesVisited++;
+      if (nodesVisited > limit) return false;
       visited.add(`${current.x},${current.y}`);
       const snCurrent = this.getSymmetricalPoint(grid, current, symmetry);
       visited.add(`${snCurrent.x},${snCurrent.y}`);
@@ -1610,7 +1664,7 @@ var PuzzleGenerator = class {
   /**
    * 解パスに基づいて各区画にルールを配置する
    */
-  applyConstraintsBasedOnPath(grid, path, options, symPath = []) {
+  applyConstraintsBasedOnPath(grid, path, options, symPath = [], precalculatedRegions, precalculatedBoundaryEdges) {
     const complexity = options.complexity ?? 0.5;
     const useHexagons = options.useHexagons ?? true;
     const useSquares = options.useSquares ?? true;
@@ -1652,7 +1706,7 @@ var PuzzleGenerator = class {
       }
     }
     if (useSquares || useStars || useTetris || useEraser) {
-      const regions = this.calculateRegions(grid, path, symPath);
+      const regions = precalculatedRegions || this.calculateRegions(grid, path, symPath);
       const availableColors = options.availableColors ?? [Color.Black, Color.White, Color.Red, Color.Blue];
       const defaultColors = options.defaultColors ?? {};
       const getDefColor = (type, fallback) => {
@@ -1737,7 +1791,7 @@ var PuzzleGenerator = class {
             if (useSquares) errorTypes.push("square");
             let boundaryEdges = [];
             if (useHexagons) {
-              boundaryEdges = this.getRegionBoundaryEdges(grid, region, path, symPath);
+              boundaryEdges = precalculatedBoundaryEdges ? precalculatedBoundaryEdges[idx] : this.getRegionBoundaryEdges(grid, region, path, symPath);
               if (boundaryEdges.length > 0) errorTypes.push("hexagon");
             }
             if (useTetris) errorTypes.push("tetris");
@@ -2563,17 +2617,16 @@ var WitnessUI = class {
     const dy = mouseY - lastPos.y;
     const symmetry = this.puzzle.symmetry || 0 /* None */;
     const exitDir = this.getExitDir(lastPoint.x, lastPoint.y);
-    if (exitDir) {
+    const intendedDir = Math.abs(dx) > Math.abs(dy) ? { x: dx > 0 ? 1 : -1, y: 0 } : { x: 0, y: dy > 0 ? 1 : -1 };
+    if (exitDir && intendedDir.x === exitDir.x && intendedDir.y === exitDir.y) {
       const dot = dx * exitDir.x + dy * exitDir.y;
-      if (dot > 0) {
-        const length = Math.min(dot, this.options.exitLength);
-        this.currentMousePos = {
-          x: lastPos.x + exitDir.x * length,
-          y: lastPos.y + exitDir.y * length
-        };
-        this.draw();
-        return;
-      }
+      const length = Math.max(0, Math.min(dot, this.options.exitLength));
+      this.currentMousePos = {
+        x: lastPos.x + exitDir.x * length,
+        y: lastPos.y + exitDir.y * length
+      };
+      this.draw();
+      return;
     }
     const tryMoveTo = (target, d) => {
       const edgeType = this.getEdgeType(lastPoint, target);
@@ -2680,9 +2733,14 @@ var WitnessUI = class {
     const lastPos = this.getCanvasCoords(lastPoint.x, lastPoint.y);
     const exitDir = this.getExitDir(lastPoint.x, lastPoint.y);
     if (exitDir) {
-      const distToExit = Math.hypot(this.currentMousePos.x - lastPos.x, this.currentMousePos.y - lastPos.y);
-      if (distToExit > this.options.exitLength * 0.1) {
-        this.exitTipPos = { ...this.currentMousePos };
+      const dx_exit = this.currentMousePos.x - lastPos.x;
+      const dy_exit = this.currentMousePos.y - lastPos.y;
+      const dot = dx_exit * exitDir.x + dy_exit * exitDir.y;
+      if (dot > 0) {
+        this.exitTipPos = {
+          x: lastPos.x + exitDir.x * this.options.exitLength,
+          y: lastPos.y + exitDir.y * this.options.exitLength
+        };
         this.options.onPathComplete(this.path);
         return;
       }
@@ -2758,7 +2816,7 @@ var WitnessUI = class {
       }
     } else if (this.path.length > 0) {
       let color = this.isInvalidPath ? this.options.colors.error : this.options.colors.path;
-      if (this.isSuccessFading) {
+      if (this.isSuccessFading && !this.puzzle.symmetry) {
         color = this.options.colors.success;
       }
       if (!this.isDrawing && this.exitTipPos && !this.isInvalidPath) {
@@ -2785,8 +2843,6 @@ var WitnessUI = class {
         let symColor = this.options.colors.symmetry;
         if (this.isInvalidPath) {
           symColor = this.options.colors.error;
-        } else if (this.isSuccessFading) {
-          symColor = this.options.colors.success;
         }
         if (!this.isDrawing && this.exitTipPos && !this.isInvalidPath) {
           const elapsed = now - (this.isSuccessFading ? this.successFadeStartTime : this.eraserAnimationStartTime);

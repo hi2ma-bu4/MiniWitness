@@ -334,6 +334,11 @@ test("Generator - all requested constraints should be present", () => {
 				if (grid.vEdges[r][c].type === EdgeType.Hexagon) foundHex = true;
 			}
 		}
+		for (let r = 0; r <= grid.rows; r++) {
+			for (let c = 0; c <= grid.cols; c++) {
+				if (grid.nodes[r][c].type === NodeType.Hexagon) foundHex = true;
+			}
+		}
 
 		let foundSquare = false;
 		let foundStar = false;

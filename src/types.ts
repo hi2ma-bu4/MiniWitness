@@ -96,6 +96,7 @@ export interface ValidationResult {
 	errorCells?: Point[];
 	errorEdges?: { type: "h" | "v"; r: number; c: number }[];
 	errorNodes?: Point[];
+	regions?: Point[][];
 }
 
 /**

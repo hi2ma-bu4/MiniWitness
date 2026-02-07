@@ -38,6 +38,7 @@ class WitnessGame {
 		if (puzzleData) {
 			try {
 				const { puzzle, options } = await PuzzleSerializer.deserialize(puzzleData);
+				options.availableColors = options.availableColors || true;
 				this.loadPuzzle(puzzle, options);
 				this.updateStatus("Puzzle loaded from URL!");
 			} catch (e) {

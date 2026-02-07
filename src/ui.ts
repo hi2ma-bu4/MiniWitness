@@ -336,17 +336,18 @@ export class WitnessUI {
 		const symmetry = this.puzzle.symmetry || SymmetryType.None;
 
 		const exitDir = this.getExitDir(lastPoint.x, lastPoint.y);
-		if (exitDir) {
+		const intendedDir = Math.abs(dx) > Math.abs(dy) ? { x: dx > 0 ? 1 : -1, y: 0 } : { x: 0, y: dy > 0 ? 1 : -1 };
+
+		// ゴールの出っ張り方向への移動
+		if (exitDir && intendedDir.x === exitDir.x && intendedDir.y === exitDir.y) {
 			const dot = dx * exitDir.x + dy * exitDir.y;
-			if (dot > 0) {
-				const length = Math.min(dot, this.options.exitLength);
-				this.currentMousePos = {
-					x: lastPos.x + exitDir.x * length,
-					y: lastPos.y + exitDir.y * length,
-				};
-				this.draw();
-				return;
-			}
+			const length = Math.max(0, Math.min(dot, this.options.exitLength));
+			this.currentMousePos = {
+				x: lastPos.x + exitDir.x * length,
+				y: lastPos.y + exitDir.y * length,
+			};
+			this.draw();
+			return;
 		}
 
 		const tryMoveTo = (target: Point, d: number) => {
@@ -480,9 +481,16 @@ export class WitnessUI {
 		const exitDir = this.getExitDir(lastPoint.x, lastPoint.y);
 
 		if (exitDir) {
-			const distToExit = Math.hypot(this.currentMousePos.x - lastPos.x, this.currentMousePos.y - lastPos.y);
-			if (distToExit > this.options.exitLength * 0.1) {
-				this.exitTipPos = { ...this.currentMousePos };
+			const dx_exit = this.currentMousePos.x - lastPos.x;
+			const dy_exit = this.currentMousePos.y - lastPos.y;
+			const dot = dx_exit * exitDir.x + dy_exit * exitDir.y;
+
+			if (dot > 0) {
+				// 出っ張りの範囲に入っていれば、最後まで伸ばしてゴールとする
+				this.exitTipPos = {
+					x: lastPos.x + exitDir.x * this.options.exitLength,
+					y: lastPos.y + exitDir.y * this.options.exitLength,
+				};
 				this.options.onPathComplete(this.path);
 				return;
 			}
@@ -574,8 +582,8 @@ export class WitnessUI {
 		} else if (this.path.length > 0) {
 			let color = this.isInvalidPath ? (this.options.colors.error as string) : (this.options.colors.path as string);
 
-			// 成功時は成功時の色をデフォルトとする
-			if (this.isSuccessFading) {
+			// 成功時は成功時の色をデフォルトとする（対称モード時は元の色を維持）
+			if (this.isSuccessFading && !this.puzzle.symmetry) {
 				color = this.options.colors.success as string;
 			}
 
@@ -609,11 +617,9 @@ export class WitnessUI {
 				const symPath = this.getSymmetryPath(this.path);
 				let symColor = this.options.colors.symmetry as string;
 
-				// エラー時や成功時は色を上書き
+				// エラー時や成功時は色を上書き（対称モード成功時は元の色を維持）
 				if (this.isInvalidPath) {
 					symColor = this.options.colors.error as string;
-				} else if (this.isSuccessFading) {
-					symColor = this.options.colors.success as string;
 				}
 
 				if (!this.isDrawing && this.exitTipPos && !this.isInvalidPath) {

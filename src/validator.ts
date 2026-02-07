@@ -9,9 +9,10 @@ export class PuzzleValidator {
 	 * 与えられたグリッドと回答パスが正当かどうかを検証する
 	 * @param grid パズルのグリッドデータ
 	 * @param solution 回答パス
+	 * @param externalCellsPrecalculated 既知の外部セル（高速化用）
 	 * @returns 検証結果（正誤、エラー理由、無効化された記号など）
 	 */
-	public validate(grid: Grid, solution: SolutionPath): ValidationResult {
+	public validate(grid: Grid, solution: SolutionPath, externalCellsPrecalculated?: Set<string>): ValidationResult {
 		const path = solution.points;
 		if (path.length < 2) return { isValid: false, errorReason: "Path too short" };
 
@@ -78,11 +79,13 @@ export class PuzzleValidator {
 		}
 
 		// 区画の計算
-		const regions = this.calculateRegions(grid, path, symPath);
+		const regions = this.calculateRegions(grid, path, symPath, externalCellsPrecalculated);
 		// 通過しなかった六角形の取得
 		const missed = this.getMissedHexagons(grid, path, symPath);
 		// エラー削除（テトラポッド）を考慮した制約検証
-		return this.validateWithErasers(grid, regions, missed.edges, missed.nodes);
+		const result = this.validateWithErasers(grid, regions, missed.edges, missed.nodes);
+		result.regions = regions;
+		return result;
 	}
 
 	/**
@@ -725,17 +728,17 @@ export class PuzzleValidator {
 	/**
 	 * 回答パスによって分割された各区画のセルリストを取得する
 	 */
-	private calculateRegions(grid: Grid, path: Point[], symPath: Point[] = []): Point[][] {
+	private calculateRegions(grid: Grid, path: Point[], symPath: Point[] = [], externalCellsPrecalculated?: Set<string>): Point[][] {
 		const regions: Point[][] = [];
 		const visitedCells = new Set<string>();
 		const pathEdges = new Set<string>();
 		for (let i = 0; i < path.length - 1; i++) pathEdges.add(this.getEdgeKey(path[i], path[i + 1]));
 		for (let i = 0; i < symPath.length - 1; i++) pathEdges.add(this.getEdgeKey(symPath[i], symPath[i + 1]));
 
-		const externalCells = this.getExternalCells(grid);
+		const externalCells = externalCellsPrecalculated || this.getExternalCells(grid);
 		for (let r = 0; r < grid.rows; r++) {
 			for (let c = 0; c < grid.cols; c++) {
-				if (visitedCells.has(`${c},${r}`) || externalCells.has(`${c},${r}`)) continue;
+				if (visitedCells.has(`${c},${r}`) || (externalCells && externalCells.has(`${c},${r}`))) continue;
 				const region: Point[] = [];
 				const queue: Point[] = [{ x: c, y: r }];
 				visitedCells.add(`${c},${r}`);
@@ -903,6 +906,19 @@ export class PuzzleValidator {
 
 		// 盤面の大きさに合わせて探索リミットを調整
 		const searchLimit = Math.max(1000, rows * cols * 200);
+		const externalCells = this.getExternalCells(grid);
+
+		// セルマーク（四角、星、テトリス、消しゴム）があるか事前にチェック
+		let hasCellMarks = false;
+		for (let r = 0; r < rows; r++) {
+			for (let c = 0; c < cols; c++) {
+				if (grid.cells[r][c].type !== CellType.None) {
+					hasCellMarks = true;
+					break;
+				}
+			}
+			if (hasCellMarks) break;
+		}
 
 		for (const startIdx of startNodes) {
 			const startIsHex = hexagonNodes.has(startIdx) ? 1 : 0;
@@ -914,7 +930,7 @@ export class PuzzleValidator {
 				visitedMask |= 1n << BigInt(snStart);
 			}
 
-			this.exploreSearchSpace(grid, startIdx, visitedMask, [startIdx], startIsHex, totalHexagons, adj, endNodes, fingerprints, stats, searchLimit);
+			this.exploreSearchSpace(grid, startIdx, visitedMask, [startIdx], startIsHex, totalHexagons, adj, endNodes, fingerprints, stats, searchLimit, externalCells, hasCellMarks);
 		}
 
 		if (stats.solutions === 0) return 0;
@@ -972,7 +988,7 @@ export class PuzzleValidator {
 	/**
 	 * 探索空間を走査して統計情報を収集する
 	 */
-	private exploreSearchSpace(grid: Grid, currIdx: number, visitedMask: bigint, path: number[], hexagonsOnPath: number, totalHexagons: number, adj: { next: number; isHexagon: boolean; isBroken: boolean }[][], endNodes: number[], fingerprints: Set<string>, stats: { totalNodesVisited: number; branchingPoints: number; solutions: number; maxDepth: number; backtracks: number }, limit: number): void {
+	private exploreSearchSpace(grid: Grid, currIdx: number, visitedMask: bigint, path: number[], hexagonsOnPath: number, totalHexagons: number, adj: { next: number; isHexagon: boolean; isBroken: boolean }[][], endNodes: number[], fingerprints: Set<string>, stats: { totalNodesVisited: number; branchingPoints: number; solutions: number; maxDepth: number; backtracks: number }, limit: number, externalCells?: Set<string>, hasCellMarks: boolean = true): void {
 		stats.totalNodesVisited++;
 		stats.maxDepth = Math.max(stats.maxDepth, path.length);
 		if (stats.totalNodesVisited > limit) return;
@@ -981,7 +997,8 @@ export class PuzzleValidator {
 
 		if (endNodes.includes(currIdx)) {
 			if (hexagonsOnPath === totalHexagons) {
-				const solutionPath = { points: path.map((idx) => ({ x: idx % (grid.cols + 1), y: Math.floor(idx / (grid.cols + 1)) })) };
+				const points = path.map((idx) => ({ x: idx % (grid.cols + 1), y: Math.floor(idx / (grid.cols + 1)) }));
+				const solutionPath = { points };
 				// symmetryモードの際、もう一方もEndNodeにいる必要がある
 				if (symmetry !== SymmetryType.None) {
 					const snEnd = this.getSymmetricalPointIndex(grid, currIdx);
@@ -989,11 +1006,22 @@ export class PuzzleValidator {
 					if (grid.nodes[Math.floor(snEnd / nodeCols)][snEnd % nodeCols].type !== NodeType.End) return;
 				}
 
-				if (this.validate(grid, solutionPath).isValid) {
-					const fp = this.getFingerprint(grid, solutionPath.points);
+				// セルマークがない場合は、この時点で有効な解として確定できる（DFSによりパスの正当性と全六角形通過は保証済み）
+				if (!hasCellMarks) {
+					const fp = this.getFingerprint(grid, points, undefined, externalCells);
 					if (!fingerprints.has(fp)) {
 						fingerprints.add(fp);
 						stats.solutions++;
+					}
+				} else {
+					// セルマークがある場合は詳細な検証を行う
+					const result = this.validate(grid, solutionPath, externalCells);
+					if (result.isValid) {
+						const fp = this.getFingerprint(grid, points, result.regions, externalCells);
+						if (!fingerprints.has(fp)) {
+							fingerprints.add(fp);
+							stats.solutions++;
+						}
 					}
 				}
 			}
@@ -1056,7 +1084,7 @@ export class PuzzleValidator {
 				nextVisitedMask |= 1n << BigInt(snNext);
 			}
 
-			this.exploreSearchSpace(grid, move.next, nextVisitedMask, path, hexagonsOnPath + (move.isHexagon ? 1 : 0) + nodeIsHex, totalHexagons, adj, endNodes, fingerprints, stats, limit);
+			this.exploreSearchSpace(grid, move.next, nextVisitedMask, path, hexagonsOnPath + (move.isHexagon ? 1 : 0) + nodeIsHex, totalHexagons, adj, endNodes, fingerprints, stats, limit, externalCells, hasCellMarks);
 			path.pop();
 			if (stats.totalNodesVisited > limit) return;
 		}
@@ -1106,6 +1134,20 @@ export class PuzzleValidator {
 
 		const fingerprints = new Set<string>();
 		const totalHexagons = hexagonEdges.size + hexagonNodes.size;
+		const externalCells = this.getExternalCells(grid);
+
+		// セルマーク（四角、星、テトリス、消しゴム）があるか事前にチェック
+		let hasCellMarks = false;
+		for (let r = 0; r < rows; r++) {
+			for (let c = 0; c < cols; c++) {
+				if (grid.cells[r][c].type !== CellType.None) {
+					hasCellMarks = true;
+					break;
+				}
+			}
+			if (hasCellMarks) break;
+		}
+
 		for (const startIdx of startNodes) {
 			const startIsHex = hexagonNodes.has(startIdx) ? 1 : 0;
 			const symmetry = grid.symmetry || SymmetryType.None;
@@ -1115,25 +1157,33 @@ export class PuzzleValidator {
 				if (snStart === startIdx) continue;
 				visitedMask |= 1n << BigInt(snStart);
 			}
-			this.findPathsOptimized(grid, startIdx, visitedMask, [startIdx], startIsHex, totalHexagons, adj, endNodes, fingerprints, limit);
+			this.findPathsOptimized(grid, startIdx, visitedMask, [startIdx], startIsHex, totalHexagons, adj, endNodes, fingerprints, limit, externalCells, hasCellMarks);
 		}
 		return fingerprints.size;
 	}
 
-	private findPathsOptimized(grid: Grid, currIdx: number, visitedMask: bigint, path: number[], hexagonsOnPath: number, totalHexagons: number, adj: { next: number; isHexagon: boolean; isBroken: boolean }[][], endNodes: number[], fingerprints: Set<string>, limit: number): void {
+	private findPathsOptimized(grid: Grid, currIdx: number, visitedMask: bigint, path: number[], hexagonsOnPath: number, totalHexagons: number, adj: { next: number; isHexagon: boolean; isBroken: boolean }[][], endNodes: number[], fingerprints: Set<string>, limit: number, externalCells?: Set<string>, hasCellMarks: boolean = true): void {
 		if (fingerprints.size >= limit) return;
 		const symmetry = grid.symmetry || SymmetryType.None;
 
 		if (endNodes.includes(currIdx)) {
 			if (hexagonsOnPath === totalHexagons) {
+				const points = path.map((idx) => ({ x: idx % (grid.cols + 1), y: Math.floor(idx / (grid.cols + 1)) }));
 				if (symmetry !== SymmetryType.None) {
 					const snEnd = this.getSymmetricalPointIndex(grid, currIdx);
 					const nodeCols = grid.cols + 1;
 					if (grid.nodes[Math.floor(snEnd / nodeCols)][snEnd % nodeCols].type !== NodeType.End) return;
 				}
 
-				const solutionPath = { points: path.map((idx) => ({ x: idx % (grid.cols + 1), y: Math.floor(idx / (grid.cols + 1)) })) };
-				if (this.validate(grid, solutionPath).isValid) fingerprints.add(this.getFingerprint(grid, solutionPath.points));
+				if (!hasCellMarks) {
+					fingerprints.add(this.getFingerprint(grid, points, undefined, externalCells));
+				} else {
+					const solutionPath = { points };
+					const result = this.validate(grid, solutionPath, externalCells);
+					if (result.isValid) {
+						fingerprints.add(this.getFingerprint(grid, points, result.regions, externalCells));
+					}
+				}
 			}
 			return;
 		}
@@ -1172,7 +1222,7 @@ export class PuzzleValidator {
 				nextVisitedMask |= 1n << BigInt(snNext);
 			}
 
-			this.findPathsOptimized(grid, edge.next, nextVisitedMask, path, hexagonsOnPath + (edge.isHexagon ? 1 : 0) + nodeIsHex, totalHexagons, adj, endNodes, fingerprints, limit);
+			this.findPathsOptimized(grid, edge.next, nextVisitedMask, path, hexagonsOnPath + (edge.isHexagon ? 1 : 0) + nodeIsHex, totalHexagons, adj, endNodes, fingerprints, limit, externalCells, hasCellMarks);
 			path.pop();
 			if (fingerprints.size >= limit) return;
 		}
@@ -1200,8 +1250,8 @@ export class PuzzleValidator {
 	/**
 	 * パスの論理的な指紋を取得する（区画分けに基づき、同一解を排除するため）
 	 */
-	private getFingerprint(grid: Grid, path: Point[]): string {
-		const regions = this.calculateRegions(grid, path);
+	private getFingerprint(grid: Grid, path: Point[], precalculatedRegions?: Point[][], externalCells?: Set<string>): string {
+		const regions = precalculatedRegions || this.calculateRegions(grid, path, [], externalCells);
 		const regionFingerprints = regions
 			.map((region) => {
 				const marks = region

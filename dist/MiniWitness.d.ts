@@ -94,6 +94,7 @@ export interface ValidationResult {
 		c: number;
 	}[];
 	errorNodes?: Point[];
+	regions?: Point[][];
 }
 /**
  * パズル生成のオプション
@@ -368,9 +369,10 @@ export declare class PuzzleValidator {
 	 * 与えられたグリッドと回答パスが正当かどうかを検証する
 	 * @param grid パズルのグリッドデータ
 	 * @param solution 回答パス
+	 * @param externalCellsPrecalculated 既知の外部セル（高速化用）
 	 * @returns 検証結果（正誤、エラー理由、無効化された記号など）
 	 */
-	validate(grid: Grid, solution: SolutionPath): ValidationResult;
+	validate(grid: Grid, solution: SolutionPath, externalCellsPrecalculated?: Set<string>): ValidationResult;
 	/**
 	 * 二点間が断線（Broken or Absent）しているか確認する
 	 */
