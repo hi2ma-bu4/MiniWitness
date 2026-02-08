@@ -597,12 +597,9 @@ export class WitnessUI {
 			}
 		}
 
-		// 失敗時かつフェード設定ありの場合、一定時間（点滅時間）待ってからフェードアウトを開始する
+		// 失敗時かつフェード設定ありの場合、即座にフェードアウトを開始する
 		if (this.isInvalidPath && !this.options.stayPathOnError && !this.isFading && this.path.length > 0) {
-			const elapsed = now - this.eraserAnimationStartTime;
-			if (elapsed >= this.options.animations.blinkDuration) {
-				this.startFade(this.options.colors.error);
-			}
+			this.startFade(this.options.colors.error);
 		}
 
 		this.draw();
@@ -634,7 +631,12 @@ export class WitnessUI {
 			this.drawPath(ctx, this.fadingPath, false, this.fadeColor, this.fadeOpacity, this.fadingTipPos);
 			if (this.puzzle.symmetry !== undefined && this.puzzle.symmetry !== SymmetryType.None) {
 				const symFadingPath = this.getSymmetryPath(this.fadingPath);
-				const symColor = this.options.colors.symmetry as string;
+				let symColor = this.options.colors.symmetry as string;
+				if (this.isInvalidPath) {
+					const originalSymAlpha = this.colorToRgba(symColor).a;
+					symColor = this.setAlpha(this.options.colors.error as string, originalSymAlpha);
+				}
+
 				let symTipPos: Point | null = null;
 				if (this.fadingTipPos) {
 					const gridRelX = (this.fadingTipPos.x - this.options.gridPadding) / this.options.cellSize;
@@ -661,6 +663,7 @@ export class WitnessUI {
 			}
 
 			// Eraser無効化前の点滅時などの色制御
+			let pathOpacity = 1.0;
 			if (!this.isDrawing && this.exitTipPos && !this.isInvalidPath) {
 				const elapsed = now - (this.isSuccessFading ? this.successFadeStartTime : this.eraserAnimationStartTime);
 				const blinkDuration = this.options.animations.blinkDuration!;
@@ -670,41 +673,22 @@ export class WitnessUI {
 						if (hasNegation && this.options.blinkMarksOnError) {
 							// 消しゴム無効化がある成功時は、アニメーション中のみ赤色（一瞬で切り替え）
 							color = this.options.colors.error as string;
+							if (!this.options.stayPathOnError) {
+								pathOpacity = Math.max(0, 1.0 - elapsed / this.options.animations.fadeDuration);
+							}
 						}
-					} else if (this.options.blinkMarksOnError) {
-						// 失敗時（Eraserあり）は点滅させる
-						// 開始と終了を滑らかにする
-						const transitionIn = Math.min(1.0, elapsed / 200);
-						const transitionOut = elapsed > blinkDuration * 0.8 ? (blinkDuration - elapsed) / (blinkDuration * 0.2) : 1.0;
-						const transitionFactor = Math.min(transitionIn, transitionOut);
-
-						const blinkFactor = (Math.sin((now * Math.PI * 2) / this.options.animations.blinkPeriod!) + 1) / 2;
-						const targetErrorColor = this.setAlpha(errorColor, originalPathAlpha);
-						color = this.lerpColor(originalPathColor, targetErrorColor, blinkFactor * transitionFactor);
 					}
-				}
-			} else if (this.isInvalidPath && !this.isDrawing && !this.options.stayPathOnError) {
-				// 失敗時にフェードアウトする場合も、待機時間中は点滅（設定ON時）
-				const elapsed = now - this.eraserAnimationStartTime;
-				const blinkDuration = this.options.animations.blinkDuration!;
-				if (elapsed < blinkDuration && this.options.blinkMarksOnError) {
-					const transitionIn = Math.min(1.0, elapsed / 200);
-					const transitionOut = elapsed > blinkDuration * 0.8 ? (blinkDuration - elapsed) / (blinkDuration * 0.2) : 1.0;
-					const transitionFactor = Math.min(transitionIn, transitionOut);
-
-					const blinkFactor = (Math.sin((now * Math.PI * 2) / this.options.animations.blinkPeriod!) + 1) / 2;
-					const targetErrorColor = this.setAlpha(errorColor, originalPathAlpha);
-					color = this.lerpColor(originalPathColor, targetErrorColor, blinkFactor * transitionFactor);
 				}
 			}
 
-			this.drawPath(ctx, this.path, this.isDrawing, color, 1.0, this.isDrawing ? this.currentMousePos : this.exitTipPos);
+			this.drawPath(ctx, this.path, this.isDrawing, color, pathOpacity, this.isDrawing ? this.currentMousePos : this.exitTipPos);
 
 			if (this.puzzle.symmetry !== undefined && this.puzzle.symmetry !== SymmetryType.None) {
 				const symPath = this.getSymmetryPath(this.path);
 				const originalSymColor = this.options.colors.symmetry as string;
 				const originalSymAlpha = this.colorToRgba(originalSymColor).a;
 				let symColor = originalSymColor;
+				let symPathOpacity = pathOpacity;
 
 				// エラー時や成功時は色を上書き（対称モード成功時は元の色を維持）
 				if (this.isInvalidPath) {
@@ -720,26 +704,7 @@ export class WitnessUI {
 							if (hasNegation && this.options.blinkMarksOnError) {
 								symColor = this.options.colors.error as string;
 							}
-						} else if (this.options.blinkMarksOnError) {
-							const transitionIn = Math.min(1.0, elapsed / 200);
-							const transitionOut = elapsed > blinkDuration * 0.8 ? (blinkDuration - elapsed) / (blinkDuration * 0.2) : 1.0;
-							const transitionFactor = Math.min(transitionIn, transitionOut);
-							const blinkFactor = (Math.sin((now * Math.PI * 2) / this.options.animations.blinkPeriod!) + 1) / 2;
-							const targetErrorColor = this.setAlpha(errorColor, originalSymAlpha);
-							symColor = this.lerpColor(originalSymColor, targetErrorColor, blinkFactor * transitionFactor);
 						}
-					}
-				} else if (this.isInvalidPath && !this.isDrawing && !this.options.stayPathOnError) {
-					const elapsed = now - this.eraserAnimationStartTime;
-					const blinkDuration = this.options.animations.blinkDuration!;
-					if (elapsed < blinkDuration && this.options.blinkMarksOnError) {
-						const transitionIn = Math.min(1.0, elapsed / 200);
-						const transitionOut = elapsed > blinkDuration * 0.8 ? (blinkDuration - elapsed) / (blinkDuration * 0.2) : 1.0;
-						const transitionFactor = Math.min(transitionIn, transitionOut);
-
-						const blinkFactor = (Math.sin((now * Math.PI * 2) / this.options.animations.blinkPeriod!) + 1) / 2;
-						const targetErrorColor = this.setAlpha(errorColor, originalSymAlpha);
-						symColor = this.lerpColor(originalSymColor, targetErrorColor, blinkFactor * transitionFactor);
 					}
 				}
 
@@ -755,7 +720,7 @@ export class WitnessUI {
 						y: symGridRel.y * this.options.cellSize + this.options.gridPadding,
 					};
 				}
-				this.drawPath(ctx, symPath, this.isDrawing, symColor, 1.0, symTipPos);
+				this.drawPath(ctx, symPath, this.isDrawing, symColor, symPathOpacity, symTipPos);
 			}
 		}
 	}

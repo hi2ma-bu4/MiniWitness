@@ -3338,10 +3338,7 @@ var WitnessUI = class {
       }
     }
     if (this.isInvalidPath && !this.options.stayPathOnError && !this.isFading && this.path.length > 0) {
-      const elapsed = now - this.eraserAnimationStartTime;
-      if (elapsed >= this.options.animations.blinkDuration) {
-        this.startFade(this.options.colors.error);
-      }
+      this.startFade(this.options.colors.error);
     }
     this.draw();
     if (typeof requestAnimationFrame !== "undefined") {
@@ -3365,7 +3362,11 @@ var WitnessUI = class {
       this.drawPath(ctx, this.fadingPath, false, this.fadeColor, this.fadeOpacity, this.fadingTipPos);
       if (this.puzzle.symmetry !== void 0 && this.puzzle.symmetry !== 0 /* None */) {
         const symFadingPath = this.getSymmetryPath(this.fadingPath);
-        const symColor = this.options.colors.symmetry;
+        let symColor = this.options.colors.symmetry;
+        if (this.isInvalidPath) {
+          const originalSymAlpha = this.colorToRgba(symColor).a;
+          symColor = this.setAlpha(this.options.colors.error, originalSymAlpha);
+        }
         let symTipPos = null;
         if (this.fadingTipPos) {
           const gridRelX = (this.fadingTipPos.x - this.options.gridPadding) / this.options.cellSize;
@@ -3386,6 +3387,7 @@ var WitnessUI = class {
       if (this.isSuccessFading && !this.puzzle.symmetry) {
         color = this.setAlpha(this.options.colors.success, originalPathAlpha);
       }
+      let pathOpacity = 1;
       if (!this.isDrawing && this.exitTipPos && !this.isInvalidPath) {
         const elapsed = now - (this.isSuccessFading ? this.successFadeStartTime : this.eraserAnimationStartTime);
         const blinkDuration = this.options.animations.blinkDuration;
@@ -3394,34 +3396,20 @@ var WitnessUI = class {
             const hasNegation = this.invalidatedCells.length > 0 || this.invalidatedEdges.length > 0 || this.invalidatedNodes.length > 0;
             if (hasNegation && this.options.blinkMarksOnError) {
               color = this.options.colors.error;
+              if (!this.options.stayPathOnError) {
+                pathOpacity = Math.max(0, 1 - elapsed / this.options.animations.fadeDuration);
+              }
             }
-          } else if (this.options.blinkMarksOnError) {
-            const transitionIn = Math.min(1, elapsed / 200);
-            const transitionOut = elapsed > blinkDuration * 0.8 ? (blinkDuration - elapsed) / (blinkDuration * 0.2) : 1;
-            const transitionFactor = Math.min(transitionIn, transitionOut);
-            const blinkFactor = (Math.sin(now * Math.PI * 2 / this.options.animations.blinkPeriod) + 1) / 2;
-            const targetErrorColor = this.setAlpha(errorColor, originalPathAlpha);
-            color = this.lerpColor(originalPathColor, targetErrorColor, blinkFactor * transitionFactor);
           }
         }
-      } else if (this.isInvalidPath && !this.isDrawing && !this.options.stayPathOnError) {
-        const elapsed = now - this.eraserAnimationStartTime;
-        const blinkDuration = this.options.animations.blinkDuration;
-        if (elapsed < blinkDuration && this.options.blinkMarksOnError) {
-          const transitionIn = Math.min(1, elapsed / 200);
-          const transitionOut = elapsed > blinkDuration * 0.8 ? (blinkDuration - elapsed) / (blinkDuration * 0.2) : 1;
-          const transitionFactor = Math.min(transitionIn, transitionOut);
-          const blinkFactor = (Math.sin(now * Math.PI * 2 / this.options.animations.blinkPeriod) + 1) / 2;
-          const targetErrorColor = this.setAlpha(errorColor, originalPathAlpha);
-          color = this.lerpColor(originalPathColor, targetErrorColor, blinkFactor * transitionFactor);
-        }
       }
-      this.drawPath(ctx, this.path, this.isDrawing, color, 1, this.isDrawing ? this.currentMousePos : this.exitTipPos);
+      this.drawPath(ctx, this.path, this.isDrawing, color, pathOpacity, this.isDrawing ? this.currentMousePos : this.exitTipPos);
       if (this.puzzle.symmetry !== void 0 && this.puzzle.symmetry !== 0 /* None */) {
         const symPath = this.getSymmetryPath(this.path);
         const originalSymColor = this.options.colors.symmetry;
         const originalSymAlpha = this.colorToRgba(originalSymColor).a;
         let symColor = originalSymColor;
+        let symPathOpacity = pathOpacity;
         if (this.isInvalidPath) {
           symColor = this.setAlpha(errorColor, originalSymAlpha);
         }
@@ -3434,25 +3422,7 @@ var WitnessUI = class {
               if (hasNegation && this.options.blinkMarksOnError) {
                 symColor = this.options.colors.error;
               }
-            } else if (this.options.blinkMarksOnError) {
-              const transitionIn = Math.min(1, elapsed / 200);
-              const transitionOut = elapsed > blinkDuration * 0.8 ? (blinkDuration - elapsed) / (blinkDuration * 0.2) : 1;
-              const transitionFactor = Math.min(transitionIn, transitionOut);
-              const blinkFactor = (Math.sin(now * Math.PI * 2 / this.options.animations.blinkPeriod) + 1) / 2;
-              const targetErrorColor = this.setAlpha(errorColor, originalSymAlpha);
-              symColor = this.lerpColor(originalSymColor, targetErrorColor, blinkFactor * transitionFactor);
             }
-          }
-        } else if (this.isInvalidPath && !this.isDrawing && !this.options.stayPathOnError) {
-          const elapsed = now - this.eraserAnimationStartTime;
-          const blinkDuration = this.options.animations.blinkDuration;
-          if (elapsed < blinkDuration && this.options.blinkMarksOnError) {
-            const transitionIn = Math.min(1, elapsed / 200);
-            const transitionOut = elapsed > blinkDuration * 0.8 ? (blinkDuration - elapsed) / (blinkDuration * 0.2) : 1;
-            const transitionFactor = Math.min(transitionIn, transitionOut);
-            const blinkFactor = (Math.sin(now * Math.PI * 2 / this.options.animations.blinkPeriod) + 1) / 2;
-            const targetErrorColor = this.setAlpha(errorColor, originalSymAlpha);
-            symColor = this.lerpColor(originalSymColor, targetErrorColor, blinkFactor * transitionFactor);
           }
         }
         let symTipPos = null;
@@ -3466,7 +3436,7 @@ var WitnessUI = class {
             y: symGridRel.y * this.options.cellSize + this.options.gridPadding
           };
         }
-        this.drawPath(ctx, symPath, this.isDrawing, symColor, 1, symTipPos);
+        this.drawPath(ctx, symPath, this.isDrawing, symColor, symPathOpacity, symTipPos);
       }
     }
   }
