@@ -104,6 +104,7 @@ class WitnessGame {
 			useSquares: document.getElementById("use-squares").checked,
 			useStars: document.getElementById("use-stars").checked,
 			useTetris: document.getElementById("use-tetris").checked,
+			useTetrisNegative: document.getElementById("use-tetris-negative").checked,
 			useEraser: document.getElementById("use-eraser").checked,
 			useBrokenEdges: document.getElementById("use-broken-edges").checked,
 			symmetry: parseInt(document.getElementById("symmetry-select").value),
@@ -135,6 +136,7 @@ class WitnessGame {
 		document.getElementById("use-squares").checked = !!options.useSquares;
 		document.getElementById("use-stars").checked = !!options.useStars;
 		document.getElementById("use-tetris").checked = !!options.useTetris;
+		document.getElementById("use-tetris-negative").checked = !!options.useTetrisNegative;
 		document.getElementById("use-eraser").checked = !!options.useEraser;
 		document.getElementById("use-broken-edges").checked = !!options.useBrokenEdges;
 		document.getElementById("symmetry-select").value = options.symmetry ?? 0;

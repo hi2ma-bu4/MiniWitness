@@ -2,6 +2,13 @@ import { Grid } from "./grid";
 import { CellType, Color, type EdgeConstraint, EdgeType, type GenerationOptions, NodeType, type Point, SymmetryType } from "./types";
 import { PuzzleValidator } from "./validator";
 
+interface TiledPiece {
+	shape: number[][];
+	displayShape: number[][];
+	isRotated: boolean;
+	isNegative?: boolean;
+}
+
 /**
  * パズルを自動生成するクラス
  */
@@ -632,6 +639,7 @@ export class PuzzleGenerator {
 		const useSquares = options.useSquares ?? true;
 		const useStars = options.useStars ?? true;
 		const useTetris = options.useTetris ?? false;
+		const useTetrisNegative = options.useTetrisNegative ?? false;
 		const useEraser = options.useEraser ?? false;
 
 		let hexagonsPlaced = 0;
@@ -787,29 +795,98 @@ export class PuzzleGenerator {
 				}
 
 				// テトリスの配置
-				if (useTetris && totalTetrisArea < maxTotalTetrisArea) {
+				if ((useTetris || useTetrisNegative) && totalTetrisArea < maxTotalTetrisArea) {
 					let shouldPlaceTetris = Math.random() < 0.1 + complexity * 0.4;
 					if (tetrisPlaced === 0 && remainingRegions <= 2) shouldPlaceTetris = true;
 					const maxTetrisPerRegion = tetrisPlaced === 0 && remainingRegions <= 2 ? 6 : 4;
-					if (shouldPlaceTetris && potentialCells.length > 0 && region.length <= maxTetrisPerRegion * 4 && totalTetrisArea + region.length <= maxTotalTetrisArea) {
-						const tiledPieces = this.generateTiling(region, maxTetrisPerRegion, options);
-						if (tiledPieces) {
-							for (const p of tiledPieces) {
-								if (potentialCells.length === 0) break;
-								const cell = potentialCells.pop()!;
-								grid.cells[cell.y][cell.x].type = p.isRotated ? CellType.TetrisRotated : CellType.Tetris;
-								grid.cells[cell.y][cell.x].shape = p.isRotated ? p.displayShape : p.shape;
 
-								let tetrisColor = getDefColor(CellType.Tetris, Color.None);
-								if (useStars && Math.random() < 0.5) {
-									const colors = availableColors.filter((c) => c !== Color.Blue && c !== tetrisColor);
-									if (colors.length > 0) {
-										tetrisColor = colors[Math.floor(Math.random() * colors.length)];
+					if (shouldPlaceTetris && potentialCells.length > 0 && totalTetrisArea + region.length <= maxTotalTetrisArea) {
+						let tiledPieces = this.generateTiling(region, maxTetrisPerRegion, options) as TiledPiece[] | null;
+						if (tiledPieces) {
+							// 減算テトリスの適用
+							const negativePiecesToPlace: TiledPiece[] = [];
+							if (useTetrisNegative && Math.random() < 0.4 + complexity * 0.4) {
+								const difficulty = options.difficulty ?? 0.5;
+								const prob0 = 0.2; // area-0 case probability
+								if (Math.random() < prob0 && potentialCells.length >= 2) {
+									// Case: Net area 0 with different shapes
+									const area = 3 + Math.floor(Math.random() * 2); // area 3 or 4
+									const candidates = this.TETRIS_SHAPES.filter((s) => this.getShapeArea(s) === area);
+									this.shuffleArray(candidates);
+
+									let found = false;
+									for (let i = 0; i < candidates.length && !found; i++) {
+										for (let j = i + 1; j < candidates.length && !found; j++) {
+											const pShape = candidates[i];
+											const nShape = candidates[j];
+											if (!this.isSameShape(pShape, nShape)) {
+												tiledPieces.push({
+													shape: pShape,
+													displayShape: pShape,
+													isRotated: Math.random() < difficulty * 0.7,
+													isNegative: false,
+												});
+												negativePiecesToPlace.push({
+													shape: nShape,
+													displayShape: nShape,
+													isRotated: Math.random() < difficulty * 0.7,
+													isNegative: true,
+												});
+												found = true;
+											}
+										}
+									}
+								} else if (tiledPieces.length > 0) {
+									// Case: Net area > 0 using standard triples
+									const numAttempts = Math.random() < 0.3 ? 2 : 1;
+									for (let i = 0; i < numAttempts; i++) {
+										if (potentialCells.length < 1) break;
+										const targetIdx = Math.floor(Math.random() * tiledPieces.length);
+										const triple = this.findStandardTriple(tiledPieces[targetIdx].shape);
+										if (triple) {
+											// Check if triple.n matches any existing positive piece in tiledPieces
+											const isDuplicate = tiledPieces.some((tp) => this.isSameShape(tp.shape, triple.n));
+											if (!isDuplicate) {
+												tiledPieces[targetIdx] = {
+													shape: triple.p,
+													displayShape: triple.p,
+													isRotated: Math.random() < difficulty * 0.7,
+													isNegative: false,
+												};
+												negativePiecesToPlace.push({
+													shape: triple.n,
+													displayShape: triple.n,
+													isRotated: Math.random() < difficulty * 0.7,
+													isNegative: true,
+												});
+											}
+										}
 									}
 								}
-								grid.cells[cell.y][cell.x].color = tetrisColor;
+							}
+
+							const allPieces: TiledPiece[] = [...tiledPieces, ...negativePiecesToPlace];
+							for (const p of allPieces) {
+								if (potentialCells.length === 0) break;
+								const cell = potentialCells.pop()!;
+								const isNeg = p.isNegative;
+
+								if (isNeg) {
+									grid.cells[cell.y][cell.x].type = p.isRotated ? CellType.TetrisNegativeRotated : CellType.TetrisNegative;
+									grid.cells[cell.y][cell.x].color = getDefColor(CellType.TetrisNegative, Color.Cyan);
+								} else {
+									grid.cells[cell.y][cell.x].type = p.isRotated ? CellType.TetrisRotated : CellType.Tetris;
+									let tetrisColor = getDefColor(CellType.Tetris, Color.None);
+									if (useStars && Math.random() < 0.5) {
+										const colors = availableColors.filter((c) => c !== tetrisColor);
+										if (colors.length > 0) tetrisColor = colors[Math.floor(Math.random() * colors.length)];
+									}
+									grid.cells[cell.y][cell.x].color = tetrisColor;
+								}
+								grid.cells[cell.y][cell.x].shape = p.isRotated ? p.displayShape : p.shape;
 								tetrisPlaced++;
 							}
+
 							totalTetrisArea += region.length;
 						}
 					}
@@ -890,8 +967,7 @@ export class PuzzleGenerator {
 
 									let tetrisColor = Color.None;
 									if (useStars && Math.random() < 0.3) {
-										const colors = availableColors.filter((c) => c !== Color.Blue);
-										tetrisColor = colors[Math.floor(Math.random() * colors.length)];
+										tetrisColor = availableColors[Math.floor(Math.random() * availableColors.length)];
 									}
 									grid.cells[cell.y][cell.x].color = tetrisColor;
 									tetrisPlaced++;
@@ -1144,6 +1220,7 @@ export class PuzzleGenerator {
 		const useSquares = options.useSquares ?? true;
 		const useStars = options.useStars ?? true;
 		const useTetris = options.useTetris ?? false;
+		const useTetrisNegative = options.useTetrisNegative ?? false;
 		const useEraser = options.useEraser ?? false;
 		const useBrokenEdges = options.useBrokenEdges ?? false;
 
@@ -1195,6 +1272,7 @@ export class PuzzleGenerator {
 			let fSq = false;
 			let fSt = false;
 			let fT = false;
+			let fTN = false;
 			let fE = false;
 			const sqC = new Set<number>();
 			const stC = new Set<number>();
@@ -1210,11 +1288,13 @@ export class PuzzleGenerator {
 						stC.add(grid.cells[r][c].color);
 					}
 					if (type === CellType.Tetris || type === CellType.TetrisRotated) fT = true;
+					if (type === CellType.TetrisNegative || type === CellType.TetrisNegativeRotated) fTN = true;
 					if (type === CellType.Eraser) fE = true;
 				}
 			if (useSquares && !fSq) return false;
 			if (useStars && !fSt) return false;
 			if (useTetris && !fT) return false;
+			if (useTetrisNegative && !fTN) return false;
 			if (useEraser && !fE) return false;
 
 			// 四角形の追加制約: 他の色の四角形、または同色の星が存在しない場合は2色以上必要
@@ -1340,6 +1420,91 @@ export class PuzzleGenerator {
 	}
 	private placePiece(regionGrid: boolean[][], shape: number[][], r: number, c: number, value: boolean) {
 		for (let i = 0; i < shape.length; i++) for (let j = 0; j < shape[0].length; j++) if (shape[i][j]) regionGrid[r + i][c + j] = value;
+	}
+	private isSameShape(s1: number[][], s2: number[][]): boolean {
+		const rotations = this.getAllRotations(s1);
+		const s2Str = JSON.stringify(s2);
+		return rotations.some((r) => JSON.stringify(r) === s2Str);
+	}
+	private canTilePieceWith(p: number[][], t: number[][], n: number[][]): boolean {
+		const areaP = this.getShapeArea(p);
+		const areaT = this.getShapeArea(t);
+		const areaN = this.getShapeArea(n);
+		if (areaP !== areaT + areaN) return false;
+
+		const rotationsT = this.getAllRotations(t);
+		const rotationsN = this.getAllRotations(n);
+		const hP = p.length,
+			wP = p[0].length;
+
+		for (const rt of rotationsT) {
+			for (const rn of rotationsN) {
+				const hT = rt.length,
+					wT = rt[0].length;
+				const hN = rn.length,
+					wN = rn[0].length;
+				for (let rT = 0; rT <= hP - hT; rT++) {
+					for (let cT = 0; cT <= wP - wT; cT++) {
+						for (let rN = 0; rN <= hP - hN; rN++) {
+							for (let cN = 0; cN <= wP - wN; cN++) {
+								const grid = Array.from({ length: hP }, () => Array(wP).fill(0));
+								let possible = true;
+								// Place T
+								for (let r = 0; r < hT; r++) {
+									for (let c = 0; c < wT; c++) {
+										if (rt[r][c]) grid[rT + r][cT + c] = 1;
+									}
+								}
+								// Place N
+								for (let r = 0; r < hN; r++) {
+									for (let c = 0; c < wN; c++) {
+										if (rn[r][c]) {
+											if (grid[rN + r][cN + c]) {
+												possible = false;
+												break;
+											}
+											grid[rN + r][cN + c] = 1;
+										}
+									}
+									if (!possible) break;
+								}
+								if (possible) {
+									// Check if matches P
+									let matches = true;
+									for (let r = 0; r < hP; r++) {
+										for (let c = 0; c < wP; c++) {
+											if (grid[r][c] !== p[r][c]) {
+												matches = false;
+												break;
+											}
+										}
+										if (!matches) break;
+									}
+									if (matches) return true;
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		return false;
+	}
+	private findStandardTriple(t: number[][]): { p: number[][]; n: number[][] } | null {
+		const areaT = this.getShapeArea(t);
+		const nCandidates = [...this.TETRIS_SHAPES];
+		this.shuffleArray(nCandidates);
+
+		for (const n of nCandidates) {
+			const areaN = this.getShapeArea(n);
+			const areaP = areaT + areaN;
+			if (areaP > 5) continue;
+			const pCandidates = this.TETRIS_SHAPES.filter((s) => this.getShapeArea(s) === areaP);
+			for (const p of pCandidates) {
+				if (this.canTilePieceWith(p, t, n)) return { p, n };
+			}
+		}
+		return null;
 	}
 	private shuffleArray<T>(array: T[]) {
 		for (let i = array.length - 1; i > 0; i--) {

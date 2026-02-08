@@ -118,6 +118,7 @@ export class PuzzleSerializer {
 		bw.write(+!!options.useSquares, 1);
 		bw.write(+!!options.useStars, 1);
 		bw.write(+!!options.useTetris, 1);
+		bw.write(+!!options.useTetrisNegative, 1);
 		bw.write(+!!options.useEraser, 1);
 		bw.write(+!!options.useBrokenEdges, 1);
 		bw.write(options.symmetry ?? 0, 2);
@@ -218,6 +219,7 @@ export class PuzzleSerializer {
 		const useSquares = !!br.read(1);
 		const useStars = !!br.read(1);
 		const useTetris = !!br.read(1);
+		const useTetrisNegative = !!br.read(1);
 		const useEraser = !!br.read(1);
 		const useBroken = !!br.read(1);
 		const optSymmetry = br.read(2);
@@ -226,6 +228,7 @@ export class PuzzleSerializer {
 		if (useSquares) options.useSquares = true;
 		if (useStars) options.useStars = true;
 		if (useTetris) options.useTetris = true;
+		if (useTetrisNegative) options.useTetrisNegative = true;
 		if (useEraser) options.useEraser = true;
 		if (useBroken) options.useBrokenEdges = true;
 		options.symmetry = optSymmetry;

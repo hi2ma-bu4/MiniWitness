@@ -582,6 +582,7 @@ export class PuzzleValidator {
 		const starColors = new Set<number>();
 		const squareColors = new Set<number>();
 		const tetrisPieces: { shape: number[][]; rotatable: boolean; pos: Point }[] = [];
+		const tetrisNegativePieces: { shape: number[][]; rotatable: boolean; pos: Point }[] = [];
 
 		for (const cell of region) {
 			if (erasedSet.has(`${cell.x},${cell.y}`)) continue;
@@ -599,6 +600,8 @@ export class PuzzleValidator {
 			else if (constraint.type === CellType.Star) starColors.add(color);
 			else if (constraint.type === CellType.Tetris || constraint.type === CellType.TetrisRotated) {
 				if (constraint.shape) tetrisPieces.push({ shape: constraint.shape, rotatable: constraint.type === CellType.TetrisRotated, pos: cell });
+			} else if (constraint.type === CellType.TetrisNegative || constraint.type === CellType.TetrisNegativeRotated) {
+				if (constraint.shape) tetrisNegativePieces.push({ shape: constraint.shape, rotatable: constraint.type === CellType.TetrisNegativeRotated, pos: cell });
 			}
 		}
 
@@ -625,14 +628,17 @@ export class PuzzleValidator {
 		}
 
 		// テトリスのルール：タイリング可能
-		if (tetrisPieces.length > 0) {
+		if (tetrisPieces.length > 0 || tetrisNegativePieces.length > 0) {
 			if (
 				!this.checkTetrisConstraint(
+					grid,
 					region,
 					tetrisPieces.map((p) => ({ shape: p.shape, rotatable: p.rotatable })),
+					tetrisNegativePieces.map((p) => ({ shape: p.shape, rotatable: p.rotatable })),
 				)
 			) {
 				for (const p of tetrisPieces) errorCells.push(p.pos);
+				for (const p of tetrisNegativePieces) errorCells.push(p.pos);
 			}
 		}
 		return errorCells;
@@ -705,26 +711,94 @@ export class PuzzleValidator {
 	}
 
 	/**
-	 * テトリス制約の検証（指定された領域をピースで埋め尽くせるか）
+	 * テトリス制約の検証
+	 * 領域内の全てのテトリスピース（正・負）を盤面内に配置し、
+	 * 各セルの合計値が「領域内なら1、領域外なら0」になる配置が存在するかを確認する。
+	 * 重なりは許容されるが、最終的な合計がマイナスになることは許されない。
+	 * また、全てのピースはパズル（グリッド）の範囲内に収まっている必要がある。
+	 * @param gridObj グリッドオブジェクト
 	 * @param region 区画
-	 * @param pieces テトリスピースのリスト
-	 * @returns 埋め尽くせるかどうか
+	 * @param pieces 正のテトリスピース
+	 * @param negativePieces 負のテトリスピース
 	 */
-	private checkTetrisConstraint(region: Point[], pieces: { shape: number[][]; rotatable: boolean }[]): boolean {
-		const totalTetrisArea = pieces.reduce((sum, p) => sum + this.getShapeArea(p.shape), 0);
-		if (totalTetrisArea !== region.length) return false;
+	private checkTetrisConstraint(gridObj: Grid, region: Point[], pieces: { shape: number[][]; rotatable: boolean }[], negativePieces: { shape: number[][]; rotatable: boolean }[] = []): boolean {
+		const positiveArea = pieces.reduce((sum, p) => sum + this.getShapeArea(p.shape), 0);
+		const negativeArea = negativePieces.reduce((sum, p) => sum + this.getShapeArea(p.shape), 0);
+		const netArea = positiveArea - negativeArea;
 
-		const minX = Math.min(...region.map((p) => p.x));
-		const minY = Math.min(...region.map((p) => p.y));
-		const maxX = Math.max(...region.map((p) => p.x));
-		const maxY = Math.max(...region.map((p) => p.y));
-		const width = maxX - minX + 1;
-		const height = maxY - minY + 1;
+		if (netArea < 0) return false;
+		if (netArea === 0) return true;
+		if (netArea !== region.length) return false;
 
-		const regionGrid = Array.from({ length: height }, () => Array(width).fill(false));
-		for (const p of region) regionGrid[p.y - minY][p.x - minX] = true;
+		const rows = gridObj.rows;
+		const cols = gridObj.cols;
 
-		return this.canTile(regionGrid, pieces);
+		// ターゲット値を設定 (領域内 = 1, 領域外 = 0)
+		const target = new Int8Array(rows * cols);
+		for (const p of region) target[p.y * cols + p.x] = 1;
+
+		const current = new Int8Array(rows * cols);
+
+		const allPieceData = [...pieces.map((p) => ({ shape: p.shape, rotatable: p.rotatable, sign: 1, area: this.getShapeArea(p.shape) })), ...negativePieces.map((p) => ({ shape: p.shape, rotatable: p.rotatable, sign: -1, area: this.getShapeArea(p.shape) }))];
+
+		const totalNegativeArea = negativeArea;
+		let currentNegativeAreaLeft = totalNegativeArea;
+		let currentPositiveAreaLeft = positiveArea;
+
+		const backtrack = (idx: number): boolean => {
+			if (idx === allPieceData.length) {
+				for (let i = 0; i < target.length; i++) {
+					if (current[i] !== target[i]) return false;
+				}
+				return true;
+			}
+
+			const piece = allPieceData[idx];
+			if (piece.sign === -1) currentNegativeAreaLeft -= piece.area;
+			else currentPositiveAreaLeft -= piece.area;
+
+			const shapes = piece.rotatable ? this.getAllRotations(piece.shape) : [piece.shape];
+
+			for (const shape of shapes) {
+				const h = shape.length;
+				const w = shape[0].length;
+
+				for (let r = 0; r <= rows - h; r++) {
+					for (let c = 0; c <= cols - w; c++) {
+						// 配置
+						let possible = true;
+						const placed = [];
+						for (let pr = 0; pr < h; pr++) {
+							for (let pc = 0; pc < w; pc++) {
+								if (shape[pr][pc]) {
+									const tidx = (r + pr) * cols + (c + pc);
+									current[tidx] += piece.sign;
+									placed.push(tidx);
+
+									if (current[tidx] < 0) possible = false;
+									// 枝刈り: 正のピース配置中、ターゲット+残りの負の面積を超えたら不可
+									if (piece.sign === 1 && current[tidx] > 1 + totalNegativeArea) possible = false;
+								}
+							}
+							if (!possible) break;
+						}
+
+						if (possible && backtrack(idx + 1)) return true;
+
+						// 戻す
+						for (const tidx of placed) {
+							current[tidx] -= piece.sign;
+						}
+					}
+				}
+			}
+
+			if (piece.sign === -1) currentNegativeAreaLeft += piece.area;
+			else currentPositiveAreaLeft += piece.area;
+			return false;
+		};
+
+		return backtrack(0);
 	}
 
 	private getShapeArea(shape: number[][]): number {
@@ -739,64 +813,6 @@ export class PuzzleValidator {
 	 * @param pieces 残りのピース
 	 * @returns タイリング可能かどうか
 	 */
-	private canTile(regionGrid: boolean[][], pieces: { shape: number[][]; rotatable: boolean }[]): boolean {
-		let r0 = -1;
-		let c0 = -1;
-		for (let r = 0; r < regionGrid.length; r++) {
-			for (let c = 0; c < regionGrid[0].length; c++) {
-				if (regionGrid[r][c]) {
-					r0 = r;
-					c0 = c;
-					break;
-				}
-			}
-			if (r0 !== -1) break;
-		}
-		if (r0 === -1) return pieces.length === 0;
-		if (pieces.length === 0) return false;
-
-		for (let i = 0; i < pieces.length; i++) {
-			const piece = pieces[i];
-			const nextPieces = [...pieces.slice(0, i), ...pieces.slice(i + 1)];
-			const rotations = piece.rotatable ? this.getAllRotations(piece.shape) : [piece.shape];
-
-			for (const shape of rotations) {
-				const blocks: { r: number; c: number }[] = [];
-				for (let pr = 0; pr < shape.length; pr++) {
-					for (let pc = 0; pc < shape[0].length; pc++) {
-						if (shape[pr][pc]) blocks.push({ r: pr, c: pc });
-					}
-				}
-				for (const anchor of blocks) {
-					const dr = r0 - anchor.r;
-					const dc = c0 - anchor.c;
-					if (this.canPlace(regionGrid, shape, dr, dc)) {
-						this.placePiece(regionGrid, shape, dr, dc, false);
-						if (this.canTile(regionGrid, nextPieces)) return true;
-						this.placePiece(regionGrid, shape, dr, dc, true);
-					}
-				}
-			}
-		}
-		return false;
-	}
-
-	private canPlace(regionGrid: boolean[][], shape: number[][], r: number, c: number): boolean {
-		for (let i = 0; i < shape.length; i++) {
-			for (let j = 0; j < shape[0].length; j++) {
-				if (shape[i][j]) {
-					const nr = r + i;
-					const nc = c + j;
-					if (nr < 0 || nr >= regionGrid.length || nc < 0 || nc >= regionGrid[0].length || !regionGrid[nr][nc]) return false;
-				}
-			}
-		}
-		return true;
-	}
-
-	private placePiece(regionGrid: boolean[][], shape: number[][], r: number, c: number, value: boolean) {
-		for (let i = 0; i < shape.length; i++) for (let j = 0; j < shape[0].length; j++) if (shape[i][j]) regionGrid[r + i][c + j] = value;
-	}
 
 	private getAllRotations(shape: number[][]): number[][][] {
 		const results: number[][][] = [];
@@ -1147,8 +1163,27 @@ export class PuzzleValidator {
 		difficulty += hexagonNodes.size * 0.12;
 
 		if (tetrisCount > 0) {
-			difficulty += rotatedTetrisCount * 0.5;
-			difficulty += (tetrisCount - rotatedTetrisCount) * 0.2;
+			// 回転不可が多いほど難しく、回転可能が多いほど簡単
+			difficulty += (tetrisCount - rotatedTetrisCount) * 0.5;
+			difficulty += rotatedTetrisCount * 0.2;
+		}
+
+		// 減算テトリス（枠）の難易度評価
+		let negTetrisCount = 0;
+		let rotatedNegTetrisCount = 0;
+		for (let r = 0; r < rows; r++) {
+			for (let c = 0; c < cols; c++) {
+				const cell = grid.cells[r][c];
+				if (cell.type === CellType.TetrisNegative) negTetrisCount++;
+				else if (cell.type === CellType.TetrisNegativeRotated) {
+					negTetrisCount++;
+					rotatedNegTetrisCount++;
+				}
+			}
+		}
+		if (negTetrisCount > 0) {
+			difficulty += (negTetrisCount - rotatedNegTetrisCount) * 0.6; // 減算は配置がよりシビアなため少し高めに設定
+			difficulty += rotatedNegTetrisCount * 0.3;
 		}
 
 		const cellCount = rows * cols;

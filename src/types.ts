@@ -17,6 +17,10 @@ export enum CellType {
 	TetrisRotated = 4,
 	/** テトラポッド (エラー削除) */
 	Eraser = 5,
+	/** テトリス (減算) */
+	TetrisNegative = 6,
+	/** テトリス (減算・回転可能) */
+	TetrisNegativeRotated = 7,
 }
 
 export enum EdgeType {
@@ -66,6 +70,7 @@ export const Color = {
 	White: 2 as Color,
 	Red: 3 as Color,
 	Blue: 4 as Color,
+	Cyan: 5 as Color,
 } as const;
 
 export interface Point {
@@ -127,6 +132,7 @@ export interface GenerationOptions {
 	useSquares?: boolean;
 	useStars?: boolean;
 	useTetris?: boolean;
+	useTetrisNegative?: boolean;
 	useEraser?: boolean;
 	useBrokenEdges?: boolean;
 	complexity?: number; // 0.0 - 1.0 (制約の密度)

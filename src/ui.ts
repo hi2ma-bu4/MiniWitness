@@ -161,6 +161,7 @@ export class WitnessUI {
 					[Color.White]: "#fff",
 					[Color.Red]: "#f00",
 					[Color.Blue]: "#00f",
+					[Color.Cyan]: "#00ffff",
 					[Color.None]: "#ffcc00",
 				},
 			colorList: options.colors?.colorList ?? this.options?.colors?.colorList,
@@ -1004,7 +1005,9 @@ export class WitnessUI {
 		} else if (cell.type === CellType.Star) {
 			this.drawStar(ctx, pos.x, pos.y, 12, 16, 8, cell.color, overrideColor);
 		} else if (cell.type === CellType.Tetris || cell.type === CellType.TetrisRotated) {
-			this.drawTetris(ctx, pos.x, pos.y, cell.shape || [], cell.type === CellType.TetrisRotated, cell.color, overrideColor);
+			this.drawTetris(ctx, pos.x, pos.y, cell.shape || [], cell.type === CellType.TetrisRotated, cell.color, false, overrideColor);
+		} else if (cell.type === CellType.TetrisNegative || cell.type === CellType.TetrisNegativeRotated) {
+			this.drawTetris(ctx, pos.x, pos.y, cell.shape || [], cell.type === CellType.TetrisNegativeRotated, cell.color, true, overrideColor);
 		} else if (cell.type === CellType.Eraser) {
 			this.drawEraser(ctx, pos.x, pos.y, 14, 3, cell.color, overrideColor);
 		}
@@ -1205,7 +1208,7 @@ export class WitnessUI {
 	/**
 	 * テトリスピースを描画する
 	 */
-	private drawTetris(ctx: WitnessContext, x: number, y: number, shape: number[][], rotated: boolean, colorEnum: Color, overrideColor?: string) {
+	private drawTetris(ctx: WitnessContext, x: number, y: number, shape: number[][], rotated: boolean, colorEnum: Color, isNegative: boolean, overrideColor?: string) {
 		if (!shape || shape.length === 0) return;
 		const cellSize = 12;
 		const gap = 2;
@@ -1217,15 +1220,30 @@ export class WitnessUI {
 		if (rotated) {
 			ctx.rotate(Math.PI / 8);
 		}
-		// overrideColorがある場合はそれを優先、なければColor.Noneかつデフォルトカラー設定がない場合は黄色(#ffcc00)
-		ctx.fillStyle = overrideColor || this.getColorCode(colorEnum, "#ffcc00");
 
-		for (let r = 0; r < shape.length; r++) {
-			for (let c = 0; c < shape[r].length; c++) {
-				if (shape[r][c]) {
-					const px = c * (cellSize + gap) - totalW / 2;
-					const py = r * (cellSize + gap) - totalH / 2;
-					ctx.fillRect(px, py, cellSize, cellSize);
+		const color = overrideColor || this.getColorCode(colorEnum, isNegative ? "#00ffff" : "#ffcc00");
+
+		if (isNegative) {
+			ctx.strokeStyle = color;
+			ctx.lineWidth = 2;
+			for (let r = 0; r < shape.length; r++) {
+				for (let c = 0; c < shape[r].length; c++) {
+					if (shape[r][c]) {
+						const px = c * (cellSize + gap) - totalW / 2;
+						const py = r * (cellSize + gap) - totalH / 2;
+						ctx.strokeRect(px + 1, py + 1, cellSize - 2, cellSize - 2);
+					}
+				}
+			}
+		} else {
+			ctx.fillStyle = color;
+			for (let r = 0; r < shape.length; r++) {
+				for (let c = 0; c < shape[r].length; c++) {
+					if (shape[r][c]) {
+						const px = c * (cellSize + gap) - totalW / 2;
+						const py = r * (cellSize + gap) - totalH / 2;
+						ctx.fillRect(px, py, cellSize, cellSize);
+					}
 				}
 			}
 		}

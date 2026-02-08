@@ -48,6 +48,26 @@ test("PuzzleSerializer: serialize and deserialize", async () => {
 	assert.deepStrictEqual(deserialized.options, options);
 });
 
+test("PuzzleSerializer: serialize and deserialize with TetrisNegative", async () => {
+	const puzzle = {
+		rows: 1,
+		cols: 1,
+		cells: [[{ type: 6, color: 5, shape: [[1]] }]], // TetrisNegative, Cyan
+		vEdges: [[{ type: 0 }, { type: 0 }]],
+		hEdges: [[{ type: 0 }], [{ type: 0 }]],
+		nodes: [
+			[{ type: 1 }, { type: 0 }],
+			[{ type: 0 }, { type: 2 }],
+		],
+	};
+	const options = { useTetrisNegative: true };
+	const serialized = await PuzzleSerializer.serialize(puzzle as any, options as any);
+	const deserialized = await PuzzleSerializer.deserialize(serialized);
+	assert.deepStrictEqual(deserialized.puzzle.cells[0][0].type, 6);
+	assert.deepStrictEqual(deserialized.puzzle.cells[0][0].color, 5);
+	assert.deepStrictEqual((deserialized.options as any).useTetrisNegative, true);
+});
+
 test("PuzzleSerializer: parity error detection", async () => {
 	const puzzle = {
 		rows: 1,

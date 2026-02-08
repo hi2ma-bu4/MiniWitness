@@ -17,7 +17,11 @@ export declare enum CellType {
 	/** テトリス（回転可能） */
 	TetrisRotated = 4,
 	/** テトラポッド (エラー削除) */
-	Eraser = 5
+	Eraser = 5,
+	/** テトリス (減算) */
+	TetrisNegative = 6,
+	/** テトリス (減算・回転可能) */
+	TetrisNegativeRotated = 7
 }
 export declare enum EdgeType {
 	Normal = 0,
@@ -63,6 +67,7 @@ export declare const Color: {
 	readonly White: Color;
 	readonly Red: Color;
 	readonly Blue: Color;
+	readonly Cyan: Color;
 };
 export interface Point {
 	x: number;
@@ -124,6 +129,7 @@ export interface GenerationOptions {
 	useSquares?: boolean;
 	useStars?: boolean;
 	useTetris?: boolean;
+	useTetrisNegative?: boolean;
 	useEraser?: boolean;
 	useBrokenEdges?: boolean;
 	complexity?: number;
@@ -309,6 +315,9 @@ export declare class PuzzleGenerator {
 	private rotate90;
 	private canPlace;
 	private placePiece;
+	private isSameShape;
+	private canTilePieceWith;
+	private findStandardTriple;
 	private shuffleArray;
 }
 /**
@@ -753,10 +762,15 @@ export declare class PuzzleValidator {
 	 */
 	private findGlobalAssignment;
 	/**
-	 * テトリス制約の検証（指定された領域をピースで埋め尽くせるか）
+	 * テトリス制約の検証
+	 * 領域内の全てのテトリスピース（正・負）を盤面内に配置し、
+	 * 各セルの合計値が「領域内なら1、領域外なら0」になる配置が存在するかを確認する。
+	 * 重なりは許容されるが、最終的な合計がマイナスになることは許されない。
+	 * また、全てのピースはパズル（グリッド）の範囲内に収まっている必要がある。
+	 * @param gridObj グリッドオブジェクト
 	 * @param region 区画
-	 * @param pieces テトリスピースのリスト
-	 * @returns 埋め尽くせるかどうか
+	 * @param pieces 正のテトリスピース
+	 * @param negativePieces 負のテトリスピース
 	 */
 	private checkTetrisConstraint;
 	private getShapeArea;
@@ -766,9 +780,6 @@ export declare class PuzzleValidator {
 	 * @param pieces 残りのピース
 	 * @returns タイリング可能かどうか
 	 */
-	private canTile;
-	private canPlace;
-	private placePiece;
 	private getAllRotations;
 	private rotate90;
 	/**

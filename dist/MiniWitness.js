@@ -20,6 +20,8 @@ var CellType = /* @__PURE__ */ ((CellType2) => {
   CellType2[CellType2["Tetris"] = 3] = "Tetris";
   CellType2[CellType2["TetrisRotated"] = 4] = "TetrisRotated";
   CellType2[CellType2["Eraser"] = 5] = "Eraser";
+  CellType2[CellType2["TetrisNegative"] = 6] = "TetrisNegative";
+  CellType2[CellType2["TetrisNegativeRotated"] = 7] = "TetrisNegativeRotated";
   return CellType2;
 })(CellType || {});
 var EdgeType = /* @__PURE__ */ ((EdgeType2) => {
@@ -52,7 +54,8 @@ var Color = {
   Black: 1,
   White: 2,
   Red: 3,
-  Blue: 4
+  Blue: 4,
+  Cyan: 5
 };
 
 // src/grid.ts
@@ -615,6 +618,7 @@ var PuzzleValidator = class {
     const starColors = /* @__PURE__ */ new Set();
     const squareColors = /* @__PURE__ */ new Set();
     const tetrisPieces = [];
+    const tetrisNegativePieces = [];
     for (const cell of region) {
       if (erasedSet.has(`${cell.x},${cell.y}`)) continue;
       const constraint = grid.cells[cell.y][cell.x];
@@ -629,6 +633,8 @@ var PuzzleValidator = class {
       else if (constraint.type === 2 /* Star */) starColors.add(color);
       else if (constraint.type === 3 /* Tetris */ || constraint.type === 4 /* TetrisRotated */) {
         if (constraint.shape) tetrisPieces.push({ shape: constraint.shape, rotatable: constraint.type === 4 /* TetrisRotated */, pos: cell });
+      } else if (constraint.type === 6 /* TetrisNegative */ || constraint.type === 7 /* TetrisNegativeRotated */) {
+        if (constraint.shape) tetrisNegativePieces.push({ shape: constraint.shape, rotatable: constraint.type === 7 /* TetrisNegativeRotated */, pos: cell });
       }
     }
     const errorCells = [];
@@ -649,12 +655,15 @@ var PuzzleValidator = class {
         }
       }
     }
-    if (tetrisPieces.length > 0) {
+    if (tetrisPieces.length > 0 || tetrisNegativePieces.length > 0) {
       if (!this.checkTetrisConstraint(
+        grid,
         region,
-        tetrisPieces.map((p) => ({ shape: p.shape, rotatable: p.rotatable }))
+        tetrisPieces.map((p) => ({ shape: p.shape, rotatable: p.rotatable })),
+        tetrisNegativePieces.map((p) => ({ shape: p.shape, rotatable: p.rotatable }))
       )) {
         for (const p of tetrisPieces) errorCells.push(p.pos);
+        for (const p of tetrisNegativePieces) errorCells.push(p.pos);
       }
     }
     return errorCells;
@@ -722,23 +731,74 @@ var PuzzleValidator = class {
     return null;
   }
   /**
-   * テトリス制約の検証（指定された領域をピースで埋め尽くせるか）
+   * テトリス制約の検証
+   * 領域内の全てのテトリスピース（正・負）を盤面内に配置し、
+   * 各セルの合計値が「領域内なら1、領域外なら0」になる配置が存在するかを確認する。
+   * 重なりは許容されるが、最終的な合計がマイナスになることは許されない。
+   * また、全てのピースはパズル（グリッド）の範囲内に収まっている必要がある。
+   * @param gridObj グリッドオブジェクト
    * @param region 区画
-   * @param pieces テトリスピースのリスト
-   * @returns 埋め尽くせるかどうか
+   * @param pieces 正のテトリスピース
+   * @param negativePieces 負のテトリスピース
    */
-  checkTetrisConstraint(region, pieces) {
-    const totalTetrisArea = pieces.reduce((sum, p) => sum + this.getShapeArea(p.shape), 0);
-    if (totalTetrisArea !== region.length) return false;
-    const minX = Math.min(...region.map((p) => p.x));
-    const minY = Math.min(...region.map((p) => p.y));
-    const maxX = Math.max(...region.map((p) => p.x));
-    const maxY = Math.max(...region.map((p) => p.y));
-    const width = maxX - minX + 1;
-    const height = maxY - minY + 1;
-    const regionGrid = Array.from({ length: height }, () => Array(width).fill(false));
-    for (const p of region) regionGrid[p.y - minY][p.x - minX] = true;
-    return this.canTile(regionGrid, pieces);
+  checkTetrisConstraint(gridObj, region, pieces, negativePieces = []) {
+    const positiveArea = pieces.reduce((sum, p) => sum + this.getShapeArea(p.shape), 0);
+    const negativeArea = negativePieces.reduce((sum, p) => sum + this.getShapeArea(p.shape), 0);
+    const netArea = positiveArea - negativeArea;
+    if (netArea < 0) return false;
+    if (netArea === 0) return true;
+    if (netArea !== region.length) return false;
+    const rows = gridObj.rows;
+    const cols = gridObj.cols;
+    const target = new Int8Array(rows * cols);
+    for (const p of region) target[p.y * cols + p.x] = 1;
+    const current = new Int8Array(rows * cols);
+    const allPieceData = [...pieces.map((p) => ({ shape: p.shape, rotatable: p.rotatable, sign: 1, area: this.getShapeArea(p.shape) })), ...negativePieces.map((p) => ({ shape: p.shape, rotatable: p.rotatable, sign: -1, area: this.getShapeArea(p.shape) }))];
+    const totalNegativeArea = negativeArea;
+    let currentNegativeAreaLeft = totalNegativeArea;
+    let currentPositiveAreaLeft = positiveArea;
+    const backtrack = (idx) => {
+      if (idx === allPieceData.length) {
+        for (let i = 0; i < target.length; i++) {
+          if (current[i] !== target[i]) return false;
+        }
+        return true;
+      }
+      const piece = allPieceData[idx];
+      if (piece.sign === -1) currentNegativeAreaLeft -= piece.area;
+      else currentPositiveAreaLeft -= piece.area;
+      const shapes = piece.rotatable ? this.getAllRotations(piece.shape) : [piece.shape];
+      for (const shape of shapes) {
+        const h = shape.length;
+        const w = shape[0].length;
+        for (let r = 0; r <= rows - h; r++) {
+          for (let c = 0; c <= cols - w; c++) {
+            let possible = true;
+            const placed = [];
+            for (let pr = 0; pr < h; pr++) {
+              for (let pc = 0; pc < w; pc++) {
+                if (shape[pr][pc]) {
+                  const tidx = (r + pr) * cols + (c + pc);
+                  current[tidx] += piece.sign;
+                  placed.push(tidx);
+                  if (current[tidx] < 0) possible = false;
+                  if (piece.sign === 1 && current[tidx] > 1 + totalNegativeArea) possible = false;
+                }
+              }
+              if (!possible) break;
+            }
+            if (possible && backtrack(idx + 1)) return true;
+            for (const tidx of placed) {
+              current[tidx] -= piece.sign;
+            }
+          }
+        }
+      }
+      if (piece.sign === -1) currentNegativeAreaLeft += piece.area;
+      else currentPositiveAreaLeft += piece.area;
+      return false;
+    };
+    return backtrack(0);
   }
   getShapeArea(shape) {
     let area = 0;
@@ -751,60 +811,6 @@ var PuzzleValidator = class {
    * @param pieces 残りのピース
    * @returns タイリング可能かどうか
    */
-  canTile(regionGrid, pieces) {
-    let r0 = -1;
-    let c0 = -1;
-    for (let r = 0; r < regionGrid.length; r++) {
-      for (let c = 0; c < regionGrid[0].length; c++) {
-        if (regionGrid[r][c]) {
-          r0 = r;
-          c0 = c;
-          break;
-        }
-      }
-      if (r0 !== -1) break;
-    }
-    if (r0 === -1) return pieces.length === 0;
-    if (pieces.length === 0) return false;
-    for (let i = 0; i < pieces.length; i++) {
-      const piece = pieces[i];
-      const nextPieces = [...pieces.slice(0, i), ...pieces.slice(i + 1)];
-      const rotations = piece.rotatable ? this.getAllRotations(piece.shape) : [piece.shape];
-      for (const shape of rotations) {
-        const blocks = [];
-        for (let pr = 0; pr < shape.length; pr++) {
-          for (let pc = 0; pc < shape[0].length; pc++) {
-            if (shape[pr][pc]) blocks.push({ r: pr, c: pc });
-          }
-        }
-        for (const anchor of blocks) {
-          const dr = r0 - anchor.r;
-          const dc = c0 - anchor.c;
-          if (this.canPlace(regionGrid, shape, dr, dc)) {
-            this.placePiece(regionGrid, shape, dr, dc, false);
-            if (this.canTile(regionGrid, nextPieces)) return true;
-            this.placePiece(regionGrid, shape, dr, dc, true);
-          }
-        }
-      }
-    }
-    return false;
-  }
-  canPlace(regionGrid, shape, r, c) {
-    for (let i = 0; i < shape.length; i++) {
-      for (let j = 0; j < shape[0].length; j++) {
-        if (shape[i][j]) {
-          const nr = r + i;
-          const nc = c + j;
-          if (nr < 0 || nr >= regionGrid.length || nc < 0 || nc >= regionGrid[0].length || !regionGrid[nr][nc]) return false;
-        }
-      }
-    }
-    return true;
-  }
-  placePiece(regionGrid, shape, r, c, value) {
-    for (let i = 0; i < shape.length; i++) for (let j = 0; j < shape[0].length; j++) if (shape[i][j]) regionGrid[r + i][c + j] = value;
-  }
   getAllRotations(shape) {
     const results = [];
     const keys = /* @__PURE__ */ new Set();
@@ -1111,8 +1117,24 @@ var PuzzleValidator = class {
     difficulty -= hexagonEdges.size * 0.05;
     difficulty += hexagonNodes.size * 0.12;
     if (tetrisCount > 0) {
-      difficulty += rotatedTetrisCount * 0.5;
-      difficulty += (tetrisCount - rotatedTetrisCount) * 0.2;
+      difficulty += (tetrisCount - rotatedTetrisCount) * 0.5;
+      difficulty += rotatedTetrisCount * 0.2;
+    }
+    let negTetrisCount = 0;
+    let rotatedNegTetrisCount = 0;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const cell = grid.cells[r][c];
+        if (cell.type === 6 /* TetrisNegative */) negTetrisCount++;
+        else if (cell.type === 7 /* TetrisNegativeRotated */) {
+          negTetrisCount++;
+          rotatedNegTetrisCount++;
+        }
+      }
+    }
+    if (negTetrisCount > 0) {
+      difficulty += (negTetrisCount - rotatedNegTetrisCount) * 0.6;
+      difficulty += rotatedNegTetrisCount * 0.3;
     }
     const cellCount = rows * cols;
     const density = constraintCount / cellCount;
@@ -2062,6 +2084,7 @@ var PuzzleGenerator = class {
     const useSquares = options.useSquares ?? true;
     const useStars = options.useStars ?? true;
     const useTetris = options.useTetris ?? false;
+    const useTetrisNegative = options.useTetrisNegative ?? false;
     const useEraser = options.useEraser ?? false;
     let hexagonsPlaced = 0;
     let squaresPlaced = 0;
@@ -2183,26 +2206,87 @@ var PuzzleGenerator = class {
             squareColorsUsed.add(squareColor);
           }
         }
-        if (useTetris && totalTetrisArea < maxTotalTetrisArea) {
+        if ((useTetris || useTetrisNegative) && totalTetrisArea < maxTotalTetrisArea) {
           let shouldPlaceTetris = Math.random() < 0.1 + complexity * 0.4;
           if (tetrisPlaced === 0 && remainingRegions <= 2) shouldPlaceTetris = true;
           const maxTetrisPerRegion = tetrisPlaced === 0 && remainingRegions <= 2 ? 6 : 4;
-          if (shouldPlaceTetris && potentialCells.length > 0 && region.length <= maxTetrisPerRegion * 4 && totalTetrisArea + region.length <= maxTotalTetrisArea) {
-            const tiledPieces = this.generateTiling(region, maxTetrisPerRegion, options);
+          if (shouldPlaceTetris && potentialCells.length > 0 && totalTetrisArea + region.length <= maxTotalTetrisArea) {
+            let tiledPieces = this.generateTiling(region, maxTetrisPerRegion, options);
             if (tiledPieces) {
-              for (const p of tiledPieces) {
-                if (potentialCells.length === 0) break;
-                const cell = potentialCells.pop();
-                grid.cells[cell.y][cell.x].type = p.isRotated ? 4 /* TetrisRotated */ : 3 /* Tetris */;
-                grid.cells[cell.y][cell.x].shape = p.isRotated ? p.displayShape : p.shape;
-                let tetrisColor = getDefColor(3 /* Tetris */, Color.None);
-                if (useStars && Math.random() < 0.5) {
-                  const colors = availableColors.filter((c) => c !== Color.Blue && c !== tetrisColor);
-                  if (colors.length > 0) {
-                    tetrisColor = colors[Math.floor(Math.random() * colors.length)];
+              const negativePiecesToPlace = [];
+              if (useTetrisNegative && Math.random() < 0.4 + complexity * 0.4) {
+                const difficulty = options.difficulty ?? 0.5;
+                const prob0 = 0.2;
+                if (Math.random() < prob0 && potentialCells.length >= 2) {
+                  const area = 3 + Math.floor(Math.random() * 2);
+                  const candidates = this.TETRIS_SHAPES.filter((s) => this.getShapeArea(s) === area);
+                  this.shuffleArray(candidates);
+                  let found = false;
+                  for (let i = 0; i < candidates.length && !found; i++) {
+                    for (let j = i + 1; j < candidates.length && !found; j++) {
+                      const pShape = candidates[i];
+                      const nShape = candidates[j];
+                      if (!this.isSameShape(pShape, nShape)) {
+                        tiledPieces.push({
+                          shape: pShape,
+                          displayShape: pShape,
+                          isRotated: Math.random() < difficulty * 0.7,
+                          isNegative: false
+                        });
+                        negativePiecesToPlace.push({
+                          shape: nShape,
+                          displayShape: nShape,
+                          isRotated: Math.random() < difficulty * 0.7,
+                          isNegative: true
+                        });
+                        found = true;
+                      }
+                    }
+                  }
+                } else if (tiledPieces.length > 0) {
+                  const numAttempts = Math.random() < 0.3 ? 2 : 1;
+                  for (let i = 0; i < numAttempts; i++) {
+                    if (potentialCells.length < 1) break;
+                    const targetIdx = Math.floor(Math.random() * tiledPieces.length);
+                    const triple = this.findStandardTriple(tiledPieces[targetIdx].shape);
+                    if (triple) {
+                      const isDuplicate = tiledPieces.some((tp) => this.isSameShape(tp.shape, triple.n));
+                      if (!isDuplicate) {
+                        tiledPieces[targetIdx] = {
+                          shape: triple.p,
+                          displayShape: triple.p,
+                          isRotated: Math.random() < difficulty * 0.7,
+                          isNegative: false
+                        };
+                        negativePiecesToPlace.push({
+                          shape: triple.n,
+                          displayShape: triple.n,
+                          isRotated: Math.random() < difficulty * 0.7,
+                          isNegative: true
+                        });
+                      }
+                    }
                   }
                 }
-                grid.cells[cell.y][cell.x].color = tetrisColor;
+              }
+              const allPieces = [...tiledPieces, ...negativePiecesToPlace];
+              for (const p of allPieces) {
+                if (potentialCells.length === 0) break;
+                const cell = potentialCells.pop();
+                const isNeg = p.isNegative;
+                if (isNeg) {
+                  grid.cells[cell.y][cell.x].type = p.isRotated ? 7 /* TetrisNegativeRotated */ : 6 /* TetrisNegative */;
+                  grid.cells[cell.y][cell.x].color = getDefColor(6 /* TetrisNegative */, Color.Cyan);
+                } else {
+                  grid.cells[cell.y][cell.x].type = p.isRotated ? 4 /* TetrisRotated */ : 3 /* Tetris */;
+                  let tetrisColor = getDefColor(3 /* Tetris */, Color.None);
+                  if (useStars && Math.random() < 0.5) {
+                    const colors = availableColors.filter((c) => c !== tetrisColor);
+                    if (colors.length > 0) tetrisColor = colors[Math.floor(Math.random() * colors.length)];
+                  }
+                  grid.cells[cell.y][cell.x].color = tetrisColor;
+                }
+                grid.cells[cell.y][cell.x].shape = p.isRotated ? p.displayShape : p.shape;
                 tetrisPlaced++;
               }
               totalTetrisArea += region.length;
@@ -2273,8 +2357,7 @@ var PuzzleGenerator = class {
                   grid.cells[cell.y][cell.x].shape = p.isRotated ? p.displayShape : p.shape;
                   let tetrisColor = Color.None;
                   if (useStars && Math.random() < 0.3) {
-                    const colors = availableColors.filter((c) => c !== Color.Blue);
-                    tetrisColor = colors[Math.floor(Math.random() * colors.length)];
+                    tetrisColor = availableColors[Math.floor(Math.random() * availableColors.length)];
                   }
                   grid.cells[cell.y][cell.x].color = tetrisColor;
                   tetrisPlaced++;
@@ -2502,6 +2585,7 @@ var PuzzleGenerator = class {
     const useSquares = options.useSquares ?? true;
     const useStars = options.useStars ?? true;
     const useTetris = options.useTetris ?? false;
+    const useTetrisNegative = options.useTetrisNegative ?? false;
     const useEraser = options.useEraser ?? false;
     const useBrokenEdges = options.useBrokenEdges ?? false;
     if (useBrokenEdges) {
@@ -2554,6 +2638,7 @@ var PuzzleGenerator = class {
       let fSq = false;
       let fSt = false;
       let fT = false;
+      let fTN = false;
       let fE = false;
       const sqC = /* @__PURE__ */ new Set();
       const stC = /* @__PURE__ */ new Set();
@@ -2569,11 +2654,13 @@ var PuzzleGenerator = class {
             stC.add(grid.cells[r][c].color);
           }
           if (type === 3 /* Tetris */ || type === 4 /* TetrisRotated */) fT = true;
+          if (type === 6 /* TetrisNegative */ || type === 7 /* TetrisNegativeRotated */) fTN = true;
           if (type === 5 /* Eraser */) fE = true;
         }
       if (useSquares && !fSq) return false;
       if (useStars && !fSt) return false;
       if (useTetris && !fT) return false;
+      if (useTetrisNegative && !fTN) return false;
       if (useEraser && !fE) return false;
       if (useSquares && fSq) {
         if (sqC.size < 2) {
@@ -2692,6 +2779,82 @@ var PuzzleGenerator = class {
   placePiece(regionGrid, shape, r, c, value) {
     for (let i = 0; i < shape.length; i++) for (let j = 0; j < shape[0].length; j++) if (shape[i][j]) regionGrid[r + i][c + j] = value;
   }
+  isSameShape(s1, s2) {
+    const rotations = this.getAllRotations(s1);
+    const s2Str = JSON.stringify(s2);
+    return rotations.some((r) => JSON.stringify(r) === s2Str);
+  }
+  canTilePieceWith(p, t, n) {
+    const areaP = this.getShapeArea(p);
+    const areaT = this.getShapeArea(t);
+    const areaN = this.getShapeArea(n);
+    if (areaP !== areaT + areaN) return false;
+    const rotationsT = this.getAllRotations(t);
+    const rotationsN = this.getAllRotations(n);
+    const hP = p.length, wP = p[0].length;
+    for (const rt of rotationsT) {
+      for (const rn of rotationsN) {
+        const hT = rt.length, wT = rt[0].length;
+        const hN = rn.length, wN = rn[0].length;
+        for (let rT = 0; rT <= hP - hT; rT++) {
+          for (let cT = 0; cT <= wP - wT; cT++) {
+            for (let rN = 0; rN <= hP - hN; rN++) {
+              for (let cN = 0; cN <= wP - wN; cN++) {
+                const grid = Array.from({ length: hP }, () => Array(wP).fill(0));
+                let possible = true;
+                for (let r = 0; r < hT; r++) {
+                  for (let c = 0; c < wT; c++) {
+                    if (rt[r][c]) grid[rT + r][cT + c] = 1;
+                  }
+                }
+                for (let r = 0; r < hN; r++) {
+                  for (let c = 0; c < wN; c++) {
+                    if (rn[r][c]) {
+                      if (grid[rN + r][cN + c]) {
+                        possible = false;
+                        break;
+                      }
+                      grid[rN + r][cN + c] = 1;
+                    }
+                  }
+                  if (!possible) break;
+                }
+                if (possible) {
+                  let matches = true;
+                  for (let r = 0; r < hP; r++) {
+                    for (let c = 0; c < wP; c++) {
+                      if (grid[r][c] !== p[r][c]) {
+                        matches = false;
+                        break;
+                      }
+                    }
+                    if (!matches) break;
+                  }
+                  if (matches) return true;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    return false;
+  }
+  findStandardTriple(t) {
+    const areaT = this.getShapeArea(t);
+    const nCandidates = [...this.TETRIS_SHAPES];
+    this.shuffleArray(nCandidates);
+    for (const n of nCandidates) {
+      const areaN = this.getShapeArea(n);
+      const areaP = areaT + areaN;
+      if (areaP > 5) continue;
+      const pCandidates = this.TETRIS_SHAPES.filter((s) => this.getShapeArea(s) === areaP);
+      for (const p of pCandidates) {
+        if (this.canTilePieceWith(p, t, n)) return { p, n };
+      }
+    }
+    return null;
+  }
   shuffleArray(array) {
     for (let i = array.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -2792,6 +2955,7 @@ var PuzzleSerializer = class {
     bw.write(+!!options.useSquares, 1);
     bw.write(+!!options.useStars, 1);
     bw.write(+!!options.useTetris, 1);
+    bw.write(+!!options.useTetrisNegative, 1);
     bw.write(+!!options.useEraser, 1);
     bw.write(+!!options.useBrokenEdges, 1);
     bw.write(options.symmetry ?? 0, 2);
@@ -2863,6 +3027,7 @@ var PuzzleSerializer = class {
     const useSquares = !!br.read(1);
     const useStars = !!br.read(1);
     const useTetris = !!br.read(1);
+    const useTetrisNegative = !!br.read(1);
     const useEraser = !!br.read(1);
     const useBroken = !!br.read(1);
     const optSymmetry = br.read(2);
@@ -2870,6 +3035,7 @@ var PuzzleSerializer = class {
     if (useSquares) options.useSquares = true;
     if (useStars) options.useStars = true;
     if (useTetris) options.useTetris = true;
+    if (useTetrisNegative) options.useTetrisNegative = true;
     if (useEraser) options.useEraser = true;
     if (useBroken) options.useBrokenEdges = true;
     options.symmetry = optSymmetry;
@@ -2965,6 +3131,7 @@ var WitnessUI = class {
         [Color.White]: "#fff",
         [Color.Red]: "#f00",
         [Color.Blue]: "#00f",
+        [Color.Cyan]: "#00ffff",
         [Color.None]: "#ffcc00"
       },
       colorList: options.colors?.colorList ?? this.options?.colors?.colorList
@@ -3693,7 +3860,9 @@ var WitnessUI = class {
     } else if (cell.type === 2 /* Star */) {
       this.drawStar(ctx, pos.x, pos.y, 12, 16, 8, cell.color, overrideColor);
     } else if (cell.type === 3 /* Tetris */ || cell.type === 4 /* TetrisRotated */) {
-      this.drawTetris(ctx, pos.x, pos.y, cell.shape || [], cell.type === 4 /* TetrisRotated */, cell.color, overrideColor);
+      this.drawTetris(ctx, pos.x, pos.y, cell.shape || [], cell.type === 4 /* TetrisRotated */, cell.color, false, overrideColor);
+    } else if (cell.type === 6 /* TetrisNegative */ || cell.type === 7 /* TetrisNegativeRotated */) {
+      this.drawTetris(ctx, pos.x, pos.y, cell.shape || [], cell.type === 7 /* TetrisNegativeRotated */, cell.color, true, overrideColor);
     } else if (cell.type === 5 /* Eraser */) {
       this.drawEraser(ctx, pos.x, pos.y, 14, 3, cell.color, overrideColor);
     }
@@ -3872,7 +4041,7 @@ var WitnessUI = class {
   /**
    * テトリスピースを描画する
    */
-  drawTetris(ctx, x, y, shape, rotated, colorEnum, overrideColor) {
+  drawTetris(ctx, x, y, shape, rotated, colorEnum, isNegative, overrideColor) {
     if (!shape || shape.length === 0) return;
     const cellSize = 12;
     const gap = 2;
@@ -3883,13 +4052,28 @@ var WitnessUI = class {
     if (rotated) {
       ctx.rotate(Math.PI / 8);
     }
-    ctx.fillStyle = overrideColor || this.getColorCode(colorEnum, "#ffcc00");
-    for (let r = 0; r < shape.length; r++) {
-      for (let c = 0; c < shape[r].length; c++) {
-        if (shape[r][c]) {
-          const px = c * (cellSize + gap) - totalW / 2;
-          const py = r * (cellSize + gap) - totalH / 2;
-          ctx.fillRect(px, py, cellSize, cellSize);
+    const color = overrideColor || this.getColorCode(colorEnum, isNegative ? "#00ffff" : "#ffcc00");
+    if (isNegative) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      for (let r = 0; r < shape.length; r++) {
+        for (let c = 0; c < shape[r].length; c++) {
+          if (shape[r][c]) {
+            const px = c * (cellSize + gap) - totalW / 2;
+            const py = r * (cellSize + gap) - totalH / 2;
+            ctx.strokeRect(px + 1, py + 1, cellSize - 2, cellSize - 2);
+          }
+        }
+      }
+    } else {
+      ctx.fillStyle = color;
+      for (let r = 0; r < shape.length; r++) {
+        for (let c = 0; c < shape[r].length; c++) {
+          if (shape[r][c]) {
+            const px = c * (cellSize + gap) - totalW / 2;
+            const py = r * (cellSize + gap) - totalH / 2;
+            ctx.fillRect(px, py, cellSize, cellSize);
+          }
         }
       }
     }
