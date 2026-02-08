@@ -8,6 +8,7 @@
 		"cSpell.words": [
 			"lerp",
 			"miniwitness"
-		]
+		],
+		"typescript.tsdk": "node_modules\\typescript\\lib"
 	}
 }
