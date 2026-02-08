@@ -68,3 +68,37 @@ test("WitnessUI setCanvasRect", () => {
 	ui.setCanvasRect(rect);
 	assert.deepStrictEqual(internalUI.canvasRect, rect);
 });
+
+test("WitnessUI new options are merged correctly", () => {
+	const ui = new WitnessUI(createMockCanvas() as unknown as HTMLCanvasElement, undefined, {
+		blinkMarksOnError: false,
+		stayPathOnError: false,
+	});
+	const internalUI = ui as unknown as { options: { blinkMarksOnError: boolean; stayPathOnError: boolean } };
+	assert.strictEqual(internalUI.options.blinkMarksOnError, false);
+	assert.strictEqual(internalUI.options.stayPathOnError, false);
+});
+
+test("WitnessUI stayPathOnError=false triggers fade after delay", () => {
+	const ui = new WitnessUI(createMockCanvas() as unknown as HTMLCanvasElement, undefined, {
+		stayPathOnError: false,
+		animations: { blinkDuration: 100, fadeDuration: 100, blinkPeriod: 100 },
+	});
+	const internalUI = ui as unknown as { isFading: boolean; isInvalidPath: boolean; path: unknown[]; eraserAnimationStartTime: number; animate: () => void };
+
+	// Set a path so startFade can be triggered
+	internalUI.path = [
+		{ x: 0, y: 0 },
+		{ x: 1, y: 0 },
+	];
+
+	ui.setValidationResult(false);
+	assert.strictEqual(internalUI.isInvalidPath, true);
+	assert.strictEqual(internalUI.isFading, false, "Should not trigger fade immediately (wait for blinkDuration)");
+
+	// Simulate time passing
+	internalUI.eraserAnimationStartTime = Date.now() - 200;
+	internalUI.animate();
+
+	assert.strictEqual(internalUI.isFading, true, "Should trigger fade after blinkDuration delay");
+});

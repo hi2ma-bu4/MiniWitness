@@ -7,36 +7,52 @@ export enum Direction {
 
 export enum CellType {
 	None = 0,
-	Square = 1, // 色分けが必要なブロック
-	Star = 2, // 同じ色のペア作成 (星)
-	Tetris = 3, // テトリス
-	TetrisRotated = 4, // テトリス（回転可能）
-	Eraser = 5, // テトラポッド (エラー削除)
+	/** 色分けが必要なブロック */
+	Square = 1,
+	/** 同じ色のペア作成 (星) */
+	Star = 2,
+	/** テトリス */
+	Tetris = 3,
+	/** テトリス（回転可能） */
+	TetrisRotated = 4,
+	/** テトラポッド (エラー削除) */
+	Eraser = 5,
 }
 
 export enum EdgeType {
 	Normal = 0,
-	Broken = 1, // 線の真ん中で断線 (通行不可)
-	Absent = 2, // そもそも分岐もなし (通行不可)
-	Hexagon = 3, // 通過必須 (ワイルドカード)
-	HexagonMain = 4, // メイン線のみ通過必須
-	HexagonSymmetry = 5, // 対称線のみ通過必須
+	/** 線の真ん中で断線 (通行不可) */
+	Broken = 1,
+	/** そもそも分岐もなし (通行不可) */
+	Absent = 2,
+	/** 通過必須 (ワイルドカード) */
+	Hexagon = 3,
+	/** メイン線のみ通過必須 */
+	HexagonMain = 4,
+	/** 対称線のみ通過必須 */
+	HexagonSymmetry = 5,
 }
 
 export enum NodeType {
 	Normal = 0,
 	Start = 1,
 	End = 2,
-	Hexagon = 3, // 通過必須 (ワイルドカード)
-	HexagonMain = 4, // メイン線のみ通過必須
-	HexagonSymmetry = 5, // 対称線のみ通過必須
+	/** 通過必須 (ワイルドカード) */
+	Hexagon = 3,
+	/** メイン線のみ通過必須 */
+	HexagonMain = 4,
+	/** 対称線のみ通過必須 */
+	HexagonSymmetry = 5,
 }
 
 export enum SymmetryType {
 	None = 0,
-	Horizontal = 1, // 左右対称
-	Vertical = 2, // 上下対称
-	Rotational = 3, // 点対称
+	/** 左右対称 */
+	Horizontal = 1,
+	/** 上下対称 */
+	Vertical = 2,
+	/** 点対称 */
+	Rotational = 3,
 }
 
 /**

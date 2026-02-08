@@ -91,6 +91,13 @@ export class PuzzleGenerator {
 
 	/**
 	 * 指定されたパスに基づいてパズルを構築する
+	 * @param rows 行数
+	 * @param cols 列数
+	 * @param solutionPath 解答パス
+	 * @param options 生成オプション
+	 * @param precalculatedRegions 事前計算された区画
+	 * @param precalculatedBoundaryEdges 事前計算された境界エッジ
+	 * @returns 構築されたグリッド
 	 */
 	private generateFromPath(rows: number, cols: number, solutionPath: Point[], options: GenerationOptions, precalculatedRegions?: Point[][], precalculatedBoundaryEdges?: { type: "h" | "v"; r: number; c: number }[][]): Grid {
 		const grid = new Grid(rows, cols);
@@ -172,6 +179,12 @@ export class PuzzleGenerator {
 
 	/**
 	 * 1本のランダムパスを生成する
+	 * @param grid グリッド
+	 * @param start 開始点
+	 * @param end 終了点
+	 * @param biasFactor 長さのバイアス
+	 * @param symmetry 対称性
+	 * @returns 生成されたパス
 	 */
 	private generateSingleRandomPath(grid: Grid, start: Point, end: Point, biasFactor?: number, symmetry: SymmetryType = SymmetryType.None): Point[] {
 		const visited = new Set<string>();
@@ -251,6 +264,9 @@ export class PuzzleGenerator {
 
 	/**
 	 * 解パスが通っていない場所にランダムに断線（Broken/Absent）を配置する
+	 * @param grid グリッド
+	 * @param path 解答パス
+	 * @param options 生成オプション
 	 */
 	private applyBrokenEdges(grid: Grid, path: Point[], options: GenerationOptions) {
 		const complexity = options.complexity ?? 0.5;
@@ -343,6 +359,9 @@ export class PuzzleGenerator {
 
 	/**
 	 * エッジがAbsentに変換可能か判定する
+	 * @param grid グリッド
+	 * @param edge 判定対象のエッジ
+	 * @returns 変換可能かどうか
 	 */
 	private canBecomeAbsent(grid: Grid, edge: { type: "h" | "v"; r: number; c: number }): boolean {
 		// マークに隣接している場合はAbsent禁止
@@ -390,6 +409,7 @@ export class PuzzleGenerator {
 
 	/**
 	 * 到達不可能なエリアをAbsent化し、外部に漏れたセルをクリアする
+	 * @param grid グリッド
 	 */
 	private cleanGrid(grid: Grid) {
 		const startNodes: { x: number; y: number }[] = [];
@@ -497,6 +517,8 @@ export class PuzzleGenerator {
 
 	/**
 	 * マークが完全に断絶されたセルにいないか確認する
+	 * @param grid グリッド
+	 * @returns 孤立したマークがあるかどうか
 	 */
 	private hasIsolatedMark(grid: Grid): boolean {
 		for (let r = 0; r < grid.rows; r++)
@@ -597,6 +619,12 @@ export class PuzzleGenerator {
 
 	/**
 	 * 解パスに基づいて各区画にルールを配置する
+	 * @param grid グリッド
+	 * @param path 解答パス
+	 * @param options 生成オプション
+	 * @param symPath 対称パス
+	 * @param precalculatedRegions 事前計算された区画
+	 * @param precalculatedBoundaryEdges 事前計算された境界エッジ
 	 */
 	private applyConstraintsBasedOnPath(grid: Grid, path: Point[], options: GenerationOptions, symPath: Point[] = [], precalculatedRegions?: Point[][], precalculatedBoundaryEdges?: { type: "h" | "v"; r: number; c: number }[][]) {
 		const complexity = options.complexity ?? 0.5;
@@ -949,6 +977,10 @@ export class PuzzleGenerator {
 
 	/**
 	 * 区画分けを行う
+	 * @param grid グリッド
+	 * @param path 解答パス
+	 * @param symPath 対称パス
+	 * @returns 区画リスト
 	 */
 	private calculateRegions(grid: Grid, path: Point[], symPath: Point[] = []): Point[][] {
 		const regions: Point[][] = [];
@@ -1044,6 +1076,11 @@ export class PuzzleGenerator {
 
 	/**
 	 * 区画の境界エッジのうち、解パスが通っていないものを取得する
+	 * @param grid グリッド
+	 * @param region 区画
+	 * @param path 解答パス
+	 * @param symPath 対称パス
+	 * @returns 境界エッジのリスト
 	 */
 	private getRegionBoundaryEdges(grid: Grid, region: Point[], path: Point[], symPath: Point[] = []): { type: "h" | "v"; r: number; c: number }[] {
 		const pathEdges = new Set<string>();
@@ -1098,6 +1135,9 @@ export class PuzzleGenerator {
 
 	/**
 	 * 要求された制約が全て含まれているか確認する
+	 * @param grid グリッド
+	 * @param options 生成オプション
+	 * @returns 全ての要求された制約が含まれているか
 	 */
 	private checkAllRequestedConstraintsPresent(grid: Grid, options: GenerationOptions): boolean {
 		const useHexagons = options.useHexagons ?? true;
@@ -1191,6 +1231,10 @@ export class PuzzleGenerator {
 
 	/**
 	 * 指定された区画をピースで埋め尽くすタイリングを生成する
+	 * @param region 区画
+	 * @param maxPieces 最大ピース数
+	 * @param options 生成オプション
+	 * @returns タイリング結果
 	 */
 	private generateTiling(region: Point[], maxPieces: number, options: GenerationOptions): { shape: number[][]; displayShape: number[][]; isRotated: boolean }[] | null {
 		const minX = Math.min(...region.map((p) => p.x));
@@ -1206,6 +1250,11 @@ export class PuzzleGenerator {
 
 	/**
 	 * タイリングを深さ優先探索で生成する
+	 * @param regionGrid 領域のグリッド表現
+	 * @param currentPieces 現在配置済みのピース
+	 * @param maxPieces 最大ピース数
+	 * @param options 生成オプション
+	 * @returns 成功した場合はピースのリスト、失敗した場合はnull
 	 */
 	private tilingDfs(regionGrid: boolean[][], currentPieces: { shape: number[][]; displayShape: number[][]; isRotated: boolean }[], maxPieces: number, options: GenerationOptions): { shape: number[][]; displayShape: number[][]; isRotated: boolean }[] | null {
 		let r0 = -1;

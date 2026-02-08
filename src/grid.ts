@@ -1,22 +1,39 @@
 import { type CellConstraint, CellType, Color, type EdgeConstraint, EdgeType, type NodeConstraint, NodeType, type PuzzleData } from "./types";
 
+/**
+ * パズルのグリッド構造と状態を管理するクラス
+ */
 export class Grid {
+	/** 行数 */
 	public readonly rows: number;
+	/** 列数 */
 	public readonly cols: number;
 
-	// データマトリクス
+	/** セルの制約（記号）マトリクス */
 	public cells: CellConstraint[][] = [];
-	public hEdges: EdgeConstraint[][] = []; // 横棒
-	public vEdges: EdgeConstraint[][] = []; // 縦棒
+	/** 水平エッジの制約マトリクス */
+	public hEdges: EdgeConstraint[][] = [];
+	/** 垂直エッジの制約マトリクス */
+	public vEdges: EdgeConstraint[][] = [];
+	/** ノードの制約マトリクス */
 	public nodes: NodeConstraint[][] = [];
-	public symmetry: number = 0; // SymmetryType
+	/** 対称性の設定 (SymmetryType) */
+	public symmetry: number = 0;
 
+	/**
+	 * 新しいグリッドを初期化する
+	 * @param rows 行数
+	 * @param cols 列数
+	 */
 	constructor(rows: number, cols: number) {
 		this.rows = rows;
 		this.cols = cols;
 		this.initializeGrid();
 	}
 
+	/**
+	 * グリッドの各要素を初期状態（制約なし）で生成する
+	 */
 	private initializeGrid() {
 		// Cells: rows * cols
 		this.cells = Array.from({ length: this.rows }, () => Array.from({ length: this.cols }, () => ({ type: CellType.None, color: Color.None })));
@@ -31,6 +48,10 @@ export class Grid {
 		this.nodes = Array.from({ length: this.rows + 1 }, () => Array.from({ length: this.cols + 1 }, () => ({ type: NodeType.Normal })));
 	}
 
+	/**
+	 * グリッドの状態を PuzzleData 形式でエクスポートする
+	 * @returns パズルデータ
+	 */
 	public export(): PuzzleData {
 		// データのディープコピーを返す
 		return JSON.parse(
@@ -46,6 +67,11 @@ export class Grid {
 		);
 	}
 
+	/**
+	 * PuzzleData から Grid インスタンスを生成する
+	 * @param data パズルデータ
+	 * @returns Grid インスタンス
+	 */
 	public static fromData(data: PuzzleData): Grid {
 		const grid = new Grid(data.rows, data.cols);
 		grid.cells = data.cells;

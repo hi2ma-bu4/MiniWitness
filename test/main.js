@@ -60,6 +60,24 @@ class WitnessGame {
 			}
 		});
 
+		document.getElementById("blink-marks").addEventListener("change", () => {
+			const options = { blinkMarksOnError: document.getElementById("blink-marks").checked };
+			if (this.isWorkerMode) {
+				this.worker.postMessage({ type: "setOptions", payload: options });
+			} else if (this.ui) {
+				this.ui.setOptions(options);
+			}
+		});
+
+		document.getElementById("stay-path").addEventListener("change", () => {
+			const options = { stayPathOnError: document.getElementById("stay-path").checked };
+			if (this.isWorkerMode) {
+				this.worker.postMessage({ type: "setOptions", payload: options });
+			} else if (this.ui) {
+				this.ui.setOptions(options);
+			}
+		});
+
 		// URLパラメータからパズルを読み込む
 		const puzzleData = params.get("puzzle");
 		if (puzzleData) {
@@ -131,8 +149,12 @@ class WitnessGame {
 
 		const diff = this.core.calculateDifficulty(this.puzzle);
 		const symColor = document.getElementById("sym-color-select").value;
+		const blinkMarks = document.getElementById("blink-marks").checked;
+		const stayPath = document.getElementById("stay-path").checked;
 
 		const uiOptions = {
+			blinkMarksOnError: blinkMarks,
+			stayPathOnError: stayPath,
 			colors: {
 				colorList: colorList,
 				symmetry: symColor,

@@ -61,7 +61,17 @@ function collectShapes(cells: CellConstraint[][]): number[][][] {
 
 /* ================= Serializer ================= */
 
+/**
+ * パズルデータと生成オプションをシリアライズ/デシリアライズするクラス
+ * URL共有などのためにデータを短縮して文字列化する
+ */
 export class PuzzleSerializer {
+	/**
+	 * パズルデータとオプションを圧縮されたBase64文字列に変換する
+	 * @param puzzle パズルデータ
+	 * @param options 生成オプション
+	 * @returns シリアライズされた文字列
+	 */
 	static async serialize(puzzle: PuzzleData, options: GenerationOptions): Promise<string> {
 		const bw = new BitWriter();
 
@@ -133,6 +143,11 @@ export class PuzzleSerializer {
 			.replace(/=+$/, "");
 	}
 
+	/**
+	 * シリアライズされた文字列からパズルデータとオプションを復元する
+	 * @param str シリアライズされた文字列
+	 * @returns 復元されたパズルデータとオプション
+	 */
 	static async deserialize(str: string): Promise<{ puzzle: PuzzleData; options: GenerationOptions }> {
 		let s = str.replace(/-/g, "+").replace(/_/g, "/");
 		while (s.length % 4) s += "=";

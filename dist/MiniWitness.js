@@ -1,5 +1,5 @@
 /*!
- * MiniWitness 1.2.4
+ * MiniWitness 1.2.5
  * Copyright 2026 hi2ma-bu4
  * Licensed under the Apache License, Version 2.0
  * http://www.apache.org/licenses/LICENSE-2.0
@@ -57,28 +57,43 @@ var Color = {
 
 // src/grid.ts
 var Grid = class _Grid {
+  /** 行数 */
   rows;
+  /** 列数 */
   cols;
-  // データマトリクス
+  /** セルの制約（記号）マトリクス */
   cells = [];
+  /** 水平エッジの制約マトリクス */
   hEdges = [];
-  // 横棒
+  /** 垂直エッジの制約マトリクス */
   vEdges = [];
-  // 縦棒
+  /** ノードの制約マトリクス */
   nodes = [];
+  /** 対称性の設定 (SymmetryType) */
   symmetry = 0;
-  // SymmetryType
+  /**
+   * 新しいグリッドを初期化する
+   * @param rows 行数
+   * @param cols 列数
+   */
   constructor(rows, cols) {
     this.rows = rows;
     this.cols = cols;
     this.initializeGrid();
   }
+  /**
+   * グリッドの各要素を初期状態（制約なし）で生成する
+   */
   initializeGrid() {
     this.cells = Array.from({ length: this.rows }, () => Array.from({ length: this.cols }, () => ({ type: 0 /* None */, color: Color.None })));
     this.hEdges = Array.from({ length: this.rows + 1 }, () => Array.from({ length: this.cols }, () => ({ type: 0 /* Normal */ })));
     this.vEdges = Array.from({ length: this.rows }, () => Array.from({ length: this.cols + 1 }, () => ({ type: 0 /* Normal */ })));
     this.nodes = Array.from({ length: this.rows + 1 }, () => Array.from({ length: this.cols + 1 }, () => ({ type: 0 /* Normal */ })));
   }
+  /**
+   * グリッドの状態を PuzzleData 形式でエクスポートする
+   * @returns パズルデータ
+   */
   export() {
     return JSON.parse(
       JSON.stringify({
@@ -92,6 +107,11 @@ var Grid = class _Grid {
       })
     );
   }
+  /**
+   * PuzzleData から Grid インスタンスを生成する
+   * @param data パズルデータ
+   * @returns Grid インスタンス
+   */
   static fromData(data) {
     const grid = new _Grid(data.rows, data.cols);
     grid.cells = data.cells;
@@ -170,6 +190,11 @@ var PuzzleValidator = class {
   }
   /**
    * 高速化された検証（内部探索用）
+   * @param grid グリッド
+   * @param path メインパス
+   * @param symPath 対称パス
+   * @param externalCells 外部セルのキャッシュ
+   * @returns 検証結果
    */
   validateFast(grid, path, symPath, externalCells) {
     const regions = this.calculateRegions(grid, path, symPath, externalCells);
@@ -178,6 +203,10 @@ var PuzzleValidator = class {
   }
   /**
    * 二点間が断線（Broken or Absent）しているか確認する
+   * @param grid グリッド
+   * @param p1 点1
+   * @param p2 点2
+   * @returns 断線しているかどうか
    */
   isBrokenEdge(grid, p1, p2) {
     let type;
@@ -192,6 +221,10 @@ var PuzzleValidator = class {
   }
   /**
    * 二点間が Absent（存在しない）エッジか確認する
+   * @param grid グリッド
+   * @param p1 点1
+   * @param p2 点2
+   * @returns 存在しないかどうか
    */
   isAbsentEdge(grid, p1, p2) {
     if (p1.x === p2.x) {
@@ -204,6 +237,10 @@ var PuzzleValidator = class {
   }
   /**
    * 回答パスが通過しなかった六角形（エッジ・ノード）をリストアップする
+   * @param grid グリッド
+   * @param path メインパス
+   * @param symPath 対称パス
+   * @returns 通過しなかった六角形のリスト
    */
   getMissedHexagons(grid, path, symPath = []) {
     const mainPathEdges = /* @__PURE__ */ new Set();
@@ -267,6 +304,11 @@ var PuzzleValidator = class {
   }
   /**
    * テトラポッド（エラー削除）を考慮してパズルの各制約を検証する
+   * @param grid グリッド
+   * @param regions 区画リスト
+   * @param missedHexagons 通過しなかったエッジ六角形
+   * @param missedNodeHexagons 通過しなかったノード六角形
+   * @returns 検証結果
    */
   validateWithErasers(grid, regions, missedHexagons, missedNodeHexagons) {
     const regionResults = [];
@@ -344,6 +386,10 @@ var PuzzleValidator = class {
   }
   /**
    * 指定されたエッジが特定の区画に隣接しているか確認する
+   * @param grid グリッド
+   * @param hex 六角形エッジ
+   * @param region 区画
+   * @returns 隣接しているかどうか
    */
   isHexagonAdjacentToRegion(grid, hex, region) {
     const regionCells = new Set(region.map((p) => `${p.x},${p.y}`));
@@ -358,6 +404,10 @@ var PuzzleValidator = class {
   }
   /**
    * 指定されたノードが特定の区画に隣接しているか確認する
+   * @param grid グリッド
+   * @param node ノード座標
+   * @param region 区画
+   * @returns 隣接しているかどうか
    */
   isNodeHexagonAdjacentToRegion(grid, node, region) {
     const regionCells = new Set(region.map((p) => `${p.x},${p.y}`));
@@ -376,6 +426,13 @@ var PuzzleValidator = class {
   }
   /**
    * 区画内のエラー削除可能な全パターンを取得する
+   * @param grid グリッド
+   * @param region 区画
+   * @param erasers 消しゴムのリスト
+   * @param otherMarks 他の記号のリスト
+   * @param adjacentMissedHexagons 隣接する未通過エッジ六角形
+   * @param adjacentMissedNodeHexagons 隣接する未通過ノード六角形
+   * @returns 可能な削除パターンのリスト
    */
   getPossibleErasures(grid, region, erasers, otherMarks, adjacentMissedHexagons, adjacentMissedNodeHexagons) {
     const results = [];
@@ -439,6 +496,13 @@ var PuzzleValidator = class {
   }
   /**
    * エラーが解消できなかった場合のベストエフォートな削除（可能な限り消しゴムを適用）を取得する
+   * @param grid グリッド
+   * @param region 区画
+   * @param erasers 消しゴムのリスト
+   * @param otherMarks 他の記号のリスト
+   * @param adjacentMissedHexagons 隣接する未通過エッジ六角形
+   * @param adjacentMissedNodeHexagons 隣接する未通過ノード六角形
+   * @returns ベストエフォートな削除結果
    */
   getBestEffortErasures(grid, region, erasers, otherMarks, adjacentMissedHexagons, adjacentMissedNodeHexagons) {
     const naturalErrors = this.getRegionErrors(grid, region, []);
@@ -507,6 +571,9 @@ var PuzzleValidator = class {
   }
   /**
    * 配列からN個選ぶ組み合わせを取得する
+   * @param items 配列
+   * @param n 選択する数
+   * @returns 組み合わせのリスト
    */
   getNCombinations(items, n) {
     const results = [];
@@ -526,12 +593,20 @@ var PuzzleValidator = class {
   }
   /**
    * 特定の削除・無効化を適用した状態で、区画内の制約が満たされているか検証する
+   * @param grid グリッド
+   * @param region 区画
+   * @param erasedCells 無効化されたセルのリスト
+   * @returns 有効かどうか
    */
   checkRegionValid(grid, region, erasedCells) {
     return this.getRegionErrors(grid, region, erasedCells).length === 0;
   }
   /**
    * 区画内のエラーとなっているセルを特定する
+   * @param grid グリッド
+   * @param region 区画
+   * @param erasedCells 無効化されたセルのリスト
+   * @returns エラーセルのリスト
    */
   getRegionErrors(grid, region, erasedCells) {
     const erasedSet = new Set(erasedCells.map((p) => `${p.x},${p.y}`));
@@ -586,6 +661,10 @@ var PuzzleValidator = class {
   }
   /**
    * グローバルな制約（六角形）の割り当てをバックトラッキングで探索する
+   * @param regionResults 各区画の削除候補リスト
+   * @param totalMissedHexagons 合計未通過エッジ六角形数
+   * @param totalMissedNodeHexagons 合計未通過ノード六角形数
+   * @returns 成功した場合は割り当て結果、失敗した場合はnull
    */
   findGlobalAssignment(regionResults, totalMissedHexagons, totalMissedNodeHexagons) {
     const numRegions = regionResults.length;
@@ -644,6 +723,9 @@ var PuzzleValidator = class {
   }
   /**
    * テトリス制約の検証（指定された領域をピースで埋め尽くせるか）
+   * @param region 区画
+   * @param pieces テトリスピースのリスト
+   * @returns 埋め尽くせるかどうか
    */
   checkTetrisConstraint(region, pieces) {
     const totalTetrisArea = pieces.reduce((sum, p) => sum + this.getShapeArea(p.shape), 0);
@@ -665,6 +747,9 @@ var PuzzleValidator = class {
   }
   /**
    * 再帰的にタイリングを試みる
+   * @param regionGrid 領域のグリッド表現
+   * @param pieces 残りのピース
+   * @returns タイリング可能かどうか
    */
   canTile(regionGrid, pieces) {
     let r0 = -1;
@@ -743,6 +828,11 @@ var PuzzleValidator = class {
   }
   /**
    * 回答パスによって分割された各区画のセルリストを取得する
+   * @param grid グリッド
+   * @param path メインパス
+   * @param symPath 対称パス
+   * @param externalCellsPrecalculated 外部セルのキャッシュ
+   * @returns 区画リスト
    */
   calculateRegions(grid, path, symPath = [], externalCellsPrecalculated) {
     const regions = [];
@@ -820,6 +910,8 @@ var PuzzleValidator = class {
   }
   /**
    * エッジ（Absent）によって外部に繋がっているセルを特定する
+   * @param grid グリッド
+   * @returns 外部セルのセット
    */
   getExternalCells(grid) {
     const external = /* @__PURE__ */ new Set();
@@ -1499,6 +1591,13 @@ var PuzzleGenerator = class {
   }
   /**
    * 指定されたパスに基づいてパズルを構築する
+   * @param rows 行数
+   * @param cols 列数
+   * @param solutionPath 解答パス
+   * @param options 生成オプション
+   * @param precalculatedRegions 事前計算された区画
+   * @param precalculatedBoundaryEdges 事前計算された境界エッジ
+   * @returns 構築されたグリッド
    */
   generateFromPath(rows, cols, solutionPath, options, precalculatedRegions, precalculatedBoundaryEdges) {
     const grid = new Grid(rows, cols);
@@ -1558,6 +1657,12 @@ var PuzzleGenerator = class {
   }
   /**
    * 1本のランダムパスを生成する
+   * @param grid グリッド
+   * @param start 開始点
+   * @param end 終了点
+   * @param biasFactor 長さのバイアス
+   * @param symmetry 対称性
+   * @returns 生成されたパス
    */
   generateSingleRandomPath(grid, start, end, biasFactor, symmetry = 0 /* None */) {
     const visited = /* @__PURE__ */ new Set();
@@ -1625,6 +1730,9 @@ var PuzzleGenerator = class {
   }
   /**
    * 解パスが通っていない場所にランダムに断線（Broken/Absent）を配置する
+   * @param grid グリッド
+   * @param path 解答パス
+   * @param options 生成オプション
    */
   applyBrokenEdges(grid, path, options) {
     const complexity = options.complexity ?? 0.5;
@@ -1703,6 +1811,9 @@ var PuzzleGenerator = class {
   }
   /**
    * エッジがAbsentに変換可能か判定する
+   * @param grid グリッド
+   * @param edge 判定対象のエッジ
+   * @returns 変換可能かどうか
    */
   canBecomeAbsent(grid, edge) {
     if (this.isAdjacentToMark(grid, edge)) return false;
@@ -1739,6 +1850,7 @@ var PuzzleGenerator = class {
   }
   /**
    * 到達不可能なエリアをAbsent化し、外部に漏れたセルをクリアする
+   * @param grid グリッド
    */
   cleanGrid(grid) {
     const startNodes = [];
@@ -1839,6 +1951,8 @@ var PuzzleGenerator = class {
   }
   /**
    * マークが完全に断絶されたセルにいないか確認する
+   * @param grid グリッド
+   * @returns 孤立したマークがあるかどうか
    */
   hasIsolatedMark(grid) {
     for (let r = 0; r < grid.rows; r++)
@@ -1935,6 +2049,12 @@ var PuzzleGenerator = class {
   ];
   /**
    * 解パスに基づいて各区画にルールを配置する
+   * @param grid グリッド
+   * @param path 解答パス
+   * @param options 生成オプション
+   * @param symPath 対称パス
+   * @param precalculatedRegions 事前計算された区画
+   * @param precalculatedBoundaryEdges 事前計算された境界エッジ
    */
   applyConstraintsBasedOnPath(grid, path, options, symPath = [], precalculatedRegions, precalculatedBoundaryEdges) {
     const complexity = options.complexity ?? 0.5;
@@ -2231,6 +2351,10 @@ var PuzzleGenerator = class {
   }
   /**
    * 区画分けを行う
+   * @param grid グリッド
+   * @param path 解答パス
+   * @param symPath 対称パス
+   * @returns 区画リスト
    */
   calculateRegions(grid, path, symPath = []) {
     const regions = [];
@@ -2316,6 +2440,11 @@ var PuzzleGenerator = class {
   }
   /**
    * 区画の境界エッジのうち、解パスが通っていないものを取得する
+   * @param grid グリッド
+   * @param region 区画
+   * @param path 解答パス
+   * @param symPath 対称パス
+   * @returns 境界エッジのリスト
    */
   getRegionBoundaryEdges(grid, region, path, symPath = []) {
     const pathEdges = /* @__PURE__ */ new Set();
@@ -2364,6 +2493,9 @@ var PuzzleGenerator = class {
   }
   /**
    * 要求された制約が全て含まれているか確認する
+   * @param grid グリッド
+   * @param options 生成オプション
+   * @returns 全ての要求された制約が含まれているか
    */
   checkAllRequestedConstraintsPresent(grid, options) {
     const useHexagons = options.useHexagons ?? true;
@@ -2455,6 +2587,10 @@ var PuzzleGenerator = class {
   }
   /**
    * 指定された区画をピースで埋め尽くすタイリングを生成する
+   * @param region 区画
+   * @param maxPieces 最大ピース数
+   * @param options 生成オプション
+   * @returns タイリング結果
    */
   generateTiling(region, maxPieces, options) {
     const minX = Math.min(...region.map((p) => p.x));
@@ -2469,6 +2605,11 @@ var PuzzleGenerator = class {
   }
   /**
    * タイリングを深さ優先探索で生成する
+   * @param regionGrid 領域のグリッド表現
+   * @param currentPieces 現在配置済みのピース
+   * @param maxPieces 最大ピース数
+   * @param options 生成オプション
+   * @returns 成功した場合はピースのリスト、失敗した場合はnull
    */
   tilingDfs(regionGrid, currentPieces, maxPieces, options) {
     let r0 = -1;
@@ -2612,6 +2753,12 @@ function collectShapes(cells) {
   return [...map.values()];
 }
 var PuzzleSerializer = class {
+  /**
+   * パズルデータとオプションを圧縮されたBase64文字列に変換する
+   * @param puzzle パズルデータ
+   * @param options 生成オプション
+   * @returns シリアライズされた文字列
+   */
   static async serialize(puzzle, options) {
     const bw = new BitWriter();
     bw.write(puzzle.rows, 6);
@@ -2660,6 +2807,11 @@ var PuzzleSerializer = class {
     final[gz.length] = parity;
     return btoa(String.fromCharCode(...final)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
   }
+  /**
+   * シリアライズされた文字列からパズルデータとオプションを復元する
+   * @param str シリアライズされた文字列
+   * @returns 復元されたパズルデータとオプション
+   */
   static async deserialize(str) {
     let s = str.replace(/-/g, "+").replace(/_/g, "/");
     while (s.length % 4) s += "=";
@@ -2786,6 +2938,11 @@ var WitnessUI = class {
     this.initEvents();
     this.animate();
   }
+  /**
+   * デフォルトオプションとユーザー指定オプションをマージする
+   * @param options 指定されたオプション
+   * @returns マージ後の全オプション
+   */
   mergeOptions(options) {
     const animations = {
       blinkDuration: options.animations?.blinkDuration ?? this.options?.animations?.blinkDuration ?? 1e3,
@@ -2820,6 +2977,8 @@ var WitnessUI = class {
       pathWidth: options.pathWidth ?? this.options?.pathWidth ?? 18,
       exitLength: options.exitLength ?? this.options?.exitLength ?? 25,
       autoResize: options.autoResize ?? this.options?.autoResize ?? true,
+      blinkMarksOnError: options.blinkMarksOnError ?? this.options?.blinkMarksOnError ?? true,
+      stayPathOnError: options.stayPathOnError ?? this.options?.stayPathOnError ?? true,
       animations,
       colors,
       onPathComplete: options.onPathComplete ?? this.options?.onPathComplete ?? (() => {
@@ -2874,6 +3033,9 @@ var WitnessUI = class {
       this.isInvalidPath = true;
     }
   }
+  /**
+   * パズルのサイズに合わせてCanvasの物理サイズを調整する
+   */
   resizeCanvas() {
     if (!this.puzzle || !this.canvas) return;
     this.canvas.width = this.puzzle.cols * this.options.cellSize + this.options.gridPadding * 2;
@@ -2885,6 +3047,9 @@ var WitnessUI = class {
   setCanvasRect(rect) {
     this.canvasRect = rect;
   }
+  /**
+   * マウス・タッチイベントを初期化する
+   */
   initEvents() {
     if (typeof window === "undefined" || !(this.canvas instanceof HTMLCanvasElement)) return;
     this.canvas.addEventListener("mousedown", (e) => this.handleStart(e));
@@ -2921,12 +3086,24 @@ var WitnessUI = class {
     );
   }
   // --- 座標変換 ---
+  /**
+   * グリッド座標をCanvas上のピクセル座標に変換する
+   * @param gridX グリッドX
+   * @param gridY グリッドY
+   * @returns Canvas座標
+   */
   getCanvasCoords(gridX, gridY) {
     return {
       x: this.options.gridPadding + gridX * this.options.cellSize,
       y: this.options.gridPadding + gridY * this.options.cellSize
     };
   }
+  /**
+   * 指定されたノードが出口の場合、その出っ張りの方向ベクトルを返す
+   * @param x グリッドX
+   * @param y グリッドY
+   * @returns 方向ベクトル、またはnull
+   */
   getExitDir(x, y) {
     if (!this.puzzle) return null;
     if (this.puzzle.nodes[y]?.[x]?.type !== 2 /* End */) return null;
@@ -3111,6 +3288,12 @@ var WitnessUI = class {
     this.exitTipPos = exitDir ? { ...this.currentMousePos } : null;
     this.startFade(this.options.colors.interrupted);
   }
+  /**
+   * 二点間のエッジタイプを取得する
+   * @param p1 点1
+   * @param p2 点2
+   * @returns エッジタイプ
+   */
   getEdgeType(p1, p2) {
     if (!this.puzzle) return 2 /* Absent */;
     if (p1.x === p2.x) {
@@ -3123,6 +3306,10 @@ var WitnessUI = class {
       return this.puzzle.hEdges[p1.y][x].type;
     }
   }
+  /**
+   * パスのフェードアウトアニメーションを開始する
+   * @param color フェード時の色
+   */
   startFade(color = "#ff4444") {
     this.isFading = true;
     this.fadeOpacity = 1;
@@ -3131,15 +3318,17 @@ var WitnessUI = class {
     this.fadingTipPos = this.exitTipPos ? { ...this.exitTipPos } : null;
     this.path = [];
   }
+  /**
+   * 現在のフェードアニメーションを中止する
+   */
   cancelFade() {
     this.isFading = false;
   }
+  /**
+   * アニメーションループ
+   */
   animate() {
-    if (typeof requestAnimationFrame === "undefined") {
-      this.draw();
-      return;
-    }
-    this.draw();
+    const now = Date.now();
     if (this.isFading) {
       const step = 1e3 / (this.options.animations.fadeDuration * 60);
       this.fadeOpacity -= step;
@@ -3148,7 +3337,16 @@ var WitnessUI = class {
         this.fadeOpacity = 0;
       }
     }
-    requestAnimationFrame(() => this.animate());
+    if (this.isInvalidPath && !this.options.stayPathOnError && !this.isFading && this.path.length > 0) {
+      const elapsed = now - this.eraserAnimationStartTime;
+      if (elapsed >= this.options.animations.blinkDuration) {
+        this.startFade(this.options.colors.error);
+      }
+    }
+    this.draw();
+    if (typeof requestAnimationFrame !== "undefined") {
+      requestAnimationFrame(() => this.animate());
+    }
   }
   // --- Drawing Logic ---
   draw() {
@@ -3194,10 +3392,10 @@ var WitnessUI = class {
         if (elapsed < blinkDuration) {
           if (this.isSuccessFading) {
             const hasNegation = this.invalidatedCells.length > 0 || this.invalidatedEdges.length > 0 || this.invalidatedNodes.length > 0;
-            if (hasNegation) {
+            if (hasNegation && this.options.blinkMarksOnError) {
               color = this.options.colors.error;
             }
-          } else {
+          } else if (this.options.blinkMarksOnError) {
             const transitionIn = Math.min(1, elapsed / 200);
             const transitionOut = elapsed > blinkDuration * 0.8 ? (blinkDuration - elapsed) / (blinkDuration * 0.2) : 1;
             const transitionFactor = Math.min(transitionIn, transitionOut);
@@ -3205,6 +3403,17 @@ var WitnessUI = class {
             const targetErrorColor = this.setAlpha(errorColor, originalPathAlpha);
             color = this.lerpColor(originalPathColor, targetErrorColor, blinkFactor * transitionFactor);
           }
+        }
+      } else if (this.isInvalidPath && !this.isDrawing && !this.options.stayPathOnError) {
+        const elapsed = now - this.eraserAnimationStartTime;
+        const blinkDuration = this.options.animations.blinkDuration;
+        if (elapsed < blinkDuration && this.options.blinkMarksOnError) {
+          const transitionIn = Math.min(1, elapsed / 200);
+          const transitionOut = elapsed > blinkDuration * 0.8 ? (blinkDuration - elapsed) / (blinkDuration * 0.2) : 1;
+          const transitionFactor = Math.min(transitionIn, transitionOut);
+          const blinkFactor = (Math.sin(now * Math.PI * 2 / this.options.animations.blinkPeriod) + 1) / 2;
+          const targetErrorColor = this.setAlpha(errorColor, originalPathAlpha);
+          color = this.lerpColor(originalPathColor, targetErrorColor, blinkFactor * transitionFactor);
         }
       }
       this.drawPath(ctx, this.path, this.isDrawing, color, 1, this.isDrawing ? this.currentMousePos : this.exitTipPos);
@@ -3222,10 +3431,10 @@ var WitnessUI = class {
           if (elapsed < blinkDuration) {
             if (this.isSuccessFading) {
               const hasNegation = this.invalidatedCells.length > 0 || this.invalidatedEdges.length > 0 || this.invalidatedNodes.length > 0;
-              if (hasNegation) {
+              if (hasNegation && this.options.blinkMarksOnError) {
                 symColor = this.options.colors.error;
               }
-            } else {
+            } else if (this.options.blinkMarksOnError) {
               const transitionIn = Math.min(1, elapsed / 200);
               const transitionOut = elapsed > blinkDuration * 0.8 ? (blinkDuration - elapsed) / (blinkDuration * 0.2) : 1;
               const transitionFactor = Math.min(transitionIn, transitionOut);
@@ -3233,6 +3442,17 @@ var WitnessUI = class {
               const targetErrorColor = this.setAlpha(errorColor, originalSymAlpha);
               symColor = this.lerpColor(originalSymColor, targetErrorColor, blinkFactor * transitionFactor);
             }
+          }
+        } else if (this.isInvalidPath && !this.isDrawing && !this.options.stayPathOnError) {
+          const elapsed = now - this.eraserAnimationStartTime;
+          const blinkDuration = this.options.animations.blinkDuration;
+          if (elapsed < blinkDuration && this.options.blinkMarksOnError) {
+            const transitionIn = Math.min(1, elapsed / 200);
+            const transitionOut = elapsed > blinkDuration * 0.8 ? (blinkDuration - elapsed) / (blinkDuration * 0.2) : 1;
+            const transitionFactor = Math.min(transitionIn, transitionOut);
+            const blinkFactor = (Math.sin(now * Math.PI * 2 / this.options.animations.blinkPeriod) + 1) / 2;
+            const targetErrorColor = this.setAlpha(errorColor, originalSymAlpha);
+            symColor = this.lerpColor(originalSymColor, targetErrorColor, blinkFactor * transitionFactor);
           }
         }
         let symTipPos = null;
@@ -3250,6 +3470,10 @@ var WitnessUI = class {
       }
     }
   }
+  /**
+   * ゴール地点の波紋アニメーションを描画する
+   * @param ctx 描画コンテキスト
+   */
   drawRipples(ctx) {
     if (!this.puzzle) return;
     const time = (Date.now() - this.startTime) / 500;
@@ -3276,6 +3500,10 @@ var WitnessUI = class {
       }
     }
   }
+  /**
+   * グリッド（背景の線）を描画する
+   * @param ctx 描画コンテキスト
+   */
   drawGrid(ctx) {
     if (!this.puzzle || !this.options.colors.grid) return;
     ctx.strokeStyle = this.options.colors.grid;
@@ -3319,6 +3547,10 @@ var WitnessUI = class {
       }
     }
   }
+  /**
+   * 全ての制約記号（四角、星、六角形など）を描画する
+   * @param ctx 描画コンテキスト
+   */
   drawConstraints(ctx) {
     if (!this.puzzle) return;
     const now = Date.now();
@@ -3333,19 +3565,19 @@ var WitnessUI = class {
         let overrideColor = void 0;
         const originalColor = this.getColorCode(cell.color);
         const errorColor = this.options.colors.error;
-        if (isError) {
+        if (isError && this.options.blinkMarksOnError) {
           overrideColor = this.lerpColor(originalColor, errorColor, blinkFactor);
         }
         if (isInvalidated) {
           const elapsed = now - (this.isSuccessFading ? this.successFadeStartTime : this.eraserAnimationStartTime);
           const blinkDuration = this.options.animations.blinkDuration;
-          if (this.isFading) {
-            opacity = this.fadeOpacity;
-          } else if (elapsed < blinkDuration) {
-            const transitionIn = Math.min(1, elapsed / 200);
-            const transitionOut = elapsed > blinkDuration * 0.8 ? (blinkDuration - elapsed) / (blinkDuration * 0.2) : 1;
-            const transitionFactor = Math.min(transitionIn, transitionOut);
-            overrideColor = this.lerpColor(originalColor, errorColor, blinkFactor * transitionFactor);
+          if (elapsed < blinkDuration) {
+            if (this.options.blinkMarksOnError) {
+              const transitionIn = Math.min(1, elapsed / 200);
+              const transitionOut = elapsed > blinkDuration * 0.8 ? (blinkDuration - elapsed) / (blinkDuration * 0.2) : 1;
+              const transitionFactor = Math.min(transitionIn, transitionOut);
+              overrideColor = this.lerpColor(originalColor, errorColor, blinkFactor * transitionFactor);
+            }
           } else {
             opacity = Math.max(0.3, 1 - (elapsed - blinkDuration) / this.options.animations.fadeDuration);
           }
@@ -3379,19 +3611,22 @@ var WitnessUI = class {
           const isInvalidated = this.invalidatedEdges.some((e) => e.type === "h" && e.r === r && e.c === c);
           const isError = this.errorEdges.some((e) => e.type === "h" && e.r === r && e.c === c);
           const baseColor = getHexColor(type);
-          if (isError) {
+          if (isError && this.options.blinkMarksOnError) {
             const color = this.lerpColor(baseColor, this.options.colors.error, blinkFactor);
             this.drawHexagon(ctx, pos.x, pos.y, hexRadius, color);
           } else if (isInvalidated) {
             const elapsed = now - (this.isSuccessFading ? this.successFadeStartTime : this.eraserAnimationStartTime);
             const blinkDuration = this.options.animations.blinkDuration;
-            if (this.isFading) ctx.globalAlpha *= this.fadeOpacity;
-            else if (elapsed < blinkDuration) {
-              const transitionIn = Math.min(1, elapsed / 200);
-              const transitionOut = elapsed > blinkDuration * 0.8 ? (blinkDuration - elapsed) / (blinkDuration * 0.2) : 1;
-              const transitionFactor = Math.min(transitionIn, transitionOut);
-              const color = this.lerpColor(baseColor, this.options.colors.error, blinkFactor * transitionFactor);
-              this.drawHexagon(ctx, pos.x, pos.y, hexRadius, color);
+            if (elapsed < blinkDuration) {
+              if (this.options.blinkMarksOnError) {
+                const transitionIn = Math.min(1, elapsed / 200);
+                const transitionOut = elapsed > blinkDuration * 0.8 ? (blinkDuration - elapsed) / (blinkDuration * 0.2) : 1;
+                const transitionFactor = Math.min(transitionIn, transitionOut);
+                const color = this.lerpColor(baseColor, this.options.colors.error, blinkFactor * transitionFactor);
+                this.drawHexagon(ctx, pos.x, pos.y, hexRadius, color);
+              } else {
+                this.drawHexagon(ctx, pos.x, pos.y, hexRadius, baseColor);
+              }
             } else {
               ctx.globalAlpha *= Math.max(0.3, 1 - (elapsed - blinkDuration) / this.options.animations.fadeDuration);
               this.drawHexagon(ctx, pos.x, pos.y, hexRadius, baseColor);
@@ -3412,19 +3647,22 @@ var WitnessUI = class {
           const isInvalidated = this.invalidatedEdges.some((e) => e.type === "v" && e.r === r && e.c === c);
           const isError = this.errorEdges.some((e) => e.type === "v" && e.r === r && e.c === c);
           const baseColor = getHexColor(type);
-          if (isError) {
+          if (isError && this.options.blinkMarksOnError) {
             const color = this.lerpColor(baseColor, this.options.colors.error, blinkFactor);
             this.drawHexagon(ctx, pos.x, pos.y, hexRadius, color);
           } else if (isInvalidated) {
             const elapsed = now - (this.isSuccessFading ? this.successFadeStartTime : this.eraserAnimationStartTime);
             const blinkDuration = this.options.animations.blinkDuration;
-            if (this.isFading) ctx.globalAlpha *= this.fadeOpacity;
-            else if (elapsed < blinkDuration) {
-              const transitionIn = Math.min(1, elapsed / 200);
-              const transitionOut = elapsed > blinkDuration * 0.8 ? (blinkDuration - elapsed) / (blinkDuration * 0.2) : 1;
-              const transitionFactor = Math.min(transitionIn, transitionOut);
-              const color = this.lerpColor(baseColor, this.options.colors.error, blinkFactor * transitionFactor);
-              this.drawHexagon(ctx, pos.x, pos.y, hexRadius, color);
+            if (elapsed < blinkDuration) {
+              if (this.options.blinkMarksOnError) {
+                const transitionIn = Math.min(1, elapsed / 200);
+                const transitionOut = elapsed > blinkDuration * 0.8 ? (blinkDuration - elapsed) / (blinkDuration * 0.2) : 1;
+                const transitionFactor = Math.min(transitionIn, transitionOut);
+                const color = this.lerpColor(baseColor, this.options.colors.error, blinkFactor * transitionFactor);
+                this.drawHexagon(ctx, pos.x, pos.y, hexRadius, color);
+              } else {
+                this.drawHexagon(ctx, pos.x, pos.y, hexRadius, baseColor);
+              }
             } else {
               ctx.globalAlpha *= Math.max(0.3, 1 - (elapsed - blinkDuration) / this.options.animations.fadeDuration);
               this.drawHexagon(ctx, pos.x, pos.y, hexRadius, baseColor);
@@ -3445,19 +3683,22 @@ var WitnessUI = class {
           const isInvalidated = this.invalidatedNodes.some((p) => p.x === c && p.y === r);
           const isError = this.errorNodes.some((p) => p.x === c && p.y === r);
           const baseColor = getHexColor(type);
-          if (isError) {
+          if (isError && this.options.blinkMarksOnError) {
             const color = this.lerpColor(baseColor, this.options.colors.error, blinkFactor);
             this.drawHexagon(ctx, pos.x, pos.y, hexRadius, color);
           } else if (isInvalidated) {
             const elapsed = now - (this.isSuccessFading ? this.successFadeStartTime : this.eraserAnimationStartTime);
             const blinkDuration = this.options.animations.blinkDuration;
-            if (this.isFading) ctx.globalAlpha *= this.fadeOpacity;
-            else if (elapsed < blinkDuration) {
-              const transitionIn = Math.min(1, elapsed / 200);
-              const transitionOut = elapsed > blinkDuration * 0.8 ? (blinkDuration - elapsed) / (blinkDuration * 0.2) : 1;
-              const transitionFactor = Math.min(transitionIn, transitionOut);
-              const color = this.lerpColor(baseColor, this.options.colors.error, blinkFactor * transitionFactor);
-              this.drawHexagon(ctx, pos.x, pos.y, hexRadius, color);
+            if (elapsed < blinkDuration) {
+              if (this.options.blinkMarksOnError) {
+                const transitionIn = Math.min(1, elapsed / 200);
+                const transitionOut = elapsed > blinkDuration * 0.8 ? (blinkDuration - elapsed) / (blinkDuration * 0.2) : 1;
+                const transitionFactor = Math.min(transitionIn, transitionOut);
+                const color = this.lerpColor(baseColor, this.options.colors.error, blinkFactor * transitionFactor);
+                this.drawHexagon(ctx, pos.x, pos.y, hexRadius, color);
+              } else {
+                this.drawHexagon(ctx, pos.x, pos.y, hexRadius, baseColor);
+              }
             } else {
               ctx.globalAlpha *= Math.max(0.3, 1 - (elapsed - blinkDuration) / this.options.animations.fadeDuration);
               this.drawHexagon(ctx, pos.x, pos.y, hexRadius, baseColor);
@@ -3487,6 +3728,10 @@ var WitnessUI = class {
       this.drawEraser(ctx, pos.x, pos.y, 14, 3, cell.color, overrideColor);
     }
   }
+  /**
+   * 全てのノード（交点、始点、終点）を描画する
+   * @param ctx 描画コンテキスト
+   */
   drawNodes(ctx) {
     if (!this.puzzle) return;
     const isNodeIsolated = (c, r) => {
@@ -3527,6 +3772,15 @@ var WitnessUI = class {
       }
     }
   }
+  /**
+   * 解答パスを描画する（オフスクリーン合成により重なりを防止）
+   * @param ctx 描画コンテキスト
+   * @param path パス座標配列
+   * @param isDrawing 描画中かどうか
+   * @param color パスの色
+   * @param opacity 不透明度
+   * @param tipPos 先端の座標（描画中用）
+   */
   drawPath(ctx, path, isDrawing, color, opacity, tipPos = null) {
     if (path.length === 0 || !color || color === "transparent") return;
     const rgba = this.colorToRgba(color);
@@ -3539,6 +3793,14 @@ var WitnessUI = class {
     ctx.drawImage(tempCanvas, 0, 0);
     ctx.restore();
   }
+  /**
+   * 解答パスの実際の描画処理
+   * @param ctx 描画コンテキスト
+   * @param path パス座標配列
+   * @param isDrawing 描画中かどうか
+   * @param color パスの色
+   * @param tipPos 先端の座標
+   */
   drawPathInternal(ctx, path, isDrawing, color, tipPos = null) {
     ctx.save();
     ctx.strokeStyle = color;
@@ -3568,6 +3830,9 @@ var WitnessUI = class {
     }
     ctx.restore();
   }
+  /**
+   * 角丸長方形を描画する
+   */
   drawRoundedRect(ctx, x, y, width, height, radius) {
     ctx.beginPath();
     ctx.moveTo(x + radius, y);
@@ -3582,6 +3847,9 @@ var WitnessUI = class {
     ctx.closePath();
     ctx.fill();
   }
+  /**
+   * 六角形（通過必須マーク）を描画する
+   */
   drawHexagon(ctx, x, y, radius, overrideColor) {
     if (!this.options.colors.hexagon && !overrideColor) return;
     ctx.fillStyle = overrideColor || this.options.colors.hexagon;
@@ -3596,6 +3864,9 @@ var WitnessUI = class {
     ctx.closePath();
     ctx.fill();
   }
+  /**
+   * 消しゴム（テトラポッド）を描画する
+   */
   drawEraser(ctx, x, y, radius, points, colorEnum, overrideColor) {
     ctx.strokeStyle = overrideColor || this.getColorCode(colorEnum);
     ctx.lineWidth = radius * 0.5;
@@ -3611,6 +3882,9 @@ var WitnessUI = class {
     }
     ctx.stroke();
   }
+  /**
+   * 星を描画する
+   */
   drawStar(ctx, x, y, innerRadius, outerRadius, points, colorEnum, overrideColor) {
     ctx.fillStyle = overrideColor || this.getColorCode(colorEnum);
     ctx.beginPath();
@@ -3625,6 +3899,9 @@ var WitnessUI = class {
     ctx.closePath();
     ctx.fill();
   }
+  /**
+   * テトリスピースを描画する
+   */
   drawTetris(ctx, x, y, shape, rotated, colorEnum, overrideColor) {
     if (!shape || shape.length === 0) return;
     const cellSize = 12;
@@ -3648,6 +3925,12 @@ var WitnessUI = class {
     }
     ctx.restore();
   }
+  /**
+   * Color値に対応するカラーコードを取得する
+   * @param colorEnum Color値
+   * @param defaultFallback 見つからない場合のデフォルト
+   * @returns カラーコード文字列
+   */
   getColorCode(colorEnum, defaultFallback = "#666") {
     if (this.options.colors.colorList && this.options.colors.colorList[colorEnum] !== void 0) {
       return this.options.colors.colorList[colorEnum];
@@ -3657,6 +3940,11 @@ var WitnessUI = class {
     }
     return defaultFallback;
   }
+  /**
+   * カラー文字列をRGBA成分に分解する
+   * @param color #hex または rgba() 文字列
+   * @returns RGBAオブジェクト
+   */
   colorToRgba(color) {
     if (!color || color === "transparent") {
       return { r: 0, g: 0, b: 0, a: 0 };
@@ -3695,6 +3983,13 @@ var WitnessUI = class {
     }
     return { r: 0, g: 0, b: 0, a: 1 };
   }
+  /**
+   * 二つの色を線形補間する
+   * @param c1 色1
+   * @param c2 色2
+   * @param t 割合 (0.0 - 1.0)
+   * @returns 補間後の色 (rgba形式)
+   */
   lerpColor(c1, c2, t) {
     try {
       const rgba1 = this.colorToRgba(c1);
@@ -3708,14 +4003,31 @@ var WitnessUI = class {
       return c1;
     }
   }
+  /**
+   * 色のアルファ値を上書きする
+   * @param color 元の色
+   * @param alpha 新しいアルファ値
+   * @returns 変更後の色
+   */
   setAlpha(color, alpha) {
     const rgba = this.colorToRgba(color);
     return `rgba(${rgba.r},${rgba.g},${rgba.b},${alpha})`;
   }
+  /**
+   * 指定されたパスの対称パスを生成する
+   * @param path メインパス
+   * @returns 対称パス
+   */
   getSymmetryPath(path) {
     if (!this.puzzle || !this.puzzle.symmetry) return [];
     return path.map((p) => this.getSymmetricalPoint(p));
   }
+  /**
+   * 指定された点の対称点を取得する
+   * @param p 元の点
+   * @param isFloat 小数点座標を維持するか
+   * @returns 対称点
+   */
   getSymmetricalPoint(p, isFloat = false) {
     if (!this.puzzle || !this.puzzle.symmetry) return { ...p };
     const { cols, rows, symmetry } = this.puzzle;
@@ -3728,9 +4040,15 @@ var WitnessUI = class {
     }
     return { ...p };
   }
+  /**
+   * 二点間のエッジを識別するユニークなキーを取得する
+   */
   getEdgeKey(p1, p2) {
     return p1.x < p2.x || p1.x === p2.x && p1.y < p2.y ? `${p1.x},${p1.y}-${p2.x},${p2.y}` : `${p2.x},${p2.y}-${p1.x},${p1.y}`;
   }
+  /**
+   * 合成用のオフスクリーンCanvasを準備する
+   */
   prepareOffscreen() {
     if (!this.offscreenCanvas) {
       if (typeof document !== "undefined") {
@@ -3756,26 +4074,38 @@ var WitnessUI = class {
 var WitnessCore = class {
   generator;
   validator;
+  /**
+   * インスタンスを生成する
+   */
   constructor() {
     this.generator = new PuzzleGenerator();
     this.validator = new PuzzleValidator();
   }
   /**
-   * 新しいパズルを生成してデータを返す
+   * 指定されたサイズとオプションで新しいパズルを生成する
+   * @param rows 行数
+   * @param cols 列数
+   * @param options 生成オプション
+   * @returns 生成されたパズルデータ
    */
   createPuzzle(rows, cols, options = {}) {
     const grid = this.generator.generate(rows, cols, options);
     return grid.export();
   }
   /**
-   * 解答を検証する
+   * 与えられたパズルデータに対して解答パスを検証する
+   * @param puzzleData パズルデータ
+   * @param solution 解答パス
+   * @returns 検証結果
    */
   validateSolution(puzzleData, solution) {
     const grid = Grid.fromData(puzzleData);
     return this.validator.validate(grid, solution);
   }
   /**
-   * パズルの難易度を計算する
+   * パズルデータの難易度を算出する
+   * @param puzzleData パズルデータ
+   * @returns 難易度スコア (0.0 - 1.0)
    */
   calculateDifficulty(puzzleData) {
     const grid = Grid.fromData(puzzleData);

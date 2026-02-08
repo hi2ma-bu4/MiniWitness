@@ -8,32 +8,48 @@ export declare enum Direction {
 }
 export declare enum CellType {
 	None = 0,
-	Square = 1,// 色分けが必要なブロック
-	Star = 2,// 同じ色のペア作成 (星)
-	Tetris = 3,// テトリス
-	TetrisRotated = 4,// テトリス（回転可能）
+	/** 色分けが必要なブロック */
+	Square = 1,
+	/** 同じ色のペア作成 (星) */
+	Star = 2,
+	/** テトリス */
+	Tetris = 3,
+	/** テトリス（回転可能） */
+	TetrisRotated = 4,
+	/** テトラポッド (エラー削除) */
 	Eraser = 5
 }
 export declare enum EdgeType {
 	Normal = 0,
-	Broken = 1,// 線の真ん中で断線 (通行不可)
-	Absent = 2,// そもそも分岐もなし (通行不可)
-	Hexagon = 3,// 通過必須 (ワイルドカード)
-	HexagonMain = 4,// メイン線のみ通過必須
+	/** 線の真ん中で断線 (通行不可) */
+	Broken = 1,
+	/** そもそも分岐もなし (通行不可) */
+	Absent = 2,
+	/** 通過必須 (ワイルドカード) */
+	Hexagon = 3,
+	/** メイン線のみ通過必須 */
+	HexagonMain = 4,
+	/** 対称線のみ通過必須 */
 	HexagonSymmetry = 5
 }
 export declare enum NodeType {
 	Normal = 0,
 	Start = 1,
 	End = 2,
-	Hexagon = 3,// 通過必須 (ワイルドカード)
-	HexagonMain = 4,// メイン線のみ通過必須
+	/** 通過必須 (ワイルドカード) */
+	Hexagon = 3,
+	/** メイン線のみ通過必須 */
+	HexagonMain = 4,
+	/** 対称線のみ通過必須 */
 	HexagonSymmetry = 5
 }
 export declare enum SymmetryType {
 	None = 0,
-	Horizontal = 1,// 左右対称
-	Vertical = 2,// 上下対称
+	/** 左右対称 */
+	Horizontal = 1,
+	/** 上下対称 */
+	Vertical = 2,
+	/** 点対称 */
 	Rotational = 3
 }
 /**
@@ -121,17 +137,44 @@ export interface GenerationOptions {
 	 */
 	defaultColors?: Partial<Record<CellType | keyof typeof CellType, Color>>;
 }
+/**
+ * パズルのグリッド構造と状態を管理するクラス
+ */
 export declare class Grid {
+	/** 行数 */
 	readonly rows: number;
+	/** 列数 */
 	readonly cols: number;
+	/** セルの制約（記号）マトリクス */
 	cells: CellConstraint[][];
+	/** 水平エッジの制約マトリクス */
 	hEdges: EdgeConstraint[][];
+	/** 垂直エッジの制約マトリクス */
 	vEdges: EdgeConstraint[][];
+	/** ノードの制約マトリクス */
 	nodes: NodeConstraint[][];
+	/** 対称性の設定 (SymmetryType) */
 	symmetry: number;
+	/**
+	 * 新しいグリッドを初期化する
+	 * @param rows 行数
+	 * @param cols 列数
+	 */
 	constructor(rows: number, cols: number);
+	/**
+	 * グリッドの各要素を初期状態（制約なし）で生成する
+	 */
 	private initializeGrid;
+	/**
+	 * グリッドの状態を PuzzleData 形式でエクスポートする
+	 * @returns パズルデータ
+	 */
 	export(): PuzzleData;
+	/**
+	 * PuzzleData から Grid インスタンスを生成する
+	 * @param data パズルデータ
+	 * @returns Grid インスタンス
+	 */
 	static fromData(data: PuzzleData): Grid;
 }
 /**
@@ -150,6 +193,13 @@ export declare class PuzzleGenerator {
 	generate(rows: number, cols: number, options?: GenerationOptions): Grid;
 	/**
 	 * 指定されたパスに基づいてパズルを構築する
+	 * @param rows 行数
+	 * @param cols 列数
+	 * @param solutionPath 解答パス
+	 * @param options 生成オプション
+	 * @param precalculatedRegions 事前計算された区画
+	 * @param precalculatedBoundaryEdges 事前計算された境界エッジ
+	 * @returns 構築されたグリッド
 	 */
 	private generateFromPath;
 	/**
@@ -159,25 +209,40 @@ export declare class PuzzleGenerator {
 	private generateRandomPath;
 	/**
 	 * 1本のランダムパスを生成する
+	 * @param grid グリッド
+	 * @param start 開始点
+	 * @param end 終了点
+	 * @param biasFactor 長さのバイアス
+	 * @param symmetry 対称性
+	 * @returns 生成されたパス
 	 */
 	private generateSingleRandomPath;
 	private getValidNeighbors;
 	/**
 	 * 解パスが通っていない場所にランダムに断線（Broken/Absent）を配置する
+	 * @param grid グリッド
+	 * @param path 解答パス
+	 * @param options 生成オプション
 	 */
 	private applyBrokenEdges;
 	/**
 	 * エッジがAbsentに変換可能か判定する
+	 * @param grid グリッド
+	 * @param edge 判定対象のエッジ
+	 * @returns 変換可能かどうか
 	 */
 	private canBecomeAbsent;
 	/**
 	 * 到達不可能なエリアをAbsent化し、外部に漏れたセルをクリアする
+	 * @param grid グリッド
 	 */
 	private cleanGrid;
 	private getExternalCells;
 	private isAdjacentToMark;
 	/**
 	 * マークが完全に断絶されたセルにいないか確認する
+	 * @param grid グリッド
+	 * @returns 孤立したマークがあるかどうか
 	 */
 	private hasIsolatedMark;
 	private getSymmetricalPoint;
@@ -185,15 +250,30 @@ export declare class PuzzleGenerator {
 	private TETRIS_SHAPES;
 	/**
 	 * 解パスに基づいて各区画にルールを配置する
+	 * @param grid グリッド
+	 * @param path 解答パス
+	 * @param options 生成オプション
+	 * @param symPath 対称パス
+	 * @param precalculatedRegions 事前計算された区画
+	 * @param precalculatedBoundaryEdges 事前計算された境界エッジ
 	 */
 	private applyConstraintsBasedOnPath;
 	/**
 	 * 区画分けを行う
+	 * @param grid グリッド
+	 * @param path 解答パス
+	 * @param symPath 対称パス
+	 * @returns 区画リスト
 	 */
 	private calculateRegions;
 	private isAbsentEdge;
 	/**
 	 * 区画の境界エッジのうち、解パスが通っていないものを取得する
+	 * @param grid グリッド
+	 * @param region 区画
+	 * @param path 解答パス
+	 * @param symPath 対称パス
+	 * @returns 境界エッジのリスト
 	 */
 	private getRegionBoundaryEdges;
 	private setEdgeHexagon;
@@ -201,14 +281,26 @@ export declare class PuzzleGenerator {
 	private isEdgeAdjacentToHexagonNode;
 	/**
 	 * 要求された制約が全て含まれているか確認する
+	 * @param grid グリッド
+	 * @param options 生成オプション
+	 * @returns 全ての要求された制約が含まれているか
 	 */
 	private checkAllRequestedConstraintsPresent;
 	/**
 	 * 指定された区画をピースで埋め尽くすタイリングを生成する
+	 * @param region 区画
+	 * @param maxPieces 最大ピース数
+	 * @param options 生成オプション
+	 * @returns タイリング結果
 	 */
 	private generateTiling;
 	/**
 	 * タイリングを深さ優先探索で生成する
+	 * @param regionGrid 領域のグリッド表現
+	 * @param currentPieces 現在配置済みのピース
+	 * @param maxPieces 最大ピース数
+	 * @param options 生成オプション
+	 * @returns 成功した場合はピースのリスト、失敗した場合はnull
 	 */
 	private tilingDfs;
 	private getShapeArea;
@@ -219,8 +311,23 @@ export declare class PuzzleGenerator {
 	private placePiece;
 	private shuffleArray;
 }
+/**
+ * パズルデータと生成オプションをシリアライズ/デシリアライズするクラス
+ * URL共有などのためにデータを短縮して文字列化する
+ */
 export declare class PuzzleSerializer {
+	/**
+	 * パズルデータとオプションを圧縮されたBase64文字列に変換する
+	 * @param puzzle パズルデータ
+	 * @param options 生成オプション
+	 * @returns シリアライズされた文字列
+	 */
 	static serialize(puzzle: PuzzleData, options: GenerationOptions): Promise<string>;
+	/**
+	 * シリアライズされた文字列からパズルデータとオプションを復元する
+	 * @param str シリアライズされた文字列
+	 * @returns 復元されたパズルデータとオプション
+	 */
 	static deserialize(str: string): Promise<{
 		puzzle: PuzzleData;
 		options: GenerationOptions;
@@ -244,6 +351,10 @@ export interface WitnessUIOptions {
 	exitLength?: number;
 	/** パズルのサイズに合わせてCanvasサイズを自動調整するか */
 	autoResize?: boolean;
+	/** 失敗時にマークを赤く点滅させるか */
+	blinkMarksOnError?: boolean;
+	/** 失敗時に引いた線（対称線含む）を残すか（falseの場合はフェードアウトする） */
+	stayPathOnError?: boolean;
 	/** アニメーション設定 */
 	animations?: {
 		/** 点滅・前アニメーションの時間(ms) */
@@ -315,6 +426,11 @@ export declare class WitnessUI {
 	private offscreenCtx;
 	private canvasRect;
 	constructor(canvasOrId: HTMLCanvasElement | OffscreenCanvas | string, puzzle?: PuzzleData, options?: WitnessUIOptions);
+	/**
+	 * デフォルトオプションとユーザー指定オプションをマージする
+	 * @param options 指定されたオプション
+	 * @returns マージ後の全オプション
+	 */
 	private mergeOptions;
 	/**
 	 * パズルデータを設定し、再描画する
@@ -336,6 +452,9 @@ export declare class WitnessUI {
 		r: number;
 		c: number;
 	}[], invalidatedNodes?: Point[], errorNodes?: Point[]): void;
+	/**
+	 * パズルのサイズに合わせてCanvasの物理サイズを調整する
+	 */
 	private resizeCanvas;
 	/**
 	 * Canvasの表示上の矩形情報を設定する（Worker時などに必要）
@@ -346,8 +465,23 @@ export declare class WitnessUI {
 		width: number;
 		height: number;
 	}): void;
+	/**
+	 * マウス・タッチイベントを初期化する
+	 */
 	private initEvents;
+	/**
+	 * グリッド座標をCanvas上のピクセル座標に変換する
+	 * @param gridX グリッドX
+	 * @param gridY グリッドY
+	 * @returns Canvas座標
+	 */
 	private getCanvasCoords;
+	/**
+	 * 指定されたノードが出口の場合、その出っ張りの方向ベクトルを返す
+	 * @param x グリッドX
+	 * @param y グリッドY
+	 * @returns 方向ベクトル、またはnull
+	 */
 	private getExitDir;
 	handleStart(e: {
 		clientX: number;
@@ -361,33 +495,138 @@ export declare class WitnessUI {
 		clientX: number;
 		clientY: number;
 	}): void;
+	/**
+	 * 二点間のエッジタイプを取得する
+	 * @param p1 点1
+	 * @param p2 点2
+	 * @returns エッジタイプ
+	 */
 	private getEdgeType;
+	/**
+	 * パスのフェードアウトアニメーションを開始する
+	 * @param color フェード時の色
+	 */
 	private startFade;
+	/**
+	 * 現在のフェードアニメーションを中止する
+	 */
 	private cancelFade;
+	/**
+	 * アニメーションループ
+	 */
 	private animate;
 	draw(): void;
+	/**
+	 * ゴール地点の波紋アニメーションを描画する
+	 * @param ctx 描画コンテキスト
+	 */
 	private drawRipples;
+	/**
+	 * グリッド（背景の線）を描画する
+	 * @param ctx 描画コンテキスト
+	 */
 	private drawGrid;
+	/**
+	 * 全ての制約記号（四角、星、六角形など）を描画する
+	 * @param ctx 描画コンテキスト
+	 */
 	private drawConstraints;
 	/**
 	 * 単一の制約アイテムを描画（座標はキャンバス全体に対する絶対座標）
 	 */
 	private drawConstraintItem;
+	/**
+	 * 全てのノード（交点、始点、終点）を描画する
+	 * @param ctx 描画コンテキスト
+	 */
 	private drawNodes;
+	/**
+	 * 解答パスを描画する（オフスクリーン合成により重なりを防止）
+	 * @param ctx 描画コンテキスト
+	 * @param path パス座標配列
+	 * @param isDrawing 描画中かどうか
+	 * @param color パスの色
+	 * @param opacity 不透明度
+	 * @param tipPos 先端の座標（描画中用）
+	 */
 	private drawPath;
+	/**
+	 * 解答パスの実際の描画処理
+	 * @param ctx 描画コンテキスト
+	 * @param path パス座標配列
+	 * @param isDrawing 描画中かどうか
+	 * @param color パスの色
+	 * @param tipPos 先端の座標
+	 */
 	private drawPathInternal;
+	/**
+	 * 角丸長方形を描画する
+	 */
 	private drawRoundedRect;
+	/**
+	 * 六角形（通過必須マーク）を描画する
+	 */
 	private drawHexagon;
+	/**
+	 * 消しゴム（テトラポッド）を描画する
+	 */
 	private drawEraser;
+	/**
+	 * 星を描画する
+	 */
 	private drawStar;
+	/**
+	 * テトリスピースを描画する
+	 */
 	private drawTetris;
+	/**
+	 * Color値に対応するカラーコードを取得する
+	 * @param colorEnum Color値
+	 * @param defaultFallback 見つからない場合のデフォルト
+	 * @returns カラーコード文字列
+	 */
 	private getColorCode;
+	/**
+	 * カラー文字列をRGBA成分に分解する
+	 * @param color #hex または rgba() 文字列
+	 * @returns RGBAオブジェクト
+	 */
 	private colorToRgba;
+	/**
+	 * 二つの色を線形補間する
+	 * @param c1 色1
+	 * @param c2 色2
+	 * @param t 割合 (0.0 - 1.0)
+	 * @returns 補間後の色 (rgba形式)
+	 */
 	private lerpColor;
+	/**
+	 * 色のアルファ値を上書きする
+	 * @param color 元の色
+	 * @param alpha 新しいアルファ値
+	 * @returns 変更後の色
+	 */
 	private setAlpha;
+	/**
+	 * 指定されたパスの対称パスを生成する
+	 * @param path メインパス
+	 * @returns 対称パス
+	 */
 	private getSymmetryPath;
+	/**
+	 * 指定された点の対称点を取得する
+	 * @param p 元の点
+	 * @param isFloat 小数点座標を維持するか
+	 * @returns 対称点
+	 */
 	private getSymmetricalPoint;
+	/**
+	 * 二点間のエッジを識別するユニークなキーを取得する
+	 */
 	private getEdgeKey;
+	/**
+	 * 合成用のオフスクリーンCanvasを準備する
+	 */
 	private prepareOffscreen;
 }
 /**
@@ -404,63 +643,128 @@ export declare class PuzzleValidator {
 	validate(grid: Grid, solution: SolutionPath, externalCellsPrecalculated?: Set<string>): ValidationResult;
 	/**
 	 * 高速化された検証（内部探索用）
+	 * @param grid グリッド
+	 * @param path メインパス
+	 * @param symPath 対称パス
+	 * @param externalCells 外部セルのキャッシュ
+	 * @returns 検証結果
 	 */
 	private validateFast;
 	/**
 	 * 二点間が断線（Broken or Absent）しているか確認する
+	 * @param grid グリッド
+	 * @param p1 点1
+	 * @param p2 点2
+	 * @returns 断線しているかどうか
 	 */
 	private isBrokenEdge;
 	/**
 	 * 二点間が Absent（存在しない）エッジか確認する
+	 * @param grid グリッド
+	 * @param p1 点1
+	 * @param p2 点2
+	 * @returns 存在しないかどうか
 	 */
 	private isAbsentEdge;
 	/**
 	 * 回答パスが通過しなかった六角形（エッジ・ノード）をリストアップする
+	 * @param grid グリッド
+	 * @param path メインパス
+	 * @param symPath 対称パス
+	 * @returns 通過しなかった六角形のリスト
 	 */
 	private getMissedHexagons;
 	/**
 	 * テトラポッド（エラー削除）を考慮してパズルの各制約を検証する
+	 * @param grid グリッド
+	 * @param regions 区画リスト
+	 * @param missedHexagons 通過しなかったエッジ六角形
+	 * @param missedNodeHexagons 通過しなかったノード六角形
+	 * @returns 検証結果
 	 */
 	private validateWithErasers;
 	/**
 	 * 指定されたエッジが特定の区画に隣接しているか確認する
+	 * @param grid グリッド
+	 * @param hex 六角形エッジ
+	 * @param region 区画
+	 * @returns 隣接しているかどうか
 	 */
 	private isHexagonAdjacentToRegion;
 	/**
 	 * 指定されたノードが特定の区画に隣接しているか確認する
+	 * @param grid グリッド
+	 * @param node ノード座標
+	 * @param region 区画
+	 * @returns 隣接しているかどうか
 	 */
 	private isNodeHexagonAdjacentToRegion;
 	/**
 	 * 区画内のエラー削除可能な全パターンを取得する
+	 * @param grid グリッド
+	 * @param region 区画
+	 * @param erasers 消しゴムのリスト
+	 * @param otherMarks 他の記号のリスト
+	 * @param adjacentMissedHexagons 隣接する未通過エッジ六角形
+	 * @param adjacentMissedNodeHexagons 隣接する未通過ノード六角形
+	 * @returns 可能な削除パターンのリスト
 	 */
 	private getPossibleErasures;
 	/**
 	 * エラーが解消できなかった場合のベストエフォートな削除（可能な限り消しゴムを適用）を取得する
+	 * @param grid グリッド
+	 * @param region 区画
+	 * @param erasers 消しゴムのリスト
+	 * @param otherMarks 他の記号のリスト
+	 * @param adjacentMissedHexagons 隣接する未通過エッジ六角形
+	 * @param adjacentMissedNodeHexagons 隣接する未通過ノード六角形
+	 * @returns ベストエフォートな削除結果
 	 */
 	private getBestEffortErasures;
 	/**
 	 * 配列からN個選ぶ組み合わせを取得する
+	 * @param items 配列
+	 * @param n 選択する数
+	 * @returns 組み合わせのリスト
 	 */
 	private getNCombinations;
 	/**
 	 * 特定の削除・無効化を適用した状態で、区画内の制約が満たされているか検証する
+	 * @param grid グリッド
+	 * @param region 区画
+	 * @param erasedCells 無効化されたセルのリスト
+	 * @returns 有効かどうか
 	 */
 	private checkRegionValid;
 	/**
 	 * 区画内のエラーとなっているセルを特定する
+	 * @param grid グリッド
+	 * @param region 区画
+	 * @param erasedCells 無効化されたセルのリスト
+	 * @returns エラーセルのリスト
 	 */
 	private getRegionErrors;
 	/**
 	 * グローバルな制約（六角形）の割り当てをバックトラッキングで探索する
+	 * @param regionResults 各区画の削除候補リスト
+	 * @param totalMissedHexagons 合計未通過エッジ六角形数
+	 * @param totalMissedNodeHexagons 合計未通過ノード六角形数
+	 * @returns 成功した場合は割り当て結果、失敗した場合はnull
 	 */
 	private findGlobalAssignment;
 	/**
 	 * テトリス制約の検証（指定された領域をピースで埋め尽くせるか）
+	 * @param region 区画
+	 * @param pieces テトリスピースのリスト
+	 * @returns 埋め尽くせるかどうか
 	 */
 	private checkTetrisConstraint;
 	private getShapeArea;
 	/**
 	 * 再帰的にタイリングを試みる
+	 * @param regionGrid 領域のグリッド表現
+	 * @param pieces 残りのピース
+	 * @returns タイリング可能かどうか
 	 */
 	private canTile;
 	private canPlace;
@@ -469,10 +773,17 @@ export declare class PuzzleValidator {
 	private rotate90;
 	/**
 	 * 回答パスによって分割された各区画のセルリストを取得する
+	 * @param grid グリッド
+	 * @param path メインパス
+	 * @param symPath 対称パス
+	 * @param externalCellsPrecalculated 外部セルのキャッシュ
+	 * @returns 区画リスト
 	 */
 	private calculateRegions;
 	/**
 	 * エッジ（Absent）によって外部に繋がっているセルを特定する
+	 * @param grid グリッド
+	 * @returns 外部セルのセット
 	 */
 	private getExternalCells;
 	private getSymmetricalPoint;
@@ -500,20 +811,35 @@ export declare class PuzzleValidator {
 	 */
 	private getFingerprint;
 }
+/**
+ * the witnessパズルのコア機能（生成・検証・難易度計算）を提供するメインクラス
+ */
 export declare class WitnessCore {
 	private generator;
 	private validator;
+	/**
+	 * インスタンスを生成する
+	 */
 	constructor();
 	/**
-	 * 新しいパズルを生成してデータを返す
+	 * 指定されたサイズとオプションで新しいパズルを生成する
+	 * @param rows 行数
+	 * @param cols 列数
+	 * @param options 生成オプション
+	 * @returns 生成されたパズルデータ
 	 */
 	createPuzzle(rows: number, cols: number, options?: GenerationOptions): PuzzleData;
 	/**
-	 * 解答を検証する
+	 * 与えられたパズルデータに対して解答パスを検証する
+	 * @param puzzleData パズルデータ
+	 * @param solution 解答パス
+	 * @returns 検証結果
 	 */
 	validateSolution(puzzleData: PuzzleData, solution: SolutionPath): ValidationResult;
 	/**
-	 * パズルの難易度を計算する
+	 * パズルデータの難易度を算出する
+	 * @param puzzleData パズルデータ
+	 * @returns 難易度スコア (0.0 - 1.0)
 	 */
 	calculateDifficulty(puzzleData: PuzzleData): number;
 }
