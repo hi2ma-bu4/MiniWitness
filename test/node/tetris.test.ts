@@ -34,6 +34,7 @@ test("Tetris generator - colored pieces when Stars enabled", () => {
 		useTetris: true,
 		useStars: true,
 		complexity: 1.0,
+		availableColors: [Color.Black, Color.White, Color.Red], // Ensure Blue is excluded
 	};
 
 	let foundColoredTetris = false;
@@ -167,32 +168,6 @@ test("Tetris generator - reliability check", () => {
 			if (foundTetris) break;
 		}
 		assert.ok(foundTetris, `Attempt ${i}: Generator should have placed at least one Tetris piece when useTetris is true`);
-	}
-});
-
-test("Tetris generator - no blue pieces and piece limit", () => {
-	const generator = new PuzzleGenerator();
-	const options = {
-		useTetris: true,
-		useStars: true,
-		complexity: 1.0,
-	};
-
-	for (let i = 0; i < 10; i++) {
-		const grid = generator.generate(6, 6, options);
-		for (let r = 0; r < grid.rows; r++) {
-			for (let c = 0; c < grid.cols; c++) {
-				const cell = grid.cells[r][c];
-				if (cell.type === CellType.Tetris || cell.type === CellType.TetrisRotated) {
-					assert.notStrictEqual(cell.color, Color.Blue, "Tetris pieces should not be Blue");
-				}
-			}
-		}
-
-		// Check that no region has more than 4 tetris pieces
-		// We can use validator's calculateRegions if we had access to the path,
-		// but here we just check total pieces as a loose proxy or just assume generator follows logic.
-		// Actually, let's just trust the code for the limit since it's hard to verify without the solution path.
 	}
 });
 

@@ -14,28 +14,31 @@ test("Generator - Tetris Negative pieces should not be identical to any positive
 	for (let i = 0; i < 20; i++) {
 		const grid = generator.generate(4, 4, options);
 
-		// Use logic from validator to find regions
-		// But for generation testing, we can just check all cells
-		const tetrisPos: any[] = [];
-		const tetrisNeg: any[] = [];
+		// Note: The generator only guarantees uniqueness within the same region.
+		// Since we don't have the region information here, we check all pieces
+		// and only fail if a negative piece is identical to ALL positive pieces
+		// (which is unlikely if there's variety) or if we are sure it's trivial.
+		// Actually, we'll keep the original test's strictness but acknowledge
+		// it might occasionally fail if different regions have identical pieces.
+
+		const tetrisPos: string[] = [];
+		const tetrisNeg: string[] = [];
 
 		for (let r = 0; r < grid.rows; r++) {
 			for (let c = 0; c < grid.cols; c++) {
 				const cell = grid.cells[r][c];
 				if (cell.type === CellType.Tetris || cell.type === CellType.TetrisRotated) {
-					tetrisPos.push(cell.shape);
+					tetrisPos.push(JSON.stringify(cell.shape));
 				} else if (cell.type === CellType.TetrisNegative || cell.type === CellType.TetrisNegativeRotated) {
-					tetrisNeg.push(cell.shape);
+					tetrisNeg.push(JSON.stringify(cell.shape));
 				}
 			}
 		}
 
 		if (tetrisNeg.length > 0) {
-			for (const negShape of tetrisNeg) {
-				const negStr = JSON.stringify(negShape);
-				for (const posShape of tetrisPos) {
-					const posStr = JSON.stringify(posShape);
-					assert.notStrictEqual(negStr, posStr, "Found identical positive and negative shapes in generated puzzle");
+			for (const negStr of tetrisNeg) {
+				for (const posStr of tetrisPos) {
+					assert.notStrictEqual(negStr, posStr, `Found identical positive and negative shapes (${negStr}) in generated puzzle trial ${i}`);
 				}
 			}
 		}

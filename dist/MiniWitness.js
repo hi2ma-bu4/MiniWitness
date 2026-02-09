@@ -128,6 +128,7 @@ var Grid = class _Grid {
 
 // src/validator.ts
 var PuzzleValidator = class {
+  tetrisCache = /* @__PURE__ */ new Map();
   /**
    * 与えられたグリッドと回答パスが正当かどうかを検証する
    * @param grid パズルのグリッドデータ
@@ -750,60 +751,139 @@ var PuzzleValidator = class {
     if (netArea !== region.length) return false;
     const rows = gridObj.rows;
     const cols = gridObj.cols;
+    if (this.tetrisCache.size > 1e4) this.tetrisCache.clear();
+    const regionMask = new Uint8Array(rows * cols);
+    for (const p of region) regionMask[p.y * cols + p.x] = 1;
+    const pieceKey = (p, sign) => `${this.getShapeKey(p.shape)}-${p.rotatable}-${sign}`;
+    const piecesKey = [...pieces.map((p) => pieceKey(p, 1)), ...negativePieces.map((p) => pieceKey(p, -1))].sort().join("|");
+    const cacheKey = `${rows}x${cols}:${regionMask.join("")}:${piecesKey}`;
+    if (this.tetrisCache.has(cacheKey)) return this.tetrisCache.get(cacheKey);
     const target = new Int8Array(rows * cols);
-    for (const p of region) target[p.y * cols + p.x] = 1;
+    for (let i = 0; i < regionMask.length; i++) target[i] = regionMask[i];
     const current = new Int8Array(rows * cols);
-    const allPieceData = [...pieces.map((p) => ({ shape: p.shape, rotatable: p.rotatable, sign: 1, area: this.getShapeArea(p.shape) })), ...negativePieces.map((p) => ({ shape: p.shape, rotatable: p.rotatable, sign: -1, area: this.getShapeArea(p.shape) }))];
-    const totalNegativeArea = negativeArea;
-    let currentNegativeAreaLeft = totalNegativeArea;
-    let currentPositiveAreaLeft = positiveArea;
-    const backtrack = (idx) => {
-      if (idx === allPieceData.length) {
-        for (let i = 0; i < target.length; i++) {
-          if (current[i] !== target[i]) return false;
-        }
-        return true;
+    const pieceGroups = [];
+    const allPieces = [...pieces.map((p) => ({ ...p, sign: 1 })), ...negativePieces.map((p) => ({ ...p, sign: -1 }))];
+    for (const p of allPieces) {
+      const rotations = p.rotatable ? this.getAllRotations(p.shape) : [p.shape];
+      const baseShapeKey = this.getShapeKey(rotations[0]);
+      let group = pieceGroups.find((g) => g.sign === p.sign && (p.rotatable ? g.rotations.length > 1 : g.rotations.length === 1) && this.getShapeKey(g.rotations[0].shape) === baseShapeKey);
+      if (group) {
+        group.count++;
+      } else {
+        pieceGroups.push({
+          rotations: rotations.map((r) => ({ shape: r, h: r.length, w: r[0].length })),
+          sign: p.sign,
+          area: this.getShapeArea(p.shape),
+          count: 1
+        });
       }
-      const piece = allPieceData[idx];
-      if (piece.sign === -1) currentNegativeAreaLeft -= piece.area;
-      else currentPositiveAreaLeft -= piece.area;
-      const shapes = piece.rotatable ? this.getAllRotations(piece.shape) : [piece.shape];
-      for (const shape of shapes) {
-        const h = shape.length;
-        const w = shape[0].length;
-        for (let r = 0; r <= rows - h; r++) {
-          for (let c = 0; c <= cols - w; c++) {
-            let possible = true;
-            const placed = [];
-            for (let pr = 0; pr < h; pr++) {
-              for (let pc = 0; pc < w; pc++) {
-                if (shape[pr][pc]) {
-                  const tidx = (r + pr) * cols + (c + pc);
-                  current[tidx] += piece.sign;
-                  placed.push(tidx);
-                  if (current[tidx] < 0) possible = false;
-                  if (piece.sign === 1 && current[tidx] > 1 + totalNegativeArea) possible = false;
+    }
+    pieceGroups.sort((a, b) => b.sign - a.sign || b.area - a.area);
+    let posMismatch = region.length;
+    let negMismatch = 0;
+    let totalPositiveAreaLeft = positiveArea;
+    let totalNegativeAreaLeft = negativeArea;
+    const backtrack = (groupIdx, countInGroup, lastPos) => {
+      if (posMismatch > totalPositiveAreaLeft || negMismatch > totalNegativeAreaLeft) return false;
+      if (groupIdx === pieceGroups.length) {
+        return posMismatch === 0 && negMismatch === 0;
+      }
+      const group = pieceGroups[groupIdx];
+      const nextCount = countInGroup + 1;
+      const isLastInGroup = nextCount === group.count;
+      if (group.sign === 1) totalPositiveAreaLeft -= group.area;
+      else totalNegativeAreaLeft -= group.area;
+      for (const rot of group.rotations) {
+        const h = rot.h;
+        const w = rot.w;
+        const startPos = countInGroup === 0 ? 0 : lastPos;
+        for (let pos = startPos; pos <= rows * cols - (h > 0 ? (h - 1) * cols + w : 0); pos++) {
+          const r = Math.floor(pos / cols);
+          const c = pos % cols;
+          if (r > rows - h || c > cols - w) continue;
+          let possible = true;
+          const placedIndices = [];
+          for (let pr = 0; pr < h; pr++) {
+            for (let pc = 0; pc < w; pc++) {
+              if (rot.shape[pr][pc]) {
+                const tidx = (r + pr) * cols + (c + pc);
+                if (group.sign === 1) {
+                  if (current[tidx] < target[tidx]) posMismatch--;
+                  else negMismatch++;
+                } else {
+                  if (current[tidx] <= target[tidx]) posMismatch++;
+                  else negMismatch--;
                 }
+                current[tidx] += group.sign;
+                placedIndices.push(tidx);
+                if (current[tidx] < 0) possible = false;
+                if (group.sign === 1 && current[tidx] > 1 + negativeArea) possible = false;
               }
-              if (!possible) break;
             }
-            if (possible && backtrack(idx + 1)) return true;
-            for (const tidx of placed) {
-              current[tidx] -= piece.sign;
+            if (!possible) break;
+          }
+          if (possible) {
+            if (isLastInGroup) {
+              if (backtrack(groupIdx + 1, 0, 0)) {
+                for (const tidx of placedIndices) {
+                  current[tidx] -= group.sign;
+                  if (group.sign === 1) {
+                    if (current[tidx] < target[tidx]) posMismatch++;
+                    else negMismatch--;
+                  } else {
+                    if (current[tidx] <= target[tidx]) posMismatch--;
+                    else negMismatch++;
+                  }
+                }
+                if (group.sign === 1) totalPositiveAreaLeft += group.area;
+                else totalNegativeAreaLeft += group.area;
+                return true;
+              }
+            } else {
+              if (backtrack(groupIdx, nextCount, pos)) {
+                for (const tidx of placedIndices) {
+                  current[tidx] -= group.sign;
+                  if (group.sign === 1) {
+                    if (current[tidx] < target[tidx]) posMismatch++;
+                    else negMismatch--;
+                  } else {
+                    if (current[tidx] <= target[tidx]) posMismatch--;
+                    else negMismatch++;
+                  }
+                }
+                if (group.sign === 1) totalPositiveAreaLeft += group.area;
+                else totalNegativeAreaLeft += group.area;
+                return true;
+              }
+            }
+          }
+          for (const tidx of placedIndices) {
+            current[tidx] -= group.sign;
+            if (group.sign === 1) {
+              if (current[tidx] < target[tidx]) posMismatch++;
+              else negMismatch--;
+            } else {
+              if (current[tidx] <= target[tidx]) posMismatch--;
+              else negMismatch++;
             }
           }
         }
       }
-      if (piece.sign === -1) currentNegativeAreaLeft += piece.area;
-      else currentPositiveAreaLeft += piece.area;
+      if (group.sign === 1) totalPositiveAreaLeft += group.area;
+      else totalNegativeAreaLeft += group.area;
       return false;
     };
-    return backtrack(0);
+    const res = backtrack(0, 0, 0);
+    this.tetrisCache.set(cacheKey, res);
+    return res;
   }
   getShapeArea(shape) {
     let area = 0;
     for (const row of shape) for (const cell of row) if (cell) area++;
     return area;
+  }
+  getShapeKey(shape) {
+    return JSON.stringify(shape);
   }
   /**
    * 再帰的にタイリングを試みる
@@ -816,7 +896,7 @@ var PuzzleValidator = class {
     const keys = /* @__PURE__ */ new Set();
     let curr = shape;
     for (let i = 0; i < 4; i++) {
-      const key = JSON.stringify(curr);
+      const key = this.getShapeKey(curr);
       if (!keys.has(key)) {
         results.push(curr);
         keys.add(key);
@@ -1064,6 +1144,7 @@ var PuzzleValidator = class {
       }
       if (hasCellMarks) break;
     }
+    this.tetrisCache.clear();
     for (const startIdx of startNodes) {
       const nodeCols2 = grid.cols + 1;
       const r = Math.floor(startIdx / nodeCols2);
@@ -1353,6 +1434,7 @@ var PuzzleValidator = class {
       }
       if (hasCellMarks) break;
     }
+    this.tetrisCache.clear();
     for (const startIdx of startNodes) {
       const nodeCols2 = grid.cols + 1;
       const r = Math.floor(startIdx / nodeCols2);

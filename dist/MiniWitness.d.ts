@@ -642,6 +642,7 @@ export declare class WitnessUI {
  * パズルの回答を検証するクラス
  */
 export declare class PuzzleValidator {
+	private tetrisCache;
 	/**
 	 * 与えられたグリッドと回答パスが正当かどうかを検証する
 	 * @param grid パズルのグリッドデータ
@@ -774,6 +775,7 @@ export declare class PuzzleValidator {
 	 */
 	private checkTetrisConstraint;
 	private getShapeArea;
+	private getShapeKey;
 	/**
 	 * 再帰的にタイリングを試みる
 	 * @param regionGrid 領域のグリッド表現
