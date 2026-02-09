@@ -768,6 +768,8 @@ export class PuzzleGenerator {
 
 				const potentialCells = [...region];
 				this.shuffleArray(potentialCells);
+				// この区画内で意図的に（トゲとのペアリング等のために）割り当てられた非デフォルト色
+				const intendedColors = new Set<number>();
 
 				// 四角形の配置
 				let squareColor = availableColors[Math.floor(Math.random() * availableColors.length)];
@@ -791,6 +793,7 @@ export class PuzzleGenerator {
 						grid.cells[cell.y][cell.x].color = squareColor;
 						squaresPlaced++;
 						squareColorsUsed.add(squareColor);
+						intendedColors.add(squareColor);
 					}
 				}
 
@@ -911,10 +914,15 @@ export class PuzzleGenerator {
 									grid.cells[cell.y][cell.x].color = getDefColor(CellType.TetrisNegative, Color.Cyan);
 								} else {
 									grid.cells[cell.y][cell.x].type = p.isRotated ? CellType.TetrisRotated : CellType.Tetris;
-									let tetrisColor = getDefColor(CellType.Tetris, Color.None);
-									if (useStars && Math.random() < 0.5) {
-										const colors = availableColors.filter((c) => c !== tetrisColor);
-										if (colors.length > 0) tetrisColor = colors[Math.floor(Math.random() * colors.length)];
+									const defColor = getDefColor(CellType.Tetris, Color.None);
+									let tetrisColor = defColor;
+									// トゲ(Star)とのペアリングを意図する場合のみ色を付ける
+									if (useStars && Math.random() < 0.3) {
+										const candidates = availableColors.filter((c) => c !== defColor && !intendedColors.has(c));
+										if (candidates.length > 0) {
+											tetrisColor = candidates[Math.floor(Math.random() * candidates.length)];
+											intendedColors.add(tetrisColor);
+										}
 									}
 									grid.cells[cell.y][cell.x].color = tetrisColor;
 								}
@@ -1029,11 +1037,14 @@ export class PuzzleGenerator {
 						if (errorPlaced) {
 							const cell = potentialCells.pop()!;
 							grid.cells[cell.y][cell.x].type = CellType.Eraser;
-							let eraserColor = getDefColor(CellType.Eraser, Color.White);
-							if (useStars && Math.random() < 0.4) {
-								const colors = availableColors.filter((c) => c !== eraserColor);
-								if (colors.length > 0) {
-									eraserColor = colors[Math.floor(Math.random() * colors.length)];
+							const defColor = getDefColor(CellType.Eraser, Color.White);
+							let eraserColor = defColor;
+							// トゲ(Star)とのペアリングを意図する場合のみ色を付ける
+							if (useStars && Math.random() < 0.3) {
+								const candidates = availableColors.filter((c) => c !== defColor && !intendedColors.has(c));
+								if (candidates.length > 0) {
+									eraserColor = candidates[Math.floor(Math.random() * candidates.length)];
+									intendedColors.add(eraserColor);
 								}
 							}
 							grid.cells[cell.y][cell.x].color = eraserColor;
@@ -1044,19 +1055,29 @@ export class PuzzleGenerator {
 
 				// 星の配置
 				if (useStars) {
-					// 区域が十分に大きければ、複数ペアの配置を検討する
+					// 1. まず非デフォルト色の記号、または意図的に色付けされた記号をトゲでペアリングする（必須）
+					for (const color of availableColors) {
+						if (potentialCells.length < 1) break;
+						const colorCount = region.filter((p) => grid.cells[p.y][p.x].color === color).length;
+						// 非デフォルト色、または意図的に割り当てられた色が1つだけある場合、トゲを追加してペアにする
+						if (colorCount === 1 && (color !== Color.White || intendedColors.has(color))) {
+							const cell = potentialCells.pop()!;
+							grid.cells[cell.y][cell.x].type = CellType.Star;
+							grid.cells[cell.y][cell.x].color = color;
+							starsPlaced++;
+						}
+					}
+
+					// 2. 追加でトゲのペアを配置する（ランダム）
 					const maxPairs = Math.max(1, Math.floor(region.length / 8));
 					for (let p = 0; p < maxPairs; p++) {
+						if (potentialCells.length < 2) break;
 						for (const color of availableColors) {
-							if (potentialCells.length < 1) break;
+							if (potentialCells.length < 2) break;
 							if (Math.random() > 0.3 + complexity * 0.4) continue;
+
 							const colorCount = region.filter((p) => grid.cells[p.y][p.x].color === color).length;
-							if (colorCount === 1) {
-								const cell = potentialCells.pop()!;
-								grid.cells[cell.y][cell.x].type = CellType.Star;
-								grid.cells[cell.y][cell.x].color = color;
-								starsPlaced++;
-							} else if (colorCount === 0 && potentialCells.length >= 2) {
+							if (colorCount === 0) {
 								for (let i = 0; i < 2; i++) {
 									const cell = potentialCells.pop()!;
 									grid.cells[cell.y][cell.x].type = CellType.Star;

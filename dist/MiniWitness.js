@@ -2269,6 +2269,7 @@ var PuzzleGenerator = class {
         if (Math.random() > placementProb) continue;
         const potentialCells = [...region];
         this.shuffleArray(potentialCells);
+        const intendedColors = /* @__PURE__ */ new Set();
         let squareColor = availableColors[Math.floor(Math.random() * availableColors.length)];
         if (useSquares && !useStars && remainingRegions <= 2 && squareColorsUsed.size === 1) {
           const otherColors = availableColors.filter((c) => !squareColorsUsed.has(c));
@@ -2287,6 +2288,7 @@ var PuzzleGenerator = class {
             grid.cells[cell.y][cell.x].color = squareColor;
             squaresPlaced++;
             squareColorsUsed.add(squareColor);
+            intendedColors.add(squareColor);
           }
         }
         if ((useTetris || useTetrisNegative) && totalTetrisArea < maxTotalTetrisArea) {
@@ -2385,10 +2387,14 @@ var PuzzleGenerator = class {
                   grid.cells[cell.y][cell.x].color = getDefColor(6 /* TetrisNegative */, Color.Cyan);
                 } else {
                   grid.cells[cell.y][cell.x].type = p.isRotated ? 4 /* TetrisRotated */ : 3 /* Tetris */;
-                  let tetrisColor = getDefColor(3 /* Tetris */, Color.None);
-                  if (useStars && Math.random() < 0.5) {
-                    const colors = availableColors.filter((c) => c !== tetrisColor);
-                    if (colors.length > 0) tetrisColor = colors[Math.floor(Math.random() * colors.length)];
+                  const defColor = getDefColor(3 /* Tetris */, Color.None);
+                  let tetrisColor = defColor;
+                  if (useStars && Math.random() < 0.3) {
+                    const candidates = availableColors.filter((c) => c !== defColor && !intendedColors.has(c));
+                    if (candidates.length > 0) {
+                      tetrisColor = candidates[Math.floor(Math.random() * candidates.length)];
+                      intendedColors.add(tetrisColor);
+                    }
                   }
                   grid.cells[cell.y][cell.x].color = tetrisColor;
                 }
@@ -2487,11 +2493,13 @@ var PuzzleGenerator = class {
             if (errorPlaced) {
               const cell = potentialCells.pop();
               grid.cells[cell.y][cell.x].type = 5 /* Eraser */;
-              let eraserColor = getDefColor(5 /* Eraser */, Color.White);
-              if (useStars && Math.random() < 0.4) {
-                const colors = availableColors.filter((c) => c !== eraserColor);
-                if (colors.length > 0) {
-                  eraserColor = colors[Math.floor(Math.random() * colors.length)];
+              const defColor = getDefColor(5 /* Eraser */, Color.White);
+              let eraserColor = defColor;
+              if (useStars && Math.random() < 0.3) {
+                const candidates = availableColors.filter((c) => c !== defColor && !intendedColors.has(c));
+                if (candidates.length > 0) {
+                  eraserColor = candidates[Math.floor(Math.random() * candidates.length)];
+                  intendedColors.add(eraserColor);
                 }
               }
               grid.cells[cell.y][cell.x].color = eraserColor;
@@ -2500,18 +2508,24 @@ var PuzzleGenerator = class {
           }
         }
         if (useStars) {
+          for (const color of availableColors) {
+            if (potentialCells.length < 1) break;
+            const colorCount = region.filter((p) => grid.cells[p.y][p.x].color === color).length;
+            if (colorCount === 1 && (color !== Color.White || intendedColors.has(color))) {
+              const cell = potentialCells.pop();
+              grid.cells[cell.y][cell.x].type = 2 /* Star */;
+              grid.cells[cell.y][cell.x].color = color;
+              starsPlaced++;
+            }
+          }
           const maxPairs = Math.max(1, Math.floor(region.length / 8));
           for (let p = 0; p < maxPairs; p++) {
+            if (potentialCells.length < 2) break;
             for (const color of availableColors) {
-              if (potentialCells.length < 1) break;
+              if (potentialCells.length < 2) break;
               if (Math.random() > 0.3 + complexity * 0.4) continue;
               const colorCount = region.filter((p2) => grid.cells[p2.y][p2.x].color === color).length;
-              if (colorCount === 1) {
-                const cell = potentialCells.pop();
-                grid.cells[cell.y][cell.x].type = 2 /* Star */;
-                grid.cells[cell.y][cell.x].color = color;
-                starsPlaced++;
-              } else if (colorCount === 0 && potentialCells.length >= 2) {
+              if (colorCount === 0) {
                 for (let i = 0; i < 2; i++) {
                   const cell = potentialCells.pop();
                   grid.cells[cell.y][cell.x].type = 2 /* Star */;
