@@ -49,11 +49,15 @@ self.onmessage = async (e) => {
 		case "event":
 			const { eventType, eventData } = payload;
 			if (eventType === "mousedown" || eventType === "touchstart") {
-				ui.handleStart(eventData);
+				const started = ui.handleStart(eventData);
+				if (started) {
+					self.postMessage({ type: "drawingStarted" });
+				}
 			} else if (eventType === "mousemove" || eventType === "touchmove") {
 				ui.handleMove(eventData);
 			} else if (eventType === "mouseup" || eventType === "touchend") {
 				ui.handleEnd(eventData);
+				self.postMessage({ type: "drawingEnded" });
 			}
 			break;
 	}

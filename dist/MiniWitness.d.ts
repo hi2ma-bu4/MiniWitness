@@ -434,6 +434,12 @@ export declare class WitnessUI {
 	private offscreenCanvas;
 	private offscreenCtx;
 	private canvasRect;
+	private boundMouseDown;
+	private boundMouseMove;
+	private boundMouseUp;
+	private boundTouchStart;
+	private boundTouchMove;
+	private boundTouchEnd;
 	constructor(canvasOrId: HTMLCanvasElement | OffscreenCanvas | string, puzzle?: PuzzleData, options?: WitnessUIOptions);
 	/**
 	 * デフォルトオプションとユーザー指定オプションをマージする
@@ -478,6 +484,10 @@ export declare class WitnessUI {
 	 * マウス・タッチイベントを初期化する
 	 */
 	private initEvents;
+	/**
+	 * イベントリスナーを解除し、リソースを解放する
+	 */
+	destroy(): void;
 	/**
 	 * グリッド座標をCanvas上のピクセル座標に変換する
 	 * @param gridX グリッドX

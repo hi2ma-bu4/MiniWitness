@@ -15,6 +15,7 @@ class WitnessGame {
 
 		this.puzzle = null;
 		this.currentOptions = null;
+		this.isDrawing = false;
 
 		this.init();
 	}
@@ -220,6 +221,10 @@ class WitnessGame {
 				this.validate(payload);
 			} else if (type === "puzzleCreated") {
 				this.loadPuzzle(payload.puzzle, payload.genOptions);
+			} else if (type === "drawingStarted") {
+				this.isDrawing = true;
+			} else if (type === "drawingEnded") {
+				this.isDrawing = false;
 			} else if (type === "validationResult") {
 				const result = payload;
 				if (result.isValid) {
@@ -232,9 +237,10 @@ class WitnessGame {
 
 		// フォワードイベント
 		const forwardEvent = (e) => {
+			const touch = (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0]);
 			const eventData = {
-				clientX: e.clientX || (e.touches && e.touches[0] ? e.touches[0].clientX : 0),
-				clientY: e.clientY || (e.touches && e.touches[0] ? e.touches[0].clientY : 0),
+				clientX: e.clientX || (touch ? touch.clientX : 0),
+				clientY: e.clientY || (touch ? touch.clientY : 0),
 			};
 			this.worker.postMessage({
 				type: "event",
@@ -245,31 +251,70 @@ class WitnessGame {
 			});
 		};
 
-		this.canvas.addEventListener("mousedown", forwardEvent);
-		window.addEventListener("mousemove", forwardEvent);
-		window.addEventListener("mouseup", forwardEvent);
+		this.canvas.addEventListener("mousedown", (e) => {
+			forwardEvent(e);
+		});
+		window.addEventListener("mousemove", (e) => {
+			if (this.isDrawing) forwardEvent(e);
+		});
+		window.addEventListener("mouseup", (e) => {
+			if (this.isDrawing) forwardEvent(e);
+		});
 
 		this.canvas.addEventListener(
 			"touchstart",
 			(e) => {
-				forwardEvent(e);
-				e.preventDefault();
+				// スタートノードの判定（簡易版）
+				const rect = this.canvas.getBoundingClientRect();
+				const touch = e.touches[0];
+				const mouseX = (touch.clientX - rect.left) * (this.canvas.width / rect.width);
+				const mouseY = (touch.clientY - rect.top) * (this.canvas.height / rect.height);
+
+				let hitStart = false;
+				if (this.puzzle) {
+					const gridPadding = 60;
+					const cellSize = 80;
+					const startNodeRadius = 22;
+					for (let r = 0; r <= this.puzzle.rows; r++) {
+						for (let c = 0; c <= this.puzzle.cols; c++) {
+							if (this.puzzle.nodes[r][c].type === 1) {
+								// NodeType.Start
+								const nodeX = gridPadding + c * cellSize;
+								const nodeY = gridPadding + r * cellSize;
+								if (Math.hypot(nodeX - mouseX, nodeY - mouseY) < startNodeRadius) {
+									hitStart = true;
+									break;
+								}
+							}
+						}
+						if (hitStart) break;
+					}
+				}
+
+				if (hitStart) {
+					forwardEvent(e);
+					if (e.cancelable) e.preventDefault();
+				}
 			},
 			{ passive: false },
 		);
 		window.addEventListener(
 			"touchmove",
 			(e) => {
-				forwardEvent(e);
-				e.preventDefault();
+				if (this.isDrawing) {
+					forwardEvent(e);
+					if (e.cancelable) e.preventDefault();
+				}
 			},
 			{ passive: false },
 		);
 		window.addEventListener(
 			"touchend",
 			(e) => {
-				forwardEvent(e);
-				e.preventDefault();
+				if (this.isDrawing) {
+					forwardEvent(e);
+					if (e.cancelable) e.preventDefault();
+				}
 			},
 			{ passive: false },
 		);

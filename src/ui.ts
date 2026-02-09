@@ -103,6 +103,14 @@ export class WitnessUI {
 
 	private canvasRect: { left: number; top: number; width: number; height: number } | null = null;
 
+	// イベントハンドラの参照（解除用）
+	private boundMouseDown: ((e: MouseEvent) => void) | null = null;
+	private boundMouseMove: ((e: MouseEvent) => void) | null = null;
+	private boundMouseUp: ((e: MouseEvent) => void) | null = null;
+	private boundTouchStart: ((e: TouchEvent) => void) | null = null;
+	private boundTouchMove: ((e: TouchEvent) => void) | null = null;
+	private boundTouchEnd: ((e: TouchEvent) => void) | null = null;
+
 	constructor(canvasOrId: HTMLCanvasElement | OffscreenCanvas | string, puzzle?: PuzzleData, options: WitnessUIOptions = {}) {
 		if (typeof canvasOrId === "string") {
 			if (typeof document === "undefined") {
@@ -258,39 +266,58 @@ export class WitnessUI {
 	 */
 	private initEvents() {
 		if (typeof window === "undefined" || !(this.canvas instanceof HTMLCanvasElement)) return;
-		this.canvas.addEventListener("mousedown", (e) => this.handleStart(e));
-		window.addEventListener("mousemove", (e) => this.handleMove(e));
-		window.addEventListener("mouseup", (e) => this.handleEnd(e));
 
-		this.canvas.addEventListener(
-			"touchstart",
-			(e) => {
-				if (this.handleStart(e.touches[0])) {
-					e.preventDefault();
-				}
-			},
-			{ passive: false },
-		);
-		window.addEventListener(
-			"touchmove",
-			(e) => {
-				if (this.isDrawing) {
-					e.preventDefault();
-				}
+		this.boundMouseDown = (e: MouseEvent) => this.handleStart(e);
+		this.boundMouseMove = (e: MouseEvent) => this.handleMove(e);
+		this.boundMouseUp = (e: MouseEvent) => this.handleEnd(e);
+
+		this.boundTouchStart = (e: TouchEvent) => {
+			if (this.handleStart(e.touches[0])) {
+				if (e.cancelable) e.preventDefault();
+			}
+		};
+		this.boundTouchMove = (e: TouchEvent) => {
+			if (this.isDrawing) {
+				if (e.cancelable) e.preventDefault();
 				this.handleMove(e.touches[0]);
-			},
-			{ passive: false },
-		);
-		window.addEventListener(
-			"touchend",
-			(e) => {
-				if (this.isDrawing) {
-					e.preventDefault();
-				}
+			}
+		};
+		this.boundTouchEnd = (e: TouchEvent) => {
+			if (this.isDrawing) {
+				if (e.cancelable) e.preventDefault();
 				this.handleEnd(e.changedTouches[0]);
-			},
-			{ passive: false },
-		);
+			}
+		};
+
+		this.canvas.addEventListener("mousedown", this.boundMouseDown);
+		window.addEventListener("mousemove", this.boundMouseMove);
+		window.addEventListener("mouseup", this.boundMouseUp);
+
+		this.canvas.addEventListener("touchstart", this.boundTouchStart, { passive: false });
+		window.addEventListener("touchmove", this.boundTouchMove, { passive: false });
+		window.addEventListener("touchend", this.boundTouchEnd, { passive: false });
+	}
+
+	/**
+	 * イベントリスナーを解除し、リソースを解放する
+	 */
+	public destroy() {
+		if (typeof window === "undefined" || !(this.canvas instanceof HTMLCanvasElement)) return;
+
+		if (this.boundMouseDown) this.canvas.removeEventListener("mousedown", this.boundMouseDown);
+		if (this.boundMouseMove) window.removeEventListener("mousemove", this.boundMouseMove);
+		if (this.boundMouseUp) window.removeEventListener("mouseup", this.boundMouseUp);
+
+		if (this.boundTouchStart) this.canvas.removeEventListener("touchstart", this.boundTouchStart);
+		if (this.boundTouchMove) window.removeEventListener("touchmove", this.boundTouchMove);
+		if (this.boundTouchEnd) window.removeEventListener("touchend", this.boundTouchEnd);
+
+		this.boundMouseDown = null;
+		this.boundMouseMove = null;
+		this.boundMouseUp = null;
+		this.boundTouchStart = null;
+		this.boundTouchMove = null;
+		this.boundTouchEnd = null;
 	}
 
 	// --- 座標変換 ---

@@ -181,3 +181,56 @@ test("WitnessUI symmetry path fading state", () => {
 	assert.strictEqual(internalUI.isInvalidPath, true);
 	assert.strictEqual(internalUI.fadingPath.length, 1);
 });
+
+test("WitnessUI destroy removes listeners", () => {
+	// Mock HTMLCanvasElement before creating mockCanvas
+	const originalCanvasElement = (global as any).HTMLCanvasElement;
+	(global as any).HTMLCanvasElement = class {};
+
+	const mockCanvas = Object.assign(Object.create((global as any).HTMLCanvasElement.prototype), createMockCanvas());
+	const addedListeners: { type: string; listener: any }[] = [];
+	const removedListeners: { type: string; listener: any }[] = [];
+
+	mockCanvas.addEventListener = (type: string, listener: any) => {
+		addedListeners.push({ type, listener });
+	};
+	mockCanvas.removeEventListener = (type: string, listener: any) => {
+		removedListeners.push({ type, listener });
+	};
+
+	// Mock global window
+	const originalWindow = global.window;
+	const windowListeners: { type: string; listener: any }[] = [];
+	const windowRemovedListeners: { type: string; listener: any }[] = [];
+	(global as any).window = {
+		addEventListener: (type: string, listener: any) => {
+			windowListeners.push({ type, listener });
+		},
+		removeEventListener: (type: string, listener: any) => {
+			windowRemovedListeners.push({ type, listener });
+		},
+	};
+
+	try {
+		const ui = new WitnessUI(mockCanvas);
+		ui.destroy();
+
+		// Check if same amount of listeners added were removed
+		assert.strictEqual(addedListeners.length, removedListeners.length, "All canvas listeners should be removed");
+		assert.strictEqual(windowListeners.length, windowRemovedListeners.length, "All window listeners should be removed");
+
+		// Verify specific listeners
+		const canvasEvents = addedListeners.map((l) => l.type);
+		assert.ok(canvasEvents.includes("mousedown"));
+		assert.ok(canvasEvents.includes("touchstart"));
+
+		const windowEvents = windowListeners.map((l) => l.type);
+		assert.ok(windowEvents.includes("mousemove"));
+		assert.ok(windowEvents.includes("mouseup"));
+		assert.ok(windowEvents.includes("touchmove"));
+		assert.ok(windowEvents.includes("touchend"));
+	} finally {
+		(global as any).window = originalWindow;
+		(global as any).HTMLCanvasElement = originalCanvasElement;
+	}
+});
