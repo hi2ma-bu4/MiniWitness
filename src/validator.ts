@@ -729,8 +729,7 @@ export class PuzzleValidator {
 		const netArea = positiveArea - negativeArea;
 
 		if (netArea < 0) return false;
-		if (netArea === 0) return true;
-		if (netArea !== region.length) return false;
+		if (netArea !== 0 && netArea !== region.length) return false;
 
 		const rows = gridObj.rows;
 		const cols = gridObj.cols;
@@ -746,7 +745,9 @@ export class PuzzleValidator {
 		if (this.tetrisCache.has(cacheKey)) return this.tetrisCache.get(cacheKey)!;
 
 		const target = new Int8Array(rows * cols);
-		for (let i = 0; i < regionMask.length; i++) target[i] = regionMask[i];
+		if (netArea > 0) {
+			for (let i = 0; i < regionMask.length; i++) target[i] = regionMask[i];
+		}
 		const current = new Int8Array(rows * cols);
 
 		// 同一ピースのグループ化
@@ -779,7 +780,7 @@ export class PuzzleValidator {
 		// 正のピース、かつ面積が大きい順にソートして枝刈り効率を上げる
 		pieceGroups.sort((a, b) => b.sign - a.sign || b.area - a.area);
 
-		let posMismatch = region.length;
+		let posMismatch = netArea > 0 ? region.length : 0;
 		let negMismatch = 0;
 		let totalPositiveAreaLeft = positiveArea;
 		let totalNegativeAreaLeft = negativeArea;

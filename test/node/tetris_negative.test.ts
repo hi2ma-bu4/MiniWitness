@@ -130,3 +130,115 @@ test("Tetris Negative - must stay within puzzle boundaries", () => {
 	const result = core.validateSolution(puzzle, path);
 	assert.strictEqual(result.isValid, false, "Should be invalid: piece exceeds puzzle boundaries");
 });
+
+test("Tetris Negative - net area 0 with different shapes should be INVALID", () => {
+	const puzzle = createBasicGrid(2, 2);
+	// 1x2 positive - 2x1 negative = 0 cells but shapes differ.
+	puzzle.cells[0][0] = { type: CellType.Tetris, color: Color.None, shape: [[1, 1]] };
+	puzzle.cells[0][1] = { type: CellType.TetrisNegative, color: Color.None, shape: [[1], [1]] };
+
+	const path = {
+		points: [
+			{ x: 0, y: 2 },
+			{ x: 1, y: 2 },
+			{ x: 1, y: 1 },
+			{ x: 2, y: 1 },
+			{ x: 2, y: 0 },
+		],
+	};
+	const result = core.validateSolution(puzzle, path);
+	assert.strictEqual(result.isValid, false, "Should be invalid: different shapes (1x2 vs 2x1) cannot cancel to zero without rotation");
+});
+
+test("Tetris Negative - net area 0 with different shapes but ONE is rotatable should be VALID", () => {
+	const puzzle = createBasicGrid(2, 2);
+	// 1x2 positive - 2x1 negative (rotatable) = 0 cells.
+	puzzle.cells[0][0] = { type: CellType.Tetris, color: Color.None, shape: [[1, 1]] };
+	puzzle.cells[0][1] = { type: CellType.TetrisNegativeRotated, color: Color.None, shape: [[1], [1]] };
+
+	const path = {
+		points: [
+			{ x: 0, y: 2 },
+			{ x: 1, y: 2 },
+			{ x: 1, y: 1 },
+			{ x: 2, y: 1 },
+			{ x: 2, y: 0 },
+		],
+	};
+	const result = core.validateSolution(puzzle, path);
+	assert.strictEqual(result.isValid, true, "Should be valid: 1x2 can be canceled by 2x1 rotatable");
+});
+
+test("Tetris Negative - 2:1 cancellation (P1 + P2 = N)", () => {
+	const puzzle = createBasicGrid(2, 2);
+	// P1: 1x1, P2: 1x1, N: 2x1.
+	puzzle.cells[0][0] = { type: CellType.Tetris, color: Color.None, shape: [[1]] };
+	puzzle.cells[0][1] = { type: CellType.Tetris, color: Color.None, shape: [[1]] };
+	puzzle.cells[1][0] = { type: CellType.TetrisNegative, color: Color.None, shape: [[1, 1]] };
+
+	const path = {
+		points: [
+			{ x: 0, y: 2 },
+			{ x: 1, y: 2 },
+			{ x: 2, y: 2 },
+			{ x: 2, y: 1 },
+			{ x: 2, y: 0 },
+		],
+	};
+	const result = core.validateSolution(puzzle, path);
+	assert.strictEqual(result.isValid, true, "Should be valid: 1x1 + 1x1 = 2x1. Net area 0.");
+});
+
+test("Tetris Negative - 1:2 cancellation (P = N1 + N2)", () => {
+	const puzzle = createBasicGrid(2, 2);
+	// P: 2x1, N1: 1x1, N2: 1x1.
+	puzzle.cells[0][0] = { type: CellType.Tetris, color: Color.None, shape: [[1, 1]] };
+	puzzle.cells[0][1] = { type: CellType.TetrisNegative, color: Color.None, shape: [[1]] };
+	puzzle.cells[1][0] = { type: CellType.TetrisNegative, color: Color.None, shape: [[1]] };
+
+	const path = {
+		points: [
+			{ x: 0, y: 2 },
+			{ x: 1, y: 2 },
+			{ x: 2, y: 2 },
+			{ x: 2, y: 1 },
+			{ x: 2, y: 0 },
+		],
+	};
+	const result = core.validateSolution(puzzle, path);
+	assert.strictEqual(result.isValid, true, "Should be valid: 2x1 = 1x1 + 1x1. Net area 0.");
+});
+
+test("Tetris Negative - complex non-zero (P - N1 - N2 = T)", () => {
+	const puzzle = createBasicGrid(3, 2);
+	// Region: Left column. Area 3.
+	// P: 2x3 (area 6) at (0,0) -> (1,2)
+	// N1: 1x2 vertical at (1,0)-(1,1) -> area 2
+	// N2: 1x1 at (1,2) -> area 1
+	// Net area: 6 - 2 - 1 = 3.
+	puzzle.cells[0][0] = {
+		type: CellType.Tetris,
+		color: Color.None,
+		shape: [
+			[1, 1],
+			[1, 1],
+			[1, 1],
+		],
+	};
+	puzzle.cells[1][0] = { type: CellType.TetrisNegative, color: Color.None, shape: [[1], [1]] };
+	puzzle.cells[2][0] = { type: CellType.TetrisNegative, color: Color.None, shape: [[1]] };
+
+	// Path to isolate column 0.
+	const path = {
+		points: [
+			{ x: 0, y: 3 },
+			{ x: 1, y: 3 },
+			{ x: 1, y: 2 },
+			{ x: 1, y: 1 },
+			{ x: 1, y: 0 },
+			{ x: 2, y: 0 },
+		],
+	};
+	const result = core.validateSolution(puzzle, path);
+	assert.strictEqual(result.isValid, true, "Should be valid: 6 - 2 - 1 = 3. Matches region.");
+});

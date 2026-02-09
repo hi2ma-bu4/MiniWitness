@@ -805,60 +805,95 @@ export class PuzzleGenerator {
 						if (tiledPieces) {
 							// 減算テトリスの適用
 							const negativePiecesToPlace: TiledPiece[] = [];
-							if (useTetrisNegative && Math.random() < 0.4 + complexity * 0.4) {
+							if (useTetrisNegative && Math.random() < 0.2 + complexity * 0.3) {
 								const difficulty = options.difficulty ?? 0.5;
-								const prob0 = 0.2; // area-0 case probability
+								const prob0 = 0.1; // area-0 case probability
 								if (Math.random() < prob0 && potentialCells.length >= 2) {
-									// Case: Net area 0 with different shapes
-									const area = 3 + Math.floor(Math.random() * 2); // area 3 or 4
-									const candidates = this.TETRIS_SHAPES.filter((s) => this.getShapeArea(s) === area);
-									this.shuffleArray(candidates);
+									// Case: Net area 0.
+									let complexFound = false;
+									if (potentialCells.length >= 3 && Math.random() < 0.8) {
+										// Try 2:1 or 1:2 complex cancellation
+										const is2pos1neg = Math.random() < 0.5;
+										const baseArea = 1 + Math.floor(Math.random() * 2); // 1 or 2
+										const baseShapes = this.TETRIS_SHAPES.filter((s) => this.getShapeArea(s) === baseArea);
+										const base = baseShapes[Math.floor(Math.random() * baseShapes.length)];
 
-									let found = false;
-									for (let i = 0; i < candidates.length && !found; i++) {
-										for (let j = i + 1; j < candidates.length && !found; j++) {
-											const pShape = candidates[i];
-											const nShape = candidates[j];
-											if (!this.isSameShape(pShape, nShape)) {
-												tiledPieces.push({
-													shape: pShape,
-													displayShape: pShape,
-													isRotated: Math.random() < difficulty * 0.7,
-													isNegative: false,
-												});
-												negativePiecesToPlace.push({
-													shape: nShape,
-													displayShape: nShape,
-													isRotated: Math.random() < difficulty * 0.7,
-													isNegative: true,
-												});
-												found = true;
+										const triple = this.findStandardTriple(base);
+										if (triple) {
+											if (is2pos1neg) {
+												// P1(base) + P2(triple.n) = N(triple.p)
+												tiledPieces.push({ shape: base, displayShape: base, isRotated: !this.isRotationallyInvariant(base) && Math.random() < difficulty * 0.7, isNegative: false });
+												tiledPieces.push({ shape: triple.n, displayShape: triple.n, isRotated: !this.isRotationallyInvariant(triple.n) && Math.random() < difficulty * 0.7, isNegative: false });
+												negativePiecesToPlace.push({ shape: triple.p, displayShape: triple.p, isRotated: !this.isRotationallyInvariant(triple.p) && Math.random() < difficulty * 0.7, isNegative: true });
+											} else {
+												// P(triple.p) = N1(base) + N2(triple.n)
+												tiledPieces.push({ shape: triple.p, displayShape: triple.p, isRotated: !this.isRotationallyInvariant(triple.p) && Math.random() < difficulty * 0.7, isNegative: false });
+												negativePiecesToPlace.push({ shape: base, displayShape: base, isRotated: !this.isRotationallyInvariant(base) && Math.random() < difficulty * 0.7, isNegative: true });
+												negativePiecesToPlace.push({ shape: triple.n, displayShape: triple.n, isRotated: !this.isRotationallyInvariant(triple.n) && Math.random() < difficulty * 0.7, isNegative: true });
 											}
+											complexFound = true;
+										}
+									}
+
+									if (!complexFound) {
+										// Case: 1:1 Net area 0.
+										// To cancel to zero, combined shapes must match.
+										const area = 3 + Math.floor(Math.random() * 2); // area 3 or 4
+										const candidates = this.TETRIS_SHAPES.filter((s) => this.getShapeArea(s) === area);
+										this.shuffleArray(candidates);
+
+										if (candidates.length > 0) {
+											const pShape = candidates[0];
+											const nShape = candidates[0];
+											tiledPieces.push({ shape: pShape, displayShape: pShape, isRotated: !this.isRotationallyInvariant(pShape) && Math.random() < difficulty * 0.7, isNegative: false });
+											negativePiecesToPlace.push({ shape: nShape, displayShape: nShape, isRotated: !this.isRotationallyInvariant(nShape) && Math.random() < difficulty * 0.7, isNegative: true });
 										}
 									}
 								} else if (tiledPieces.length > 0) {
 									// Case: Net area > 0 using standard triples
-									const numAttempts = Math.random() < 0.3 ? 2 : 1;
-									for (let i = 0; i < numAttempts; i++) {
+									const numSubtractions = Math.random() < 0.3 ? 2 : 1;
+									for (let i = 0; i < numSubtractions; i++) {
 										if (potentialCells.length < 1) break;
 										const targetIdx = Math.floor(Math.random() * tiledPieces.length);
-										const triple = this.findStandardTriple(tiledPieces[targetIdx].shape);
-										if (triple) {
-											// Check if triple.n matches any existing positive piece in tiledPieces
-											const isDuplicate = tiledPieces.some((tp) => this.isSameShape(tp.shape, triple.n));
-											if (!isDuplicate) {
-												tiledPieces[targetIdx] = {
-													shape: triple.p,
-													displayShape: triple.p,
-													isRotated: Math.random() < difficulty * 0.7,
-													isNegative: false,
-												};
-												negativePiecesToPlace.push({
-													shape: triple.n,
-													displayShape: triple.n,
-													isRotated: Math.random() < difficulty * 0.7,
-													isNegative: true,
-												});
+										const original = tiledPieces[targetIdx];
+										if (original.isNegative) continue;
+
+										// Occasionally try a 1:2 subtraction (P = T + N1 + N2)
+										let complexSubtraction = false;
+										if (potentialCells.length >= 2 && Math.random() < 0.2) {
+											const triple1 = this.findStandardTriple(original.shape);
+											if (triple1) {
+												const triple2 = this.findStandardTriple(triple1.p);
+												if (triple2) {
+													// T(orig) + N1(triple1.n) + N2(triple2.n) = P(triple2.p)
+													// So P - N1 - N2 = T
+													tiledPieces[targetIdx] = { shape: triple2.p, displayShape: triple2.p, isRotated: !this.isRotationallyInvariant(triple2.p) && Math.random() < difficulty * 0.7, isNegative: false };
+													negativePiecesToPlace.push({ shape: triple1.n, displayShape: triple1.n, isRotated: !this.isRotationallyInvariant(triple1.n) && Math.random() < difficulty * 0.7, isNegative: true });
+													negativePiecesToPlace.push({ shape: triple2.n, displayShape: triple2.n, isRotated: !this.isRotationallyInvariant(triple2.n) && Math.random() < difficulty * 0.7, isNegative: true });
+													complexSubtraction = true;
+												}
+											}
+										}
+
+										if (!complexSubtraction) {
+											const triple = this.findStandardTriple(original.shape);
+											if (triple) {
+												// Check if triple.n matches any existing positive piece in tiledPieces to avoid triviality
+												const isDuplicate = tiledPieces.some((tp) => !tp.isNegative && this.isSameShape(tp.shape, triple.n));
+												if (!isDuplicate) {
+													tiledPieces[targetIdx] = {
+														shape: triple.p,
+														displayShape: triple.p,
+														isRotated: !this.isRotationallyInvariant(triple.p) && Math.random() < difficulty * 0.7,
+														isNegative: false,
+													};
+													negativePiecesToPlace.push({
+														shape: triple.n,
+														displayShape: triple.n,
+														isRotated: !this.isRotationallyInvariant(triple.n) && Math.random() < difficulty * 0.7,
+														isNegative: true,
+													});
+												}
 											}
 										}
 									}
@@ -1384,8 +1419,7 @@ export class PuzzleGenerator {
 		return area;
 	}
 	private isRotationallyInvariant(shape: number[][]): boolean {
-		const area = this.getShapeArea(shape);
-		return area === 1 || (area === 4 && shape.length === 2 && shape[0].length === 2);
+		return this.getAllRotations(shape).length === 1;
 	}
 	private getAllRotations(shape: number[][]): number[][][] {
 		const results: number[][][] = [];
