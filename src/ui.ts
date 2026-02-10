@@ -700,7 +700,7 @@ export class WitnessUI {
 						const hasNegation = this.invalidatedCells.length > 0 || this.invalidatedEdges.length > 0 || this.invalidatedNodes.length > 0;
 						if (hasNegation && this.options.blinkMarksOnError) {
 							// 消しゴム無効化がある成功時は、アニメーション中のみ赤色（一瞬で切り替え）
-							color = this.options.colors.error as string;
+							color = this.setAlpha(this.options.colors.error as string, originalPathAlpha);
 							if (!this.options.stayPathOnError) {
 								pathOpacity = Math.max(0, 1.0 - elapsed / this.options.animations.fadeDuration);
 							}
@@ -730,7 +730,7 @@ export class WitnessUI {
 						if (this.isSuccessFading) {
 							const hasNegation = this.invalidatedCells.length > 0 || this.invalidatedEdges.length > 0 || this.invalidatedNodes.length > 0;
 							if (hasNegation && this.options.blinkMarksOnError) {
-								symColor = this.options.colors.error as string;
+								symColor = this.setAlpha(this.options.colors.error as string, originalSymAlpha);
 							}
 						}
 					}

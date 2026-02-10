@@ -70,6 +70,10 @@ export class PuzzleGenerator {
 
 			const grid = this.generateFromPath(rows, cols, currentPath!, options, precalculatedRegions!, precalculatedBoundaryEdges!);
 
+			// 意図したパスでクリア可能か検証
+			const validation = validator.validate(grid, { points: currentPath! });
+			if (!validation.isValid) continue;
+
 			// 必須制約が含まれているか確認
 			if (!this.checkAllRequestedConstraintsPresent(grid, options)) continue;
 
@@ -88,10 +92,18 @@ export class PuzzleGenerator {
 			if (diffFromTarget < 0.01) break; // より厳しく早期終了判定
 		}
 
-		// 見つからなかった場合は最後に生成したものを返す（通常はありえない）
+		// 見つからなかった場合は最後に生成に成功したものを返す
 		if (!bestGrid) {
-			const path = this.generateRandomPath(new Grid(rows, cols), startPoint, endPoint, options.pathLength, symmetry);
-			return this.generateFromPath(rows, cols, path, options);
+			// 最低1回は成功するまでループ（通常は数回で終わる）
+			for (let i = 0; i < 50; i++) {
+				const path = this.generateRandomPath(new Grid(rows, cols), startPoint, endPoint, options.pathLength, symmetry);
+				const grid = this.generateFromPath(rows, cols, path, options);
+				if (this.checkAllRequestedConstraintsPresent(grid, options) && validator.validate(grid, { points: path }).isValid) {
+					return grid;
+				}
+			}
+			// それでもダメな場合は空の盤面を返す
+			return new Grid(rows, cols);
 		}
 		return bestGrid;
 	}

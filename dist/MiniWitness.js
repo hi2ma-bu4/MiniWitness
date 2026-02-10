@@ -19,9 +19,9 @@ var CellType = /* @__PURE__ */ ((CellType2) => {
   CellType2[CellType2["Star"] = 2] = "Star";
   CellType2[CellType2["Tetris"] = 3] = "Tetris";
   CellType2[CellType2["TetrisRotated"] = 4] = "TetrisRotated";
-  CellType2[CellType2["Eraser"] = 5] = "Eraser";
-  CellType2[CellType2["TetrisNegative"] = 6] = "TetrisNegative";
-  CellType2[CellType2["TetrisNegativeRotated"] = 7] = "TetrisNegativeRotated";
+  CellType2[CellType2["TetrisNegative"] = 5] = "TetrisNegative";
+  CellType2[CellType2["TetrisNegativeRotated"] = 6] = "TetrisNegativeRotated";
+  CellType2[CellType2["Eraser"] = 7] = "Eraser";
   return CellType2;
 })(CellType || {});
 var EdgeType = /* @__PURE__ */ ((EdgeType2) => {
@@ -319,8 +319,8 @@ var PuzzleValidator = class {
     let allRegionsPossiblyValid = true;
     for (let i = 0; i < regions.length; i++) {
       const region = regions[i];
-      const erasers = region.filter((p) => grid.cells[p.y][p.x].type === 5 /* Eraser */);
-      const otherMarks = region.filter((p) => grid.cells[p.y][p.x].type !== 0 /* None */ && grid.cells[p.y][p.x].type !== 5 /* Eraser */);
+      const erasers = region.filter((p) => grid.cells[p.y][p.x].type === 7 /* Eraser */);
+      const otherMarks = region.filter((p) => grid.cells[p.y][p.x].type !== 0 /* None */ && grid.cells[p.y][p.x].type !== 7 /* Eraser */);
       const adjacentMissedHexagons = [];
       for (let j = 0; j < missedHexagons.length; j++) {
         if (this.isHexagonAdjacentToRegion(grid, missedHexagons[j], region)) adjacentMissedHexagons.push(j);
@@ -634,8 +634,8 @@ var PuzzleValidator = class {
       else if (constraint.type === 2 /* Star */) starColors.add(color);
       else if (constraint.type === 3 /* Tetris */ || constraint.type === 4 /* TetrisRotated */) {
         if (constraint.shape) tetrisPieces.push({ shape: constraint.shape, rotatable: constraint.type === 4 /* TetrisRotated */, pos: cell });
-      } else if (constraint.type === 6 /* TetrisNegative */ || constraint.type === 7 /* TetrisNegativeRotated */) {
-        if (constraint.shape) tetrisNegativePieces.push({ shape: constraint.shape, rotatable: constraint.type === 7 /* TetrisNegativeRotated */, pos: cell });
+      } else if (constraint.type === 5 /* TetrisNegative */ || constraint.type === 6 /* TetrisNegativeRotated */) {
+        if (constraint.shape) tetrisNegativePieces.push({ shape: constraint.shape, rotatable: constraint.type === 6 /* TetrisNegativeRotated */, pos: cell });
       }
     }
     const errorCells = [];
@@ -1207,8 +1207,8 @@ var PuzzleValidator = class {
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         const cell = grid.cells[r][c];
-        if (cell.type === 6 /* TetrisNegative */) negTetrisCount++;
-        else if (cell.type === 7 /* TetrisNegativeRotated */) {
+        if (cell.type === 5 /* TetrisNegative */) negTetrisCount++;
+        else if (cell.type === 6 /* TetrisNegativeRotated */) {
           negTetrisCount++;
           rotatedNegTetrisCount++;
         }
@@ -1677,6 +1677,8 @@ var PuzzleGenerator = class {
         precalculatedBoundaryEdges = precalculatedRegions.map((region) => this.getRegionBoundaryEdges(tempGrid, region, currentPath, symPath));
       }
       const grid = this.generateFromPath(rows, cols, currentPath, options, precalculatedRegions, precalculatedBoundaryEdges);
+      const validation = validator.validate(grid, { points: currentPath });
+      if (!validation.isValid) continue;
       if (!this.checkAllRequestedConstraintsPresent(grid, options)) continue;
       const difficulty = validator.calculateDifficulty(grid);
       if (difficulty === 0) continue;
@@ -1689,8 +1691,14 @@ var PuzzleGenerator = class {
       if (diffFromTarget < 0.01) break;
     }
     if (!bestGrid) {
-      const path = this.generateRandomPath(new Grid(rows, cols), startPoint, endPoint, options.pathLength, symmetry);
-      return this.generateFromPath(rows, cols, path, options);
+      for (let i = 0; i < 50; i++) {
+        const path = this.generateRandomPath(new Grid(rows, cols), startPoint, endPoint, options.pathLength, symmetry);
+        const grid = this.generateFromPath(rows, cols, path, options);
+        if (this.checkAllRequestedConstraintsPresent(grid, options) && validator.validate(grid, { points: path }).isValid) {
+          return grid;
+        }
+      }
+      return new Grid(rows, cols);
     }
     return bestGrid;
   }
@@ -2383,8 +2391,8 @@ var PuzzleGenerator = class {
                 const cell = potentialCells.pop();
                 const isNeg = p.isNegative;
                 if (isNeg) {
-                  grid.cells[cell.y][cell.x].type = p.isRotated ? 7 /* TetrisNegativeRotated */ : 6 /* TetrisNegative */;
-                  grid.cells[cell.y][cell.x].color = getDefColor(6 /* TetrisNegative */, Color.Cyan);
+                  grid.cells[cell.y][cell.x].type = p.isRotated ? 6 /* TetrisNegativeRotated */ : 5 /* TetrisNegative */;
+                  grid.cells[cell.y][cell.x].color = getDefColor(5 /* TetrisNegative */, Color.Cyan);
                 } else {
                   grid.cells[cell.y][cell.x].type = p.isRotated ? 4 /* TetrisRotated */ : 3 /* Tetris */;
                   const defColor = getDefColor(3 /* Tetris */, Color.None);
@@ -2478,22 +2486,22 @@ var PuzzleGenerator = class {
               }
             } else if (errorType === "eraser" && potentialCells.length >= 2) {
               const errCell = potentialCells.pop();
-              grid.cells[errCell.y][errCell.x].type = 5 /* Eraser */;
-              grid.cells[errCell.y][errCell.x].color = getDefColor(5 /* Eraser */, Color.White);
+              grid.cells[errCell.y][errCell.x].type = 7 /* Eraser */;
+              grid.cells[errCell.y][errCell.x].color = getDefColor(7 /* Eraser */, Color.White);
               erasersPlaced++;
               errorPlaced = true;
             }
             if (!errorPlaced && potentialCells.length >= 2) {
               const errCell = potentialCells.pop();
-              grid.cells[errCell.y][errCell.x].type = 5 /* Eraser */;
-              grid.cells[errCell.y][errCell.x].color = getDefColor(5 /* Eraser */, Color.White);
+              grid.cells[errCell.y][errCell.x].type = 7 /* Eraser */;
+              grid.cells[errCell.y][errCell.x].color = getDefColor(7 /* Eraser */, Color.White);
               erasersPlaced++;
               errorPlaced = true;
             }
             if (errorPlaced) {
               const cell = potentialCells.pop();
-              grid.cells[cell.y][cell.x].type = 5 /* Eraser */;
-              const defColor = getDefColor(5 /* Eraser */, Color.White);
+              grid.cells[cell.y][cell.x].type = 7 /* Eraser */;
+              const defColor = getDefColor(7 /* Eraser */, Color.White);
               let eraserColor = defColor;
               if (useStars && Math.random() < 0.3) {
                 const candidates = availableColors.filter((c) => c !== defColor && !intendedColors.has(c));
@@ -2774,8 +2782,8 @@ var PuzzleGenerator = class {
             stC.add(grid.cells[r][c].color);
           }
           if (type === 3 /* Tetris */ || type === 4 /* TetrisRotated */) fT = true;
-          if (type === 6 /* TetrisNegative */ || type === 7 /* TetrisNegativeRotated */) fTN = true;
-          if (type === 5 /* Eraser */) fE = true;
+          if (type === 5 /* TetrisNegative */ || type === 6 /* TetrisNegativeRotated */) fTN = true;
+          if (type === 7 /* Eraser */) fE = true;
         }
       if (useSquares && !fSq) return false;
       if (useStars && !fSt) return false;
@@ -3700,7 +3708,7 @@ var WitnessUI = class {
           if (this.isSuccessFading) {
             const hasNegation = this.invalidatedCells.length > 0 || this.invalidatedEdges.length > 0 || this.invalidatedNodes.length > 0;
             if (hasNegation && this.options.blinkMarksOnError) {
-              color = this.options.colors.error;
+              color = this.setAlpha(this.options.colors.error, originalPathAlpha);
               if (!this.options.stayPathOnError) {
                 pathOpacity = Math.max(0, 1 - elapsed / this.options.animations.fadeDuration);
               }
@@ -3725,7 +3733,7 @@ var WitnessUI = class {
             if (this.isSuccessFading) {
               const hasNegation = this.invalidatedCells.length > 0 || this.invalidatedEdges.length > 0 || this.invalidatedNodes.length > 0;
               if (hasNegation && this.options.blinkMarksOnError) {
-                symColor = this.options.colors.error;
+                symColor = this.setAlpha(this.options.colors.error, originalSymAlpha);
               }
             }
           }
@@ -3999,9 +4007,9 @@ var WitnessUI = class {
       this.drawStar(ctx, pos.x, pos.y, 12, 16, 8, cell.color, overrideColor);
     } else if (cell.type === 3 /* Tetris */ || cell.type === 4 /* TetrisRotated */) {
       this.drawTetris(ctx, pos.x, pos.y, cell.shape || [], cell.type === 4 /* TetrisRotated */, cell.color, false, overrideColor);
-    } else if (cell.type === 6 /* TetrisNegative */ || cell.type === 7 /* TetrisNegativeRotated */) {
-      this.drawTetris(ctx, pos.x, pos.y, cell.shape || [], cell.type === 7 /* TetrisNegativeRotated */, cell.color, true, overrideColor);
-    } else if (cell.type === 5 /* Eraser */) {
+    } else if (cell.type === 5 /* TetrisNegative */ || cell.type === 6 /* TetrisNegativeRotated */) {
+      this.drawTetris(ctx, pos.x, pos.y, cell.shape || [], cell.type === 6 /* TetrisNegativeRotated */, cell.color, true, overrideColor);
+    } else if (cell.type === 7 /* Eraser */) {
       this.drawEraser(ctx, pos.x, pos.y, 14, 3, cell.color, overrideColor);
     }
   }

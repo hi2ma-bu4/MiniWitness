@@ -16,12 +16,12 @@ export declare enum CellType {
 	Tetris = 3,
 	/** テトリス（回転可能） */
 	TetrisRotated = 4,
-	/** テトラポッド (エラー削除) */
-	Eraser = 5,
 	/** テトリス (減算) */
-	TetrisNegative = 6,
+	TetrisNegative = 5,
 	/** テトリス (減算・回転可能) */
-	TetrisNegativeRotated = 7
+	TetrisNegativeRotated = 6,
+	/** テトラポッド (エラー削除) */
+	Eraser = 7
 }
 export declare enum EdgeType {
 	Normal = 0,
