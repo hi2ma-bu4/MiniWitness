@@ -1,11 +1,11 @@
 import assert from "node:assert";
-import { describe, it } from "node:test";
+import { describe, test } from "node:test";
 import { CellType, WitnessCore } from "../../dist/MiniWitness.js";
 
-describe("Color Options", () => {
+describe("Color Options", { concurrency: true }, () => {
 	const core = new WitnessCore();
 
-	it("should use availableColors if provided", () => {
+	test("should use availableColors if provided", () => {
 		const availableColors = [10, 11, 12];
 		const grid = core.createPuzzle(3, 3, {
 			useSquares: true,
@@ -26,7 +26,7 @@ describe("Color Options", () => {
 		assert.ok(foundCustomColor, "Should have generated at least one square");
 	});
 
-	it("should use defaultColors if provided", () => {
+	test("should use defaultColors if provided", () => {
 		const defaultTetrisColor = 5;
 		const grid = core.createPuzzle(4, 4, {
 			useTetris: true,

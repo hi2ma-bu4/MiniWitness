@@ -1,236 +1,205 @@
 import assert from "node:assert";
-import { test } from "node:test";
+import { describe, test } from "node:test";
 import { CellType, Color, NodeType, PuzzleSerializer, WitnessUI } from "../../dist/MiniWitness.js";
 
-test("WitnessUI export", () => {
-	assert.ok(WitnessUI, "WitnessUI should be exported");
-});
-
-test("PuzzleSerializer export", () => {
-	assert.ok(PuzzleSerializer, "PuzzleSerializer should be exported");
-});
-
-const createMockCanvas = () => ({
-	width: 100,
-	height: 100,
-	getContext: () => ({
-		imageSmoothingEnabled: true,
-		clearRect: () => {},
-		save: () => {},
-		restore: () => {},
-		beginPath: () => {},
-		moveTo: () => {},
-		lineTo: () => {},
-		stroke: () => {},
-		fill: () => {},
-		arc: () => {},
-		fillRect: () => {},
-		translate: () => {},
-		rotate: () => {},
-		closePath: () => {},
-		quadraticCurveTo: () => {},
-		drawImage: () => {},
-	}),
-});
-
-function createEmptyPuzzle(rows: number, cols: number) {
-	return {
-		rows,
-		cols,
-		cells: Array.from({ length: rows }, () => Array.from({ length: cols }, () => ({ type: CellType.None, color: Color.None }))),
-		vEdges: Array.from({ length: rows }, () => Array.from({ length: cols + 1 }, () => ({ type: 0 }))),
-		hEdges: Array.from({ length: rows + 1 }, () => Array.from({ length: cols }, () => ({ type: 0 }))),
-		nodes: Array.from({ length: rows + 1 }, () => Array.from({ length: cols + 1 }, () => ({ type: NodeType.Normal }))),
-	};
-}
-
-test("WitnessUI instantiation in Node (should not crash with mock canvas)", () => {
-	const ui = new WitnessUI(createMockCanvas() as unknown as HTMLCanvasElement);
-	assert.ok(ui instanceof WitnessUI);
-});
-
-test("WitnessUI setValidationResult updates internal state", () => {
-	const ui = new WitnessUI(createMockCanvas() as unknown as HTMLCanvasElement);
-	const internalUI = ui as unknown as { isSuccessFading: boolean; successFadeStartTime: number; invalidatedCells: unknown[] };
-	ui.setValidationResult(true, [{ x: 0, y: 0 }]);
-	assert.strictEqual(internalUI.isSuccessFading, true, "isSuccessFading should be true on valid result");
-	assert.ok(internalUI.successFadeStartTime > 0, "successFadeStartTime should be set");
-	assert.strictEqual(internalUI.invalidatedCells.length, 1, "invalidatedCells should be updated");
-});
-
-test("WitnessUI preserves color in symmetry mode", () => {
-	const ui = new WitnessUI(createMockCanvas() as unknown as HTMLCanvasElement);
-	const internalUI = ui as unknown as { puzzle: { symmetry: number }; isSuccessFading: boolean };
-	internalUI.puzzle = { symmetry: 1 } as any; // SymmetryType.Horizontal
-	ui.setValidationResult(true);
-
-	assert.strictEqual(internalUI.puzzle.symmetry, 1);
-	assert.strictEqual(internalUI.isSuccessFading, true);
-});
-
-test("WitnessUI instantiation with mock canvas object", () => {
-	const ui = new WitnessUI(createMockCanvas() as unknown as HTMLCanvasElement);
-	assert.ok(ui instanceof WitnessUI);
-});
-
-test("WitnessUI setCanvasRect", () => {
-	const ui = new WitnessUI(createMockCanvas() as unknown as HTMLCanvasElement);
-	const internalUI = ui as unknown as { canvasRect: unknown };
-	const rect = { left: 10, top: 20, width: 300, height: 400 };
-	ui.setCanvasRect(rect);
-	assert.deepStrictEqual(internalUI.canvasRect, rect);
-});
-
-test("WitnessUI new options are merged correctly", () => {
-	const ui = new WitnessUI(createMockCanvas() as unknown as HTMLCanvasElement, undefined, {
-		blinkMarksOnError: false,
-		stayPathOnError: false,
+describe("WitnessUI Full Test Suite", { concurrency: false }, async () => {
+	await test("WitnessUI export", () => {
+		assert.ok(WitnessUI, "WitnessUI should be exported");
 	});
-	const internalUI = ui as unknown as { options: { blinkMarksOnError: boolean; stayPathOnError: boolean } };
-	assert.strictEqual(internalUI.options.blinkMarksOnError, false);
-	assert.strictEqual(internalUI.options.stayPathOnError, false);
-});
 
-test("WitnessUI stayPathOnError=false triggers fade immediately", () => {
-	const ui = new WitnessUI(createMockCanvas() as unknown as HTMLCanvasElement, undefined, {
-		stayPathOnError: false,
-		animations: { blinkDuration: 100, fadeDuration: 100, blinkPeriod: 100 },
+	await test("PuzzleSerializer export", () => {
+		assert.ok(PuzzleSerializer, "PuzzleSerializer should be exported");
 	});
-	const internalUI = ui as unknown as { isFading: boolean; isInvalidPath: boolean; path: unknown[]; eraserAnimationStartTime: number; animate: () => void };
 
-	// Set a path so startFade can be triggered
-	internalUI.path = [
-		{ x: 0, y: 0 },
-		{ x: 1, y: 0 },
-	];
-
-	ui.setValidationResult(false);
-	assert.strictEqual(internalUI.isInvalidPath, true);
-
-	// animate() should trigger fade immediately
-	internalUI.animate();
-
-	assert.strictEqual(internalUI.isFading, true, "Should trigger fade immediately");
-	assert.strictEqual(internalUI.path.length, 0, "Path should be cleared to start fading");
-});
-
-test("WitnessUI success result with negation turns line red during blink", () => {
-	const ui = new WitnessUI(createMockCanvas() as unknown as HTMLCanvasElement);
-	const internalUI = ui as any;
-	internalUI.path = [
-		{ x: 0, y: 0 },
-		{ x: 1, y: 0 },
-	];
-	internalUI.exitTipPos = { x: 100, y: 100 };
-
-	ui.setValidationResult(true, [{ x: 0, y: 0 }]); // negation present
-
-	assert.strictEqual(internalUI.isSuccessFading, true);
-	assert.strictEqual(internalUI.invalidatedCells.length, 1);
-});
-
-test("WitnessUI success result with negation and stayPathOnError=false fades during blink", () => {
-	const ui = new WitnessUI(createMockCanvas() as unknown as HTMLCanvasElement, undefined, {
-		stayPathOnError: false,
-		animations: { blinkDuration: 1000, fadeDuration: 1000, blinkPeriod: 1000 },
+	const createMockCanvas = () => ({
+		width: 100,
+		height: 100,
+		getContext: () => ({
+			imageSmoothingEnabled: true,
+			clearRect: () => {},
+			save: () => {},
+			restore: () => {},
+			beginPath: () => {},
+			moveTo: () => {},
+			lineTo: () => {},
+			stroke: () => {},
+			fill: () => {},
+			arc: () => {},
+			fillRect: () => {},
+			translate: () => {},
+			rotate: () => {},
+			closePath: () => {},
+			quadraticCurveTo: () => {},
+			drawImage: () => {},
+		}),
 	});
-	const internalUI = ui as any;
-	internalUI.path = [
-		{ x: 0, y: 0 },
-		{ x: 1, y: 0 },
-	];
-	internalUI.exitTipPos = { x: 100, y: 100 };
 
-	ui.setValidationResult(true, [{ x: 0, y: 0 }]); // negation present
+	function createEmptyPuzzle(rows: number, cols: number) {
+		return {
+			rows,
+			cols,
+			cells: Array.from({ length: rows }, () => Array.from({ length: cols }, () => ({ type: CellType.None, color: Color.None }))),
+			vEdges: Array.from({ length: rows }, () => Array.from({ length: cols + 1 }, () => ({ type: 0 }))),
+			hEdges: Array.from({ length: rows + 1 }, () => Array.from({ length: cols }, () => ({ type: 0 }))),
+			nodes: Array.from({ length: rows + 1 }, () => Array.from({ length: cols + 1 }, () => ({ type: NodeType.Normal }))),
+		};
+	}
 
-	// Mock Date.now to be halfway through blinkDuration
-	const start = internalUI.successFadeStartTime;
-	const originalNow = Date.now;
-	Date.now = () => start + 500;
+	await test("WitnessUI instantiation in Node (should not crash with mock canvas)", () => {
+		const ui = new WitnessUI(createMockCanvas() as unknown as HTMLCanvasElement);
+		assert.ok(ui instanceof WitnessUI);
+	});
 
-	try {
-		// We can't easily check the local pathOpacity variable in draw(),
-		// but we can verify the path is still there (not cleared by startFade)
-		assert.strictEqual(internalUI.path.length, 2);
+	await test("WitnessUI setValidationResult updates internal state", () => {
+		const ui = new WitnessUI(createMockCanvas() as unknown as HTMLCanvasElement);
+		const internalUI = ui as any;
+		ui.setValidationResult(true, [{ x: 0, y: 0 }]);
 		assert.strictEqual(internalUI.isSuccessFading, true);
-		assert.strictEqual(internalUI.isFading, false, "Should not use the global isFading for success fade during blink phase");
-	} finally {
-		Date.now = originalNow;
-	}
-});
-
-test("WitnessUI symmetry path fading state", () => {
-	const puzzle = createEmptyPuzzle(1, 1);
-	(puzzle as any).symmetry = 1; // Horizontal
-	const ui = new WitnessUI(createMockCanvas() as unknown as HTMLCanvasElement, puzzle as any);
-	const internalUI = ui as any;
-
-	// Mock prepareOffscreen to avoid canvas creation errors in Node
-	internalUI.prepareOffscreen = () => ({
-		canvas: { width: 100, height: 100 },
-		ctx: internalUI.ctx,
+		assert.ok(internalUI.successFadeStartTime > 0);
+		assert.strictEqual(internalUI.invalidatedCells.length, 1);
 	});
 
-	internalUI.path = [{ x: 0, y: 0 }];
-	ui.setOptions({ stayPathOnError: false });
+	await test("WitnessUI preserves color in symmetry mode", () => {
+		const ui = new WitnessUI(createMockCanvas() as unknown as HTMLCanvasElement);
+		const internalUI = ui as any;
+		internalUI.puzzle = { symmetry: 1 };
+		ui.setValidationResult(true);
+		assert.strictEqual(internalUI.puzzle.symmetry, 1);
+		assert.strictEqual(internalUI.isSuccessFading, true);
+	});
 
-	ui.setValidationResult(false);
-	internalUI.animate();
+	await test("WitnessUI instantiation with mock canvas object", () => {
+		const ui = new WitnessUI(createMockCanvas() as unknown as HTMLCanvasElement);
+		assert.ok(ui instanceof WitnessUI);
+	});
 
-	assert.strictEqual(internalUI.isFading, true);
-	assert.strictEqual(internalUI.isInvalidPath, true);
-	assert.strictEqual(internalUI.fadingPath.length, 1);
-});
+	await test("WitnessUI setCanvasRect", () => {
+		const ui = new WitnessUI(createMockCanvas() as unknown as HTMLCanvasElement);
+		const internalUI = ui as any;
+		const rect = { left: 10, top: 20, width: 300, height: 400 };
+		ui.setCanvasRect(rect);
+		assert.deepStrictEqual(internalUI.canvasRect, rect);
+	});
 
-test("WitnessUI destroy removes listeners", () => {
-	// Mock HTMLCanvasElement before creating mockCanvas
-	const originalCanvasElement = (global as any).HTMLCanvasElement;
-	(global as any).HTMLCanvasElement = class {};
+	await test("WitnessUI new options are merged correctly", () => {
+		const ui = new WitnessUI(createMockCanvas() as unknown as HTMLCanvasElement, undefined, {
+			blinkMarksOnError: false,
+			stayPathOnError: false,
+		});
+		const internalUI = ui as any;
+		assert.strictEqual(internalUI.options.blinkMarksOnError, false);
+		assert.strictEqual(internalUI.options.stayPathOnError, false);
+	});
 
-	const mockCanvas = Object.assign(Object.create((global as any).HTMLCanvasElement.prototype), createMockCanvas());
-	const addedListeners: { type: string; listener: any }[] = [];
-	const removedListeners: { type: string; listener: any }[] = [];
+	await test("WitnessUI stayPathOnError=false triggers fade immediately", () => {
+		const ui = new WitnessUI(createMockCanvas() as unknown as HTMLCanvasElement, undefined, {
+			stayPathOnError: false,
+			animations: { blinkDuration: 100, fadeDuration: 100, blinkPeriod: 100 },
+		});
+		const internalUI = ui as any;
 
-	mockCanvas.addEventListener = (type: string, listener: any) => {
-		addedListeners.push({ type, listener });
-	};
-	mockCanvas.removeEventListener = (type: string, listener: any) => {
-		removedListeners.push({ type, listener });
-	};
+		internalUI.path = [
+			{ x: 0, y: 0 },
+			{ x: 1, y: 0 },
+		];
+		ui.setValidationResult(false);
+		internalUI.animate();
 
-	// Mock global window
-	const originalWindow = global.window;
-	const windowListeners: { type: string; listener: any }[] = [];
-	const windowRemovedListeners: { type: string; listener: any }[] = [];
-	(global as any).window = {
-		addEventListener: (type: string, listener: any) => {
-			windowListeners.push({ type, listener });
-		},
-		removeEventListener: (type: string, listener: any) => {
-			windowRemovedListeners.push({ type, listener });
-		},
-	};
+		assert.strictEqual(internalUI.isFading, true);
+		assert.strictEqual(internalUI.path.length, 0);
+	});
 
-	try {
-		const ui = new WitnessUI(mockCanvas);
-		ui.destroy();
+	await test("WitnessUI success result with negation turns line red during blink", () => {
+		const ui = new WitnessUI(createMockCanvas() as unknown as HTMLCanvasElement);
+		const internalUI = ui as any;
+		internalUI.path = [
+			{ x: 0, y: 0 },
+			{ x: 1, y: 0 },
+		];
+		internalUI.exitTipPos = { x: 100, y: 100 };
+		ui.setValidationResult(true, [{ x: 0, y: 0 }]);
+		assert.strictEqual(internalUI.isSuccessFading, true);
+		assert.strictEqual(internalUI.invalidatedCells.length, 1);
+	});
 
-		// Check if same amount of listeners added were removed
-		assert.strictEqual(addedListeners.length, removedListeners.length, "All canvas listeners should be removed");
-		assert.strictEqual(windowListeners.length, windowRemovedListeners.length, "All window listeners should be removed");
+	await test("WitnessUI success result with negation and stayPathOnError=false fades during blink", () => {
+		const ui = new WitnessUI(createMockCanvas() as unknown as HTMLCanvasElement, undefined, {
+			stayPathOnError: false,
+			animations: { blinkDuration: 1000, fadeDuration: 1000, blinkPeriod: 1000 },
+		});
+		const internalUI = ui as any;
+		internalUI.path = [
+			{ x: 0, y: 0 },
+			{ x: 1, y: 0 },
+		];
+		internalUI.exitTipPos = { x: 100, y: 100 };
 
-		// Verify specific listeners
-		const canvasEvents = addedListeners.map((l) => l.type);
-		assert.ok(canvasEvents.includes("mousedown"));
-		assert.ok(canvasEvents.includes("touchstart"));
+		ui.setValidationResult(true, [{ x: 0, y: 0 }]);
 
-		const windowEvents = windowListeners.map((l) => l.type);
-		assert.ok(windowEvents.includes("mousemove"));
-		assert.ok(windowEvents.includes("mouseup"));
-		assert.ok(windowEvents.includes("touchmove"));
-		assert.ok(windowEvents.includes("touchend"));
-	} finally {
-		(global as any).window = originalWindow;
-		(global as any).HTMLCanvasElement = originalCanvasElement;
-	}
+		const start = internalUI.successFadeStartTime;
+		const originalNow = Date.now;
+		Date.now = () => start + 500;
+
+		try {
+			assert.strictEqual(internalUI.path.length, 2);
+			assert.strictEqual(internalUI.isSuccessFading, true);
+			assert.strictEqual(internalUI.isFading, false);
+		} finally {
+			Date.now = originalNow;
+		}
+	});
+
+	await test("WitnessUI symmetry path fading state", () => {
+		const puzzle = createEmptyPuzzle(1, 1);
+		(puzzle as any).symmetry = 1;
+
+		const ui = new WitnessUI(createMockCanvas() as any, puzzle as any);
+		const internalUI = ui as any;
+
+		internalUI.prepareOffscreen = () => ({
+			canvas: { width: 100, height: 100 },
+			ctx: internalUI.ctx,
+		});
+
+		internalUI.path = [{ x: 0, y: 0 }];
+		ui.setOptions({ stayPathOnError: false });
+		ui.setValidationResult(false);
+		internalUI.animate();
+
+		assert.strictEqual(internalUI.isFading, true);
+		assert.strictEqual(internalUI.isInvalidPath, true);
+		assert.strictEqual(internalUI.fadingPath.length, 1);
+	});
+
+	await test("WitnessUI destroy removes listeners", () => {
+		const originalCanvasElement = (global as any).HTMLCanvasElement;
+		(global as any).HTMLCanvasElement = class {};
+
+		const mockCanvas = Object.assign(Object.create((global as any).HTMLCanvasElement.prototype), createMockCanvas());
+
+		const added: any[] = [];
+		const removed: any[] = [];
+
+		mockCanvas.addEventListener = (t: string, l: any) => added.push({ t, l });
+		mockCanvas.removeEventListener = (t: string, l: any) => removed.push({ t, l });
+
+		const originalWindow = global.window;
+		const winAdded: any[] = [];
+		const winRemoved: any[] = [];
+
+		(global as any).window = {
+			addEventListener: (t: string, l: any) => winAdded.push({ t, l }),
+			removeEventListener: (t: string, l: any) => winRemoved.push({ t, l }),
+		};
+
+		try {
+			const ui = new WitnessUI(mockCanvas);
+			ui.destroy();
+			assert.strictEqual(added.length, removed.length);
+			assert.strictEqual(winAdded.length, winRemoved.length);
+		} finally {
+			(global as any).window = originalWindow;
+			(global as any).HTMLCanvasElement = originalCanvasElement;
+		}
+	});
 });

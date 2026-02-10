@@ -188,6 +188,7 @@ export declare class Grid {
  */
 export declare class PuzzleGenerator {
 	private isWorker;
+	private TETRIS_SHAPES_WITH_ROTATIONS;
 	constructor();
 	/**
 	 * パズルを生成する

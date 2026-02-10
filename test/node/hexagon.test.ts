@@ -1,5 +1,6 @@
 import assert from "node:assert";
-import { test } from "node:test";
+import { describe, test } from "node:test";
+import { inspect } from "node:util";
 import { CellType, Color, EdgeType, NodeType, type PuzzleData, PuzzleGenerator, SymmetryType, WitnessCore } from "../../dist/MiniWitness.js";
 
 const core = new WitnessCore();
@@ -9,193 +10,208 @@ function createBasicGrid(rows: number, cols: number): PuzzleData {
 	const vEdges = Array.from({ length: rows }, () => Array.from({ length: cols + 1 }, () => ({ type: 0 })));
 	const hEdges = Array.from({ length: rows + 1 }, () => Array.from({ length: cols }, () => ({ type: 0 })));
 	const nodes = Array.from({ length: rows + 1 }, () => Array.from({ length: cols + 1 }, () => ({ type: NodeType.Normal })));
+
 	nodes[rows][0].type = NodeType.Start;
 	nodes[0][cols].type = NodeType.End;
 
 	return { rows, cols, cells, vEdges, hEdges, nodes };
 }
 
-test("Node Hexagon validation - must pass through", () => {
-	const puzzle = createBasicGrid(2, 2);
-	// Place node hexagon at (1, 1) (the center node)
-	puzzle.nodes[1][1].type = NodeType.Hexagon;
+/* ============================================================
+ * Node Hexagon Validation
+ * ============================================================ */
+describe("Node Hexagon validation", { concurrency: true }, () => {
+	test("must pass through", () => {
+		const puzzle = createBasicGrid(2, 2);
+		puzzle.nodes[1][1].type = NodeType.Hexagon;
 
-	// 1. Path passing through (1,1)
-	const pathValid = {
-		points: [
-			{ x: 0, y: 2 },
-			{ x: 1, y: 2 },
-			{ x: 1, y: 1 }, // Pass through hexagon
-			{ x: 1, y: 0 },
-			{ x: 2, y: 0 },
-		],
-	};
-	assert.strictEqual(core.validateSolution(puzzle, pathValid).isValid, true, "Should be valid: passed through node hexagon");
+		const pathValid = {
+			points: [
+				{ x: 0, y: 2 },
+				{ x: 1, y: 2 },
+				{ x: 1, y: 1 },
+				{ x: 1, y: 0 },
+				{ x: 2, y: 0 },
+			],
+		};
+		assert.strictEqual(core.validateSolution(puzzle, pathValid).isValid, true);
 
-	// 2. Path NOT passing through (1,1)
-	const pathInvalid = {
-		points: [
-			{ x: 0, y: 2 },
-			{ x: 0, y: 1 },
-			{ x: 0, y: 0 },
-			{ x: 1, y: 0 },
-			{ x: 2, y: 0 },
-		],
-	};
-	const result = core.validateSolution(puzzle, pathInvalid);
-	assert.strictEqual(result.isValid, false, "Should be invalid: missed node hexagon");
-	assert.ok(result.errorNodes && result.errorNodes.some((p) => p.x === 1 && p.y === 1), "Should report node hexagon error");
+		const pathInvalid = {
+			points: [
+				{ x: 0, y: 2 },
+				{ x: 0, y: 1 },
+				{ x: 0, y: 0 },
+				{ x: 1, y: 0 },
+				{ x: 2, y: 0 },
+			],
+		};
+		const result = core.validateSolution(puzzle, pathInvalid);
+		assert.strictEqual(result.isValid, false);
+		assert.ok(result.errorNodes?.some((p) => p.x === 1 && p.y === 1));
+	});
+
+	test("multiple hexagons", () => {
+		const puzzle = createBasicGrid(2, 2);
+		puzzle.nodes[1][1].type = NodeType.Hexagon;
+		puzzle.nodes[1][2].type = NodeType.Hexagon;
+
+		const path = {
+			points: [
+				{ x: 0, y: 2 },
+				{ x: 1, y: 2 },
+				{ x: 2, y: 2 },
+				{ x: 2, y: 1 },
+				{ x: 1, y: 1 },
+				{ x: 1, y: 0 },
+				{ x: 2, y: 0 },
+			],
+		};
+
+		assert.strictEqual(core.validateSolution(puzzle, path).isValid, true);
+	});
 });
 
-test("Node Hexagon validation - multiple hexagons", () => {
-	const puzzle = createBasicGrid(2, 2);
-	puzzle.nodes[1][1].type = NodeType.Hexagon;
-	puzzle.nodes[1][2].type = NodeType.Hexagon;
+/* ============================================================
+ * Eraser interaction with Node Hexagon
+ * ============================================================ */
+describe("Node Hexagon negation by Eraser", { concurrency: true }, () => {
+	test("eraser can negate missed node hexagon", () => {
+		const puzzle = createBasicGrid(2, 2);
+		puzzle.nodes[1][1].type = NodeType.Hexagon;
+		puzzle.cells[0][0] = { type: CellType.Eraser, color: Color.White };
 
-	// Path passing through both
-	const pathBoth = {
-		points: [
-			{ x: 0, y: 2 },
-			{ x: 1, y: 2 },
-			{ x: 1, y: 1 },
-			{ x: 1, y: 0 },
-			{ x: 2, y: 0 }, // Wait, (1,2) is missed here. (1,2) is node at x=2, y=1
-		],
-	};
-	// Correct path for both: (0,2)->(1,2)->(2,2)->(2,1)->(1,1)->(1,0)->(2,0)
-	const pathBothCorrect = {
-		points: [
-			{ x: 0, y: 2 },
-			{ x: 1, y: 2 },
-			{ x: 2, y: 2 },
-			{ x: 2, y: 1 }, // Pass through (1,2)
-			{ x: 1, y: 1 }, // Pass through (1,1)
-			{ x: 1, y: 0 },
-			{ x: 2, y: 0 },
-		],
-	};
-	assert.strictEqual(core.validateSolution(puzzle, pathBothCorrect).isValid, true, "Should be valid: passed through all node hexagons");
+		const path = {
+			points: [
+				{ x: 0, y: 2 },
+				{ x: 1, y: 2 },
+				{ x: 2, y: 2 },
+				{ x: 2, y: 1 },
+				{ x: 2, y: 0 },
+			],
+		};
+
+		const result = core.validateSolution(puzzle, path);
+		assert.strictEqual(result.isValid, true);
+		assert.ok(result.invalidatedNodes?.some((p) => p.x === 1 && p.y === 1));
+	});
 });
 
-test("Node Hexagon negation by Eraser", () => {
-	const puzzle = createBasicGrid(2, 2);
-	puzzle.nodes[1][1].type = NodeType.Hexagon;
-	// Place eraser in cell (0, 0)
-	// Cell (0,0) is adjacent to nodes (0,0), (1,0), (0,1), (1,1)
-	puzzle.cells[0][0] = { type: CellType.Eraser, color: Color.White };
+/* ============================================================
+ * Difficulty bias rules
+ * ============================================================ */
+describe("Difficulty rules for Hexagons", { concurrency: true }, () => {
+	test("edge vs node distribution", (t) => {
+		const generator = new PuzzleGenerator();
 
-	// Path NOT passing through (1,1), but eraser is in adjacent cell
-	const pathMissed = {
-		points: [
-			{ x: 0, y: 2 },
-			{ x: 1, y: 2 },
-			{ x: 2, y: 2 },
-			{ x: 2, y: 1 },
-			{ x: 2, y: 0 },
-		],
-	};
-	// Region of cell (0,0) with this path:
-	// Path separates (0,0), (0,1), (1,0), (1,1).
-	// Actually, let's see. Path is along bottom and right edges.
-	// All cells (0,0), (0,1), (1,0), (1,1) are in the same region.
-	const result = core.validateSolution(puzzle, pathMissed);
-	assert.strictEqual(result.isValid, true, "Should be valid: node hexagon negated by eraser");
-	assert.ok(result.invalidatedNodes && result.invalidatedNodes.some((p) => p.x === 1 && p.y === 1), "Should report node hexagon as invalidated");
+		const gridEasy = generator.generate(4, 4, {
+			difficulty: 0.1,
+			useHexagons: true,
+			useSquares: false,
+			useStars: false,
+		});
+
+		const gridHard = generator.generate(4, 4, {
+			difficulty: 0.9,
+			useHexagons: true,
+			useSquares: false,
+			useStars: false,
+		});
+
+		const count = (grid: any) => {
+			let edge = 0;
+			let node = 0;
+			for (let r = 0; r <= 4; r++) for (let c = 0; c < 4; c++) if (grid.hEdges[r][c].type === EdgeType.Hexagon) edge++;
+			for (let r = 0; r < 4; r++) for (let c = 0; c <= 4; c++) if (grid.vEdges[r][c].type === EdgeType.Hexagon) edge++;
+			for (let r = 0; r <= 4; r++) for (let c = 0; c <= 4; c++) if (grid.nodes[r][c].type === NodeType.Hexagon) node++;
+			return { edge, node };
+		};
+
+		const easy = count(gridEasy);
+		const hard = count(gridHard);
+
+		t.diagnostic(
+			inspect(
+				{ easy, hard },
+				{
+					depth: null,
+					colors: false,
+				},
+			),
+		);
+
+		assert.ok(hard.node >= easy.node, `node hexagon should increase: easy=${easy.node}, hard=${hard.node}`);
+	});
 });
 
-test("Difficulty rules for Hexagons", () => {
-	const generator = new PuzzleGenerator();
-
-	// Easy puzzle (difficulty 0.1) should favor edge hexagons
-	const gridEasy = generator.generate(4, 4, { difficulty: 0.1, useHexagons: true, useSquares: false, useStars: false });
-	let edgeHexCountEasy = 0;
-	let nodeHexCountEasy = 0;
-	for (let r = 0; r <= 4; r++) for (let c = 0; c < 4; c++) if (gridEasy.hEdges[r][c].type === EdgeType.Hexagon) edgeHexCountEasy++;
-	for (let r = 0; r < 4; r++) for (let c = 0; c <= 4; c++) if (gridEasy.vEdges[r][c].type === EdgeType.Hexagon) edgeHexCountEasy++;
-	for (let r = 0; r <= 4; r++) for (let c = 0; c <= 4; c++) if (gridEasy.nodes[r][c].type === NodeType.Hexagon) nodeHexCountEasy++;
-
-	// Hard puzzle (difficulty 0.9)
-	const gridHard = generator.generate(4, 4, { difficulty: 0.9, useHexagons: true, useSquares: false, useStars: false });
-	let edgeHexCountHard = 0;
-	let nodeHexCountHard = 0;
-	for (let r = 0; r <= 4; r++) for (let c = 0; c < 4; c++) if (gridHard.hEdges[r][c].type === EdgeType.Hexagon) edgeHexCountHard++;
-	for (let r = 0; r < 4; r++) for (let c = 0; c <= 4; c++) if (gridHard.vEdges[r][c].type === EdgeType.Hexagon) edgeHexCountHard++;
-	for (let r = 0; r <= 4; r++) for (let c = 0; c <= 4; c++) if (gridHard.nodes[r][c].type === NodeType.Hexagon) nodeHexCountHard++;
-
-	// We can't strictly assert counts because of randomness, but we can log them or check if it's reasonable
-	// In our implementation, we biased it.
-	console.log(`Easy: Edge=${edgeHexCountEasy}, Node=${nodeHexCountEasy}`);
-	console.log(`Hard: Edge=${edgeHexCountHard}, Node=${nodeHexCountHard}`);
-});
-
-test("Non-adjacency between Edge Hexagons and Node Hexagons", () => {
-	const generator = new PuzzleGenerator();
-	const options = {
-		useHexagons: true,
-		difficulty: 0.5,
-		complexity: 1.0,
-	};
-
-	for (let i = 0; i < 50; i++) {
-		const grid = generator.generate(4, 4, options);
+/* ============================================================
+ * Non-adjacency rules
+ * ============================================================ */
+describe("Non-adjacency between Edge and Node Hexagons", { concurrency: true }, () => {
+	test("no adjacency", () => {
+		const generator = new PuzzleGenerator();
 
 		const isHexEdge = (t: EdgeType) => t === EdgeType.Hexagon || t === EdgeType.HexagonMain || t === EdgeType.HexagonSymmetry;
 		const isHexNode = (t: NodeType) => t === NodeType.Hexagon || t === NodeType.HexagonMain || t === NodeType.HexagonSymmetry;
 
-		// Check all horizontal edges
-		for (let r = 0; r <= grid.rows; r++) {
-			for (let c = 0; c < grid.cols; c++) {
-				if (isHexEdge(grid.hEdges[r][c].type)) {
-					// Endpoint nodes should not be Hexagons
-					assert.ok(!isHexNode(grid.nodes[r][c].type), `Adjacency found at hEdge(${r},${c}) and node(${r},${c})`);
-					assert.ok(!isHexNode(grid.nodes[r][c + 1].type), `Adjacency found at hEdge(${r},${c}) and node(${r},${c + 1})`);
-				}
-			}
-		}
+		for (let i = 0; i < 50; i++) {
+			const grid = generator.generate(4, 4, {
+				useHexagons: true,
+				difficulty: 0.5,
+				complexity: 1.0,
+			});
 
-		// Check all vertical edges
-		for (let r = 0; r < grid.rows; r++) {
-			for (let c = 0; c <= grid.cols; c++) {
-				if (isHexEdge(grid.vEdges[r][c].type)) {
-					// Endpoint nodes should not be Hexagons
-					assert.ok(!isHexNode(grid.nodes[r][c].type), `Adjacency found at vEdge(${r},${c}) and node(${r},${c})`);
-					assert.ok(!isHexNode(grid.nodes[r + 1][c].type), `Adjacency found at vEdge(${r},${c}) and node(${r + 1},${c})`);
+			for (let r = 0; r <= grid.rows; r++) {
+				for (let c = 0; c < grid.cols; c++) {
+					if (isHexEdge(grid.hEdges[r][c].type)) {
+						assert.ok(!isHexNode(grid.nodes[r][c].type));
+						assert.ok(!isHexNode(grid.nodes[r][c + 1].type));
+					}
+				}
+			}
+
+			for (let r = 0; r < grid.rows; r++) {
+				for (let c = 0; c <= grid.cols; c++) {
+					if (isHexEdge(grid.vEdges[r][c].type)) {
+						assert.ok(!isHexNode(grid.nodes[r][c].type));
+						assert.ok(!isHexNode(grid.nodes[r + 1][c].type));
+					}
 				}
 			}
 		}
-	}
+	});
 });
 
-test("HexagonMain and HexagonSymmetry validation", () => {
-	const puzzle = createBasicGrid(2, 2);
-	puzzle.symmetry = SymmetryType.Horizontal;
-	puzzle.nodes[2][2].type = NodeType.Start; // Symmetry start
-	puzzle.nodes[0][0].type = NodeType.End; // Main end
-	puzzle.nodes[0][2].type = NodeType.End; // Symmetry end
+/* ============================================================
+ * Main / Symmetry Hexagon rules
+ * ============================================================ */
+describe("HexagonMain / HexagonSymmetry validation", { concurrency: true }, () => {
+	test("path correctness", () => {
+		const puzzle = createBasicGrid(2, 2);
+		puzzle.symmetry = SymmetryType.Horizontal;
+		puzzle.nodes[2][2].type = NodeType.Start;
+		puzzle.nodes[0][0].type = NodeType.End;
+		puzzle.nodes[0][2].type = NodeType.End;
 
-	const solution = {
-		points: [
-			{ x: 0, y: 2 },
-			{ x: 0, y: 1 },
-			{ x: 0, y: 0 },
-		],
-	};
+		const solution = {
+			points: [
+				{ x: 0, y: 2 },
+				{ x: 0, y: 1 },
+				{ x: 0, y: 0 },
+			],
+		};
 
-	// 1. HexagonMain on main path - Valid
-	puzzle.vEdges[1][0].type = EdgeType.HexagonMain;
-	assert.strictEqual(core.validateSolution(puzzle, solution).isValid, true, "HexagonMain on main path should be valid");
+		puzzle.vEdges[1][0].type = EdgeType.HexagonMain;
+		assert.strictEqual(core.validateSolution(puzzle, solution).isValid, true);
 
-	// 2. HexagonMain on sym path - Invalid
-	puzzle.vEdges[1][0].type = EdgeType.Normal;
-	puzzle.vEdges[1][2].type = EdgeType.HexagonMain;
-	assert.strictEqual(core.validateSolution(puzzle, solution).isValid, false, "HexagonMain on sym path should be invalid");
+		puzzle.vEdges[1][0].type = EdgeType.Normal;
+		puzzle.vEdges[1][2].type = EdgeType.HexagonMain;
+		assert.strictEqual(core.validateSolution(puzzle, solution).isValid, false);
 
-	// 3. HexagonSymmetry on sym path - Valid
-	puzzle.vEdges[1][2].type = EdgeType.HexagonSymmetry;
-	assert.strictEqual(core.validateSolution(puzzle, solution).isValid, true, "HexagonSymmetry on sym path should be valid");
+		puzzle.vEdges[1][2].type = EdgeType.HexagonSymmetry;
+		assert.strictEqual(core.validateSolution(puzzle, solution).isValid, true);
 
-	// 4. HexagonSymmetry on main path - Invalid
-	puzzle.vEdges[1][2].type = EdgeType.Normal;
-	puzzle.vEdges[1][0].type = EdgeType.HexagonSymmetry;
-	assert.strictEqual(core.validateSolution(puzzle, solution).isValid, false, "HexagonSymmetry on main path should be invalid");
+		puzzle.vEdges[1][2].type = EdgeType.Normal;
+		puzzle.vEdges[1][0].type = EdgeType.HexagonSymmetry;
+		assert.strictEqual(core.validateSolution(puzzle, solution).isValid, false);
+	});
 });

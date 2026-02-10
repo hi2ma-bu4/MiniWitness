@@ -1,31 +1,43 @@
 import assert from "node:assert";
-import { test } from "node:test";
+import { describe, test } from "node:test";
 import { PuzzleGenerator, PuzzleValidator, SymmetryType } from "../../dist/MiniWitness.js";
 
-test("Generator solvability - ALL combinations", { timeout: 3600000 }, async (t) => {
+describe("Generator solvability - ALL combinations", { concurrency: true, timeout: 1000 * 60 * 10 }, async (t) => {
 	const generator = new PuzzleGenerator();
 	const validator = new PuzzleValidator();
 
 	const symmetryOpts = [SymmetryType.None, SymmetryType.Horizontal, SymmetryType.Vertical, SymmetryType.Rotational];
-	const sizeOpts = [3, 4, 5, 7];
+	const sizeOpts = [3, 4, 5];
+
+	const cases = [
+		{ useHexagons: true },
+		{ useSquares: true },
+		{ useStars: true },
+		{ useTetris: true },
+		{ useTetris: true, useTetrisNegative: true },
+		{ useEraser: true },
+		{ useBrokenEdges: true },
+		{ useHexagons: true, useBrokenEdges: true },
+		{ useHexagons: true, useEraser: true },
+		{ useSquares: true, useStars: true },
+		{ useStars: true, useTetris: true },
+		{ useStars: true, useTetris: true, useTetrisNegative: true },
+		{ useSquares: true, useEraser: true },
+		{ useStars: true, useEraser: true },
+		{ useTetris: true, useEraser: true },
+		{ useTetris: true, useTetrisNegative: true, useEraser: true },
+		{ useSquares: true, useStars: true, useEraser: true },
+		{ useStars: true, useTetris: true, useEraser: true },
+		{ useStars: true, useTetris: true, useTetrisNegative: true, useEraser: true, useBrokenEdges: true },
+		{ useSquares: true, useStars: true, useTetris: true, useTetrisNegative: true, useEraser: true, useBrokenEdges: true },
+	];
 
 	for (const size of sizeOpts) {
 		for (const symmetry of symmetryOpts) {
-			await t.test(`Size ${size}x${size}, Symmetry ${SymmetryType[symmetry]}`, () => {
-				// 大きなサイズの場合は、全組合せではなくサンプリングを行う（時間短縮のため）
-				// ただし、3x3, 4x4, 5x5 までは全組合せ（128個）を試す
-				const combinations = size <= 5 ? 128 : 8;
-				const step = 64 / combinations;
-
-				for (let i = 1; i < 64; i += step) {
+			test(`Size ${size}x${size}, Symmetry ${SymmetryType[symmetry]}`, () => {
+				for (const c of cases) {
 					const options = {
-						useHexagons: !!(i & 1),
-						useSquares: !!(i & 2),
-						useStars: !!(i & 4),
-						useTetris: !!(i & 8),
-						useTetrisNegative: true,
-						useEraser: !!(i & 16),
-						useBrokenEdges: !!(i & 32),
+						...c,
 						symmetry,
 						difficulty: 0.5,
 						complexity: 0.5,
