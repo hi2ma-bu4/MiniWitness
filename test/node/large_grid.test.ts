@@ -5,8 +5,8 @@ import { CellType, PuzzleGenerator, WitnessCore } from "../../dist/MiniWitness.j
 const core = new WitnessCore();
 const generator = new PuzzleGenerator();
 
-describe("Large grid (8x8)", { concurrency: true }, async (t) => {
-	test("generation distribution", () => {
+describe("Large grid (8x8)", { concurrency: true }, async () => {
+	test("generation distribution", (t) => {
 		const options = {
 			useHexagons: true,
 			useSquares: true,
@@ -36,9 +36,9 @@ describe("Large grid (8x8)", { concurrency: true }, async (t) => {
 			}
 		}
 
-		console.log("Marks count:", marksCount);
-		console.log("Top:", topHalfMarks, "Bottom:", bottomHalfMarks);
-		console.log("Left:", leftHalfMarks, "Right:", rightHalfMarks);
+		t.diagnostic(`Marks count: ${marksCount}`);
+		t.diagnostic(`Top: ${topHalfMarks} Bottom: ${bottomHalfMarks}`);
+		t.diagnostic(`Left: ${leftHalfMarks} Right: ${rightHalfMarks}`);
 
 		assert.ok(marksCount >= 4, "Should have several marks");
 

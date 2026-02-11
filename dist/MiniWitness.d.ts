@@ -95,6 +95,8 @@ export interface PuzzleData {
 	hEdges: EdgeConstraint[][];
 	nodes: NodeConstraint[][];
 	symmetry?: SymmetryType;
+	/** パズル生成に使用された乱数シード (16進数文字列) */
+	seed?: string;
 }
 /**
  * ユーザーの入力（回答パス）
@@ -142,6 +144,15 @@ export interface GenerationOptions {
 	 * キーには CellType の数値、または "Square", "Tetris" などの文字列が使用可能です。
 	 */
 	defaultColors?: Partial<Record<CellType | keyof typeof CellType, Color>>;
+	/** パズル生成に使用する乱数シード (16進数文字列) */
+	seed?: string;
+	/** 使用する乱数アルゴリズム */
+	rngType?: RngType;
+}
+export declare enum RngType {
+	Mulberry32 = 0,
+	XorShift128Plus = 1,
+	MathRandom = 2
 }
 /**
  * パズルのグリッド構造と状態を管理するクラス
@@ -161,6 +172,8 @@ export declare class Grid {
 	nodes: NodeConstraint[][];
 	/** 対称性の設定 (SymmetryType) */
 	symmetry: number;
+	/** パズル生成に使用された乱数シード (16進数文字列) */
+	seed?: string;
 	/**
 	 * 新しいグリッドを初期化する
 	 * @param rows 行数
@@ -189,7 +202,9 @@ export declare class Grid {
 export declare class PuzzleGenerator {
 	private isWorker;
 	private TETRIS_SHAPES_WITH_ROTATIONS;
+	private rng;
 	constructor();
+	private stringToSeed;
 	/**
 	 * パズルを生成する
 	 * @param rows 行数
@@ -649,11 +664,16 @@ export declare class WitnessUI {
 	 */
 	private prepareOffscreen;
 }
+export interface IRng {
+	next(): number;
+}
 /**
  * パズルの回答を検証するクラス
  */
 export declare class PuzzleValidator {
 	private tetrisCache;
+	private rng;
+	setRng(rng: IRng | null): void;
 	/**
 	 * 与えられたグリッドと回答パスが正当かどうかを検証する
 	 * @param grid パズルのグリッドデータ

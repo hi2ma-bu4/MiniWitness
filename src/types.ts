@@ -103,6 +103,8 @@ export interface PuzzleData {
 	hEdges: EdgeConstraint[][]; // Horizontal edges [row][col] (row: 0..rows, col: 0..cols-1)
 	nodes: NodeConstraint[][]; // [row][col]
 	symmetry?: SymmetryType;
+	/** パズル生成に使用された乱数シード (16進数文字列) */
+	seed?: string;
 }
 
 /**
@@ -145,4 +147,14 @@ export interface GenerationOptions {
 	 * キーには CellType の数値、または "Square", "Tetris" などの文字列が使用可能です。
 	 */
 	defaultColors?: Partial<Record<CellType | keyof typeof CellType, Color>>;
+	/** パズル生成に使用する乱数シード (16進数文字列) */
+	seed?: string;
+	/** 使用する乱数アルゴリズム */
+	rngType?: RngType;
+}
+
+export enum RngType {
+	Mulberry32 = 0,
+	XorShift128Plus = 1,
+	MathRandom = 2,
 }

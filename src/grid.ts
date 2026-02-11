@@ -19,6 +19,8 @@ export class Grid {
 	public nodes: NodeConstraint[][] = [];
 	/** 対称性の設定 (SymmetryType) */
 	public symmetry: number = 0;
+	/** パズル生成に使用された乱数シード (16進数文字列) */
+	public seed?: string;
 
 	/**
 	 * 新しいグリッドを初期化する
@@ -63,6 +65,7 @@ export class Grid {
 				hEdges: this.hEdges,
 				nodes: this.nodes,
 				symmetry: this.symmetry,
+				seed: this.seed,
 			}),
 		);
 	}
@@ -79,6 +82,7 @@ export class Grid {
 		grid.hEdges = data.hEdges;
 		grid.nodes = data.nodes;
 		grid.symmetry = data.symmetry || 0;
+		grid.seed = data.seed;
 		return grid;
 	}
 }

@@ -1,5 +1,5 @@
 /*!
- * MiniWitness 1.2.5
+ * MiniWitness 1.2.6
  * Copyright 2026 hi2ma-bu4
  * Licensed under the Apache License, Version 2.0
  * http://www.apache.org/licenses/LICENSE-2.0
@@ -57,6 +57,12 @@ var Color = {
   Blue: 4,
   Cyan: 5
 };
+var RngType = /* @__PURE__ */ ((RngType2) => {
+  RngType2[RngType2["Mulberry32"] = 0] = "Mulberry32";
+  RngType2[RngType2["XorShift128Plus"] = 1] = "XorShift128Plus";
+  RngType2[RngType2["MathRandom"] = 2] = "MathRandom";
+  return RngType2;
+})(RngType || {});
 
 // src/grid.ts
 var Grid = class _Grid {
@@ -74,6 +80,8 @@ var Grid = class _Grid {
   nodes = [];
   /** 対称性の設定 (SymmetryType) */
   symmetry = 0;
+  /** パズル生成に使用された乱数シード (16進数文字列) */
+  seed;
   /**
    * 新しいグリッドを初期化する
    * @param rows 行数
@@ -106,7 +114,8 @@ var Grid = class _Grid {
         vEdges: this.vEdges,
         hEdges: this.hEdges,
         nodes: this.nodes,
-        symmetry: this.symmetry
+        symmetry: this.symmetry,
+        seed: this.seed
       })
     );
   }
@@ -122,13 +131,68 @@ var Grid = class _Grid {
     grid.hEdges = data.hEdges;
     grid.nodes = data.nodes;
     grid.symmetry = data.symmetry || 0;
+    grid.seed = data.seed;
     return grid;
   }
 };
 
+// src/rng.ts
+var Mulberry32 = class {
+  state;
+  constructor(seed) {
+    this.state = seed >>> 0;
+  }
+  next() {
+    let t = (this.state += 1831565813) | 0;
+    t = Math.imul(t ^ t >>> 15, t | 1);
+    t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  }
+};
+var XorShift128Plus = class {
+  s0;
+  s1;
+  constructor(seedLo, seedHi) {
+    this.s0 = seedLo >>> 0;
+    this.s1 = seedHi >>> 0;
+    if (this.s0 === 0 && this.s1 === 0) {
+      this.s1 = 1;
+    }
+  }
+  next() {
+    let x = this.s0;
+    const y = this.s1;
+    this.s0 = y;
+    x ^= x << 23;
+    this.s1 = x ^ y ^ x >>> 17 ^ y >>> 26;
+    return (this.s1 + y >>> 0) / 4294967296;
+  }
+};
+var MathRandomRng = class {
+  next() {
+    return Math.random();
+  }
+};
+function createRng(type, seed) {
+  switch (type) {
+    case 0 /* Mulberry32 */:
+      return new Mulberry32(Number(seed & 0xffffffffn));
+    case 1 /* XorShift128Plus */:
+      return new XorShift128Plus(Number(seed & 0xffffffffn), Number(seed >> 32n & 0xffffffffn));
+    case 2 /* MathRandom */:
+      return new MathRandomRng();
+    default:
+      return new Mulberry32(Number(seed & 0xffffffffn));
+  }
+}
+
 // src/validator.ts
 var PuzzleValidator = class {
   tetrisCache = /* @__PURE__ */ new Map();
+  rng = null;
+  setRng(rng) {
+    this.rng = rng;
+  }
   /**
    * 与えられたグリッドと回答パスが正当かどうかを検証する
    * @param grid パズルのグリッドデータ
@@ -1318,7 +1382,8 @@ var PuzzleValidator = class {
     if (validMoves.length > 1) stats.branchingPoints++;
     if (grid.rows * grid.cols > 30) {
       for (let i = validMoves.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
+        const rnd = this.rng ? this.rng.next() : Math.random();
+        const j = Math.floor(rnd * (i + 1));
         [validMoves[i], validMoves[j]] = [validMoves[j], validMoves[i]];
       }
     }
@@ -1639,11 +1704,25 @@ var PuzzleValidator = class {
 var PuzzleGenerator = class {
   isWorker;
   TETRIS_SHAPES_WITH_ROTATIONS = [];
+  rng = null;
   constructor() {
     this.isWorker = typeof self !== "undefined" && "postMessage" in self && !("document" in self);
     for (const shape of this.TETRIS_SHAPES) {
       this.TETRIS_SHAPES_WITH_ROTATIONS.push(this.getAllRotations(shape));
     }
+  }
+  stringToSeed(seedStr) {
+    try {
+      if (/^[0-9a-fA-F]+$/.test(seedStr)) {
+        return BigInt("0x" + seedStr);
+      }
+    } catch (e) {
+    }
+    let seed = 0n;
+    for (let i = 0; i < seedStr.length; i++) {
+      seed = (seed << 5n) - seed + BigInt(seedStr.charCodeAt(i));
+    }
+    return seed;
   }
   /**
    * パズルを生成する
@@ -1653,6 +1732,13 @@ var PuzzleGenerator = class {
    * @returns 生成されたグリッド
    */
   generate(rows, cols, options = {}) {
+    const rngType = options.rngType ?? 0 /* Mulberry32 */;
+    let currentSeedStr = options.seed;
+    if (!currentSeedStr) {
+      currentSeedStr = Math.floor(Math.random() * 4294967295).toString(16);
+    }
+    let currentSeed = this.stringToSeed(currentSeedStr);
+    let routeSeedStr = currentSeed.toString(16);
     const targetDifficulty = options.difficulty ?? 0.5;
     const validator = new PuzzleValidator();
     let bestGrid = null;
@@ -1674,7 +1760,10 @@ var PuzzleGenerator = class {
     let precalculatedRegions = null;
     let precalculatedBoundaryEdges = null;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      this.rng = createRng(rngType, currentSeed);
+      validator.setRng(this.rng);
       if (attempt % markAttemptsPerPath === 0) {
+        routeSeedStr = currentSeed.toString(16);
         currentPath = this.generateRandomPath(new Grid(rows, cols), startPoint, endPoint, options.pathLength, symmetry);
         const tempGrid = new Grid(rows, cols);
         const symPath = symmetry !== 0 /* None */ ? currentPath.map((p) => this.getSymmetricalPoint(tempGrid, p, symmetry)) : [];
@@ -1691,17 +1780,29 @@ var PuzzleGenerator = class {
       if (bestGrid === null || diffFromTarget < Math.abs(bestScore - targetDifficulty)) {
         bestScore = difficulty;
         bestGrid = grid;
+        bestGrid.seed = routeSeedStr;
       }
-      if (targetDifficulty > 0.8 && difficulty > 0.8) break;
-      if (diffFromTarget < 0.01) break;
+      if (targetDifficulty > 0.8 && difficulty > 0.8) {
+        bestGrid.seed = routeSeedStr;
+        break;
+      }
+      if (diffFromTarget < 0.01) {
+        bestGrid.seed = routeSeedStr;
+        break;
+      }
+      currentSeed = (currentSeed ^ 0x5deece66dn) + 0xbn;
     }
     if (!bestGrid) {
       for (let i = 0; i < 50; i++) {
+        this.rng = createRng(rngType, currentSeed);
+        validator.setRng(this.rng);
         const path = this.generateRandomPath(new Grid(rows, cols), startPoint, endPoint, options.pathLength, symmetry);
         const grid = this.generateFromPath(rows, cols, path, options);
         if (this.checkAllRequestedConstraintsPresent(grid, options) && validator.validate(grid, { points: path }).isValid) {
+          grid.seed = currentSeed.toString(16);
           return grid;
         }
+        currentSeed = (currentSeed ^ 0x5deece66dn) + 0xbn;
       }
       return new Grid(rows, cols);
     }
@@ -1813,7 +1914,7 @@ var PuzzleGenerator = class {
           const da = Math.abs(a.x - end.x) + Math.abs(a.y - end.y);
           const db = Math.abs(b.x - end.x) + Math.abs(b.y - end.y);
           const score = (da - db) * (1 - biasFactor * 2);
-          return score + (Math.random() - 0.5) * 1.5;
+          return score + (this.rng.next() - 0.5) * 1.5;
         });
       } else {
         this.shuffleArray(neighbors);
@@ -2197,12 +2298,12 @@ var PuzzleGenerator = class {
         const isBranching = neighbors.length > 2;
         let prob = complexity * (targetDifficulty < 0.4 ? 0.6 : 0.3);
         if (isBranching) prob = targetDifficulty < 0.4 ? prob * 1 : prob * 0.5;
-        if (Math.random() < prob) {
+        if (this.rng.next() < prob) {
           let type = 3 /* Hexagon */;
           let p1 = path[i];
           let p2 = path[i + 1];
           if (symmetry !== 0 /* None */) {
-            const r = Math.random();
+            const r = this.rng.next();
             if (r < 0.3) type = 4 /* HexagonMain */;
             else if (r < 0.6) {
               type = 5 /* HexagonSymmetry */;
@@ -2219,11 +2320,11 @@ var PuzzleGenerator = class {
         if (grid.nodes[node.y][node.x].type !== 0 /* Normal */) continue;
         if (this.hasIncidentHexagonEdge(grid, node)) continue;
         let prob = complexity * (targetDifficulty > 0.6 ? 0.15 : 0.05);
-        if (Math.random() < prob) {
+        if (this.rng.next() < prob) {
           let type = 3 /* Hexagon */;
           let targetNode = node;
           if (symmetry !== 0 /* None */) {
-            const r = Math.random();
+            const r = this.rng.next();
             if (r < 0.3) type = 4 /* HexagonMain */;
             else if (r < 0.6) {
               type = 5 /* HexagonSymmetry */;
@@ -2235,13 +2336,13 @@ var PuzzleGenerator = class {
         }
       }
       if (hexagonsPlaced === 0 && path.length >= 2) {
-        const idx = Math.floor(Math.random() * (path.length - 1));
+        const idx = Math.floor(this.rng.next() * (path.length - 1));
         const symmetry2 = options.symmetry || 0 /* None */;
         let type = 3 /* Hexagon */;
         let p1 = path[idx];
         let p2 = path[idx + 1];
         if (symmetry2 !== 0 /* None */) {
-          const r = Math.random();
+          const r = this.rng.next();
           if (r < 0.3) type = 4 /* HexagonMain */;
           else if (r < 0.6) {
             type = 5 /* HexagonSymmetry */;
@@ -2281,23 +2382,23 @@ var PuzzleGenerator = class {
         let placementProb = 0.2 + complexity * 0.6;
         if (forceOne && remainingRegions <= 3) placementProb = 1;
         else if (forceOne && remainingRegions <= 6) placementProb = 0.7;
-        if (Math.random() > placementProb) continue;
+        if (this.rng.next() > placementProb) continue;
         const potentialCells = [...region];
         this.shuffleArray(potentialCells);
         const intendedColors = /* @__PURE__ */ new Set();
-        let squareColor = availableColors[Math.floor(Math.random() * availableColors.length)];
+        let squareColor = availableColors[Math.floor(this.rng.next() * availableColors.length)];
         if (useSquares && squareColorsUsed.size < 2) {
           const unusedColors = availableColors.filter((c) => !squareColorsUsed.has(c));
           if (unusedColors.length > 0) {
-            squareColor = unusedColors[Math.floor(Math.random() * unusedColors.length)];
+            squareColor = unusedColors[Math.floor(this.rng.next() * unusedColors.length)];
           }
         }
-        let shouldPlaceSquare = useSquares && Math.random() < 0.5 + complexity * 0.3;
+        let shouldPlaceSquare = useSquares && this.rng.next() < 0.5 + complexity * 0.3;
         if (useSquares && squaresPlaced === 0 && remainingRegions <= 2) shouldPlaceSquare = true;
         if (useSquares && !useStars && remainingRegions <= 2 && squareColorsUsed.size < 2 && squaresPlaced > 0) shouldPlaceSquare = true;
         if (shouldPlaceSquare && potentialCells.length > 0) {
           const maxSquares = Math.min(potentialCells.length, Math.max(4, Math.floor(region.length / 4)));
-          const numSquares = Math.floor(Math.random() * (maxSquares / 2)) + Math.ceil(maxSquares / 2);
+          const numSquares = Math.floor(this.rng.next() * (maxSquares / 2)) + Math.ceil(maxSquares / 2);
           for (let i = 0; i < numSquares; i++) {
             if (potentialCells.length === 0) break;
             const cell = potentialCells.pop();
@@ -2309,7 +2410,7 @@ var PuzzleGenerator = class {
           }
         }
         if (useTetris || useTetrisNegative) {
-          let shouldPlaceTetris = Math.random() < 0.1 + complexity * 0.4;
+          let shouldPlaceTetris = this.rng.next() < 0.1 + complexity * 0.4;
           if (tetrisPlaced === 0 && remainingRegions <= 3) shouldPlaceTetris = true;
           if (useTetrisNegative && tetrisNegativePlaced === 0 && remainingRegions <= 2) shouldPlaceTetris = true;
           const maxTetrisPerRegion = tetrisPlaced === 0 && remainingRegions <= 2 ? 6 : 4;
@@ -2320,57 +2421,57 @@ var PuzzleGenerator = class {
               const negativePiecesToPlace = [];
               let negProb = 0.2 + complexity * 0.3;
               if (useTetrisNegative && tetrisNegativePlaced === 0 && remainingRegions <= 3) negProb = 0.9;
-              if (useTetrisNegative && Math.random() < negProb) {
+              if (useTetrisNegative && this.rng.next() < negProb) {
                 const difficulty = options.difficulty ?? 0.5;
                 const prob0 = 0.1;
-                if (Math.random() < prob0 && potentialCells.length >= 2) {
+                if (this.rng.next() < prob0 && potentialCells.length >= 2) {
                   let complexFound = false;
-                  if (potentialCells.length >= 3 && Math.random() < 0.8) {
-                    const is2pos1neg = Math.random() < 0.5;
-                    const baseArea = 1 + Math.floor(Math.random() * 2);
+                  if (potentialCells.length >= 3 && this.rng.next() < 0.8) {
+                    const is2pos1neg = this.rng.next() < 0.5;
+                    const baseArea = 1 + Math.floor(this.rng.next() * 2);
                     const baseShapes = this.TETRIS_SHAPES.filter((s) => this.getShapeArea(s) === baseArea);
-                    const base = baseShapes[Math.floor(Math.random() * baseShapes.length)];
+                    const base = baseShapes[Math.floor(this.rng.next() * baseShapes.length)];
                     const triple = this.findStandardTriple(base);
                     if (triple) {
                       if (is2pos1neg) {
-                        tiledPieces.push({ shape: base, displayShape: base, isRotated: !this.isRotationallyInvariant(base) && Math.random() < difficulty * 0.7, isNegative: false });
-                        tiledPieces.push({ shape: triple.n, displayShape: triple.n, isRotated: !this.isRotationallyInvariant(triple.n) && Math.random() < difficulty * 0.7, isNegative: false });
-                        negativePiecesToPlace.push({ shape: triple.p, displayShape: triple.p, isRotated: !this.isRotationallyInvariant(triple.p) && Math.random() < difficulty * 0.7, isNegative: true });
+                        tiledPieces.push({ shape: base, displayShape: base, isRotated: !this.isRotationallyInvariant(base) && this.rng.next() < difficulty * 0.7, isNegative: false });
+                        tiledPieces.push({ shape: triple.n, displayShape: triple.n, isRotated: !this.isRotationallyInvariant(triple.n) && this.rng.next() < difficulty * 0.7, isNegative: false });
+                        negativePiecesToPlace.push({ shape: triple.p, displayShape: triple.p, isRotated: !this.isRotationallyInvariant(triple.p) && this.rng.next() < difficulty * 0.7, isNegative: true });
                       } else {
-                        tiledPieces.push({ shape: triple.p, displayShape: triple.p, isRotated: !this.isRotationallyInvariant(triple.p) && Math.random() < difficulty * 0.7, isNegative: false });
-                        negativePiecesToPlace.push({ shape: base, displayShape: base, isRotated: !this.isRotationallyInvariant(base) && Math.random() < difficulty * 0.7, isNegative: true });
-                        negativePiecesToPlace.push({ shape: triple.n, displayShape: triple.n, isRotated: !this.isRotationallyInvariant(triple.n) && Math.random() < difficulty * 0.7, isNegative: true });
+                        tiledPieces.push({ shape: triple.p, displayShape: triple.p, isRotated: !this.isRotationallyInvariant(triple.p) && this.rng.next() < difficulty * 0.7, isNegative: false });
+                        negativePiecesToPlace.push({ shape: base, displayShape: base, isRotated: !this.isRotationallyInvariant(base) && this.rng.next() < difficulty * 0.7, isNegative: true });
+                        negativePiecesToPlace.push({ shape: triple.n, displayShape: triple.n, isRotated: !this.isRotationallyInvariant(triple.n) && this.rng.next() < difficulty * 0.7, isNegative: true });
                       }
                       complexFound = true;
                     }
                   }
                   if (!complexFound) {
-                    const area = 3 + Math.floor(Math.random() * 2);
+                    const area = 3 + Math.floor(this.rng.next() * 2);
                     const candidates = this.TETRIS_SHAPES.filter((s) => this.getShapeArea(s) === area);
                     this.shuffleArray(candidates);
                     if (candidates.length > 0) {
                       const pShape = candidates[0];
                       const nShape = candidates[0];
-                      tiledPieces.push({ shape: pShape, displayShape: pShape, isRotated: !this.isRotationallyInvariant(pShape) && Math.random() < difficulty * 0.7, isNegative: false });
-                      negativePiecesToPlace.push({ shape: nShape, displayShape: nShape, isRotated: !this.isRotationallyInvariant(nShape) && Math.random() < difficulty * 0.7, isNegative: true });
+                      tiledPieces.push({ shape: pShape, displayShape: pShape, isRotated: !this.isRotationallyInvariant(pShape) && this.rng.next() < difficulty * 0.7, isNegative: false });
+                      negativePiecesToPlace.push({ shape: nShape, displayShape: nShape, isRotated: !this.isRotationallyInvariant(nShape) && this.rng.next() < difficulty * 0.7, isNegative: true });
                     }
                   }
                 } else if (tiledPieces.length > 0) {
-                  const numSubtractions = Math.random() < 0.3 ? 2 : 1;
+                  const numSubtractions = this.rng.next() < 0.3 ? 2 : 1;
                   for (let i = 0; i < numSubtractions; i++) {
                     if (potentialCells.length < 1) break;
-                    const targetIdx = Math.floor(Math.random() * tiledPieces.length);
+                    const targetIdx = Math.floor(this.rng.next() * tiledPieces.length);
                     const original = tiledPieces[targetIdx];
                     if (original.isNegative) continue;
                     let complexSubtraction = false;
-                    if (potentialCells.length >= 2 && Math.random() < 0.2) {
+                    if (potentialCells.length >= 2 && this.rng.next() < 0.2) {
                       const triple1 = this.findStandardTriple(original.shape);
                       if (triple1) {
                         const triple2 = this.findStandardTriple(triple1.p);
                         if (triple2) {
-                          tiledPieces[targetIdx] = { shape: triple2.p, displayShape: triple2.p, isRotated: !this.isRotationallyInvariant(triple2.p) && Math.random() < difficulty * 0.7, isNegative: false };
-                          negativePiecesToPlace.push({ shape: triple1.n, displayShape: triple1.n, isRotated: !this.isRotationallyInvariant(triple1.n) && Math.random() < difficulty * 0.7, isNegative: true });
-                          negativePiecesToPlace.push({ shape: triple2.n, displayShape: triple2.n, isRotated: !this.isRotationallyInvariant(triple2.n) && Math.random() < difficulty * 0.7, isNegative: true });
+                          tiledPieces[targetIdx] = { shape: triple2.p, displayShape: triple2.p, isRotated: !this.isRotationallyInvariant(triple2.p) && this.rng.next() < difficulty * 0.7, isNegative: false };
+                          negativePiecesToPlace.push({ shape: triple1.n, displayShape: triple1.n, isRotated: !this.isRotationallyInvariant(triple1.n) && this.rng.next() < difficulty * 0.7, isNegative: true });
+                          negativePiecesToPlace.push({ shape: triple2.n, displayShape: triple2.n, isRotated: !this.isRotationallyInvariant(triple2.n) && this.rng.next() < difficulty * 0.7, isNegative: true });
                           complexSubtraction = true;
                         }
                       }
@@ -2383,13 +2484,13 @@ var PuzzleGenerator = class {
                           tiledPieces[targetIdx] = {
                             shape: triple.p,
                             displayShape: triple.p,
-                            isRotated: !this.isRotationallyInvariant(triple.p) && Math.random() < difficulty * 0.7,
+                            isRotated: !this.isRotationallyInvariant(triple.p) && this.rng.next() < difficulty * 0.7,
                             isNegative: false
                           };
                           negativePiecesToPlace.push({
                             shape: triple.n,
                             displayShape: triple.n,
-                            isRotated: !this.isRotationallyInvariant(triple.n) && Math.random() < difficulty * 0.7,
+                            isRotated: !this.isRotationallyInvariant(triple.n) && this.rng.next() < difficulty * 0.7,
                             isNegative: true
                           });
                         }
@@ -2411,10 +2512,10 @@ var PuzzleGenerator = class {
                   grid.cells[cell.y][cell.x].type = p.isRotated ? 4 /* TetrisRotated */ : 3 /* Tetris */;
                   const defColor = getDefColor(3 /* Tetris */, Color.None);
                   let tetrisColor = defColor;
-                  if (useStars && Math.random() < 0.3) {
+                  if (useStars && this.rng.next() < 0.3) {
                     const candidates = availableColors.filter((c) => c !== defColor && !intendedColors.has(c));
                     if (candidates.length > 0) {
-                      tetrisColor = candidates[Math.floor(Math.random() * candidates.length)];
+                      tetrisColor = candidates[Math.floor(this.rng.next() * candidates.length)];
                       intendedColors.add(tetrisColor);
                     }
                   }
@@ -2429,7 +2530,7 @@ var PuzzleGenerator = class {
         }
         if (useEraser && erasersPlaced < 1) {
           const prob = 0.05 + complexity * 0.2;
-          let shouldPlaceEraser = Math.random() < prob;
+          let shouldPlaceEraser = this.rng.next() < prob;
           if (remainingRegions <= 2) shouldPlaceEraser = true;
           if (shouldPlaceEraser && potentialCells.length >= 1) {
             let errorTypes = [];
@@ -2450,7 +2551,7 @@ var PuzzleGenerator = class {
               if (errorType === "hexagon") {
                 const validEdges = boundaryEdges.filter((e) => !this.isEdgeAdjacentToHexagonNode(grid, e));
                 if (validEdges.length > 0) {
-                  const edge = validEdges[Math.floor(Math.random() * validEdges.length)];
+                  const edge = validEdges[Math.floor(this.rng.next() * validEdges.length)];
                   if (edge.type === "h") grid.hEdges[edge.r][edge.c].type = 3 /* Hexagon */;
                   else grid.vEdges[edge.r][edge.c].type = 3 /* Hexagon */;
                   hexagonsPlaced++;
@@ -2467,7 +2568,7 @@ var PuzzleGenerator = class {
               } else if (errorType === "star" && potentialCells.length >= 2) {
                 const errCell = potentialCells.pop();
                 grid.cells[errCell.y][errCell.x].type = 2 /* Star */;
-                grid.cells[errCell.y][errCell.x].color = availableColors[Math.floor(Math.random() * availableColors.length)];
+                grid.cells[errCell.y][errCell.x].color = availableColors[Math.floor(this.rng.next() * availableColors.length)];
                 starsPlaced++;
                 errorPlaced = true;
               } else if (errorType === "tetris" && potentialCells.length >= 2) {
@@ -2517,10 +2618,10 @@ var PuzzleGenerator = class {
               grid.cells[cell.y][cell.x].type = 7 /* Eraser */;
               const defColor = getDefColor(7 /* Eraser */, Color.White);
               let eraserColor = defColor;
-              if (useStars && Math.random() < 0.3) {
+              if (useStars && this.rng.next() < 0.3) {
                 const candidates = availableColors.filter((c) => c !== defColor && !intendedColors.has(c));
                 if (candidates.length > 0) {
-                  eraserColor = candidates[Math.floor(Math.random() * candidates.length)];
+                  eraserColor = candidates[Math.floor(this.rng.next() * candidates.length)];
                   intendedColors.add(eraserColor);
                 }
               }
@@ -2545,7 +2646,7 @@ var PuzzleGenerator = class {
             if (potentialCells.length < 2) break;
             for (const color of availableColors) {
               if (potentialCells.length < 2) break;
-              if (Math.random() > 0.3 + complexity * 0.4) continue;
+              if (this.rng.next() > 0.3 + complexity * 0.4) continue;
               const colorCount = region.filter((p2) => grid.cells[p2.y][p2.x].color === color).length;
               if (colorCount === 0) {
                 for (let i = 0; i < 2; i++) {
@@ -2573,7 +2674,7 @@ var PuzzleGenerator = class {
             const availableCells = region.filter((p) => grid.cells[p.y][p.x].type === 0 /* None */);
             if (availableCells.length > 0) {
               const otherColor = availableColors.find((c) => !squareColorsUsed.has(c)) || Color.White;
-              const cell = availableCells[Math.floor(Math.random() * availableCells.length)];
+              const cell = availableCells[Math.floor(this.rng.next() * availableCells.length)];
               grid.cells[cell.y][cell.x].type = 1 /* Square */;
               grid.cells[cell.y][cell.x].color = otherColor;
               squareColorsUsed.add(otherColor);
@@ -2584,7 +2685,7 @@ var PuzzleGenerator = class {
             for (const region of regions) {
               const availableCells = region.filter((p) => grid.cells[p.y][p.x].type === 0 /* None */);
               if (availableCells.length > 0) {
-                const cell = availableCells[Math.floor(Math.random() * availableCells.length)];
+                const cell = availableCells[Math.floor(this.rng.next() * availableCells.length)];
                 grid.cells[cell.y][cell.x].type = 2 /* Star */;
                 grid.cells[cell.y][cell.x].color = onlyColor;
                 starsPlaced++;
@@ -2894,7 +2995,7 @@ var PuzzleGenerator = class {
           const dc = c0 - anchor.c;
           if (this.canPlace(regionGrid, shape, dr, dc)) {
             this.placePiece(regionGrid, shape, dr, dc, false);
-            const isRotated = rotations.length > 1 && Math.random() < 0.3 + difficulty * 0.6;
+            const isRotated = rotations.length > 1 && this.rng.next() < 0.3 + difficulty * 0.6;
             const result = this.tilingDfs(regionGrid, [...currentPieces, { shape, displayShape: baseShape, isRotated }], maxPieces, options);
             if (result) return result;
             this.placePiece(regionGrid, shape, dr, dc, true);
@@ -3023,7 +3124,7 @@ var PuzzleGenerator = class {
   }
   shuffleArray(array) {
     for (let i = array.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
+      const j = Math.floor(this.rng.next() * (i + 1));
       [array[i], array[j]] = [array[j], array[i]];
     }
   }
@@ -4461,6 +4562,7 @@ export {
   PuzzleGenerator,
   PuzzleSerializer,
   PuzzleValidator,
+  RngType,
   SymmetryType,
   WitnessCore,
   WitnessUI

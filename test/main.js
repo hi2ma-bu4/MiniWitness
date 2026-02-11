@@ -1,4 +1,4 @@
-import { PuzzleSerializer, WitnessCore, WitnessUI } from "../dist/MiniWitness.js";
+import { PuzzleSerializer, RngType, WitnessCore, WitnessUI } from "../dist/MiniWitness.js";
 
 class WitnessGame {
 	constructor() {
@@ -79,6 +79,12 @@ class WitnessGame {
 			}
 		});
 
+		// URLパラメータからシードとRNGを読み込む
+		const seed = params.get("seed");
+		const rngType = params.get("rng");
+		if (seed) document.getElementById("seed-input").value = seed;
+		if (rngType) document.getElementById("rng-select").value = rngType;
+
 		// URLパラメータからパズルを読み込む
 		const puzzleData = params.get("puzzle");
 		if (puzzleData) {
@@ -114,6 +120,8 @@ class WitnessGame {
 			pathLength: parseFloat(document.getElementById("path-length-slider").value),
 			availableColors: useCustomTheme ? [1, 2, 3, 4] : undefined,
 			defaultColors: useCustomTheme ? { Tetris: 5 } : undefined,
+			seed: document.getElementById("seed-input").value || undefined,
+			rngType: parseInt(document.getElementById("rng-select").value),
 		};
 
 		this.updateStatus("Generating puzzle... (Searching for optimal difficulty)");
@@ -133,6 +141,10 @@ class WitnessGame {
 
 		// UIのコントロールを更新
 		this.sizeSelect.value = puzzle.rows;
+		if (options.rngType != null && options.rngType !== RngType.MathRandom) {
+			document.getElementById("rng-select").value = options.rngType;
+		}
+
 		document.getElementById("use-hexagons").checked = !!options.useHexagons;
 		document.getElementById("use-squares").checked = !!options.useSquares;
 		document.getElementById("use-stars").checked = !!options.useStars;
@@ -170,7 +182,9 @@ class WitnessGame {
 			this.ui.setOptions(uiOptions);
 			this.ui.setPuzzle(this.puzzle);
 		}
-		this.updateStatus(`Puzzle loaded! (Difficulty: ${diff.toFixed(2)})`);
+		let status = `Puzzle loaded! (Difficulty: ${diff.toFixed(2)})`;
+		if (this.puzzle.seed && options.rngType !== RngType.MathRandom) status += ` [Seed: ${this.puzzle.seed}]`;
+		this.updateStatus(status);
 	}
 
 	async sharePuzzle() {
@@ -180,6 +194,10 @@ class WitnessGame {
 			const serialized = await PuzzleSerializer.serialize(this.puzzle, this.currentOptions);
 			const url = new URL(window.location.href);
 			url.searchParams.set("puzzle", serialized);
+			if (this.puzzle.seed && options.rngType !== RngType.MathRandom) {
+				url.searchParams.set("seed", this.puzzle.seed);
+			}
+			url.searchParams.set("rng", document.getElementById("rng-select").value);
 
 			// クリップボードにコピー
 			await navigator.clipboard.writeText(url.toString());

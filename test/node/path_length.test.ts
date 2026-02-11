@@ -2,8 +2,8 @@ import assert from "node:assert";
 import { describe, test } from "node:test";
 import { EdgeType, PuzzleGenerator } from "../../dist/MiniWitness.js";
 
-describe("Path Length", { concurrency: true }, async (t) => {
-	test("compare 0.0 and 1.0", () => {
+describe("Path Length", { concurrency: true }, async () => {
+	test("compare 0.0 and 1.0", (t) => {
 		const generator = new PuzzleGenerator();
 		const size = 5;
 
@@ -32,8 +32,8 @@ describe("Path Length", { concurrency: true }, async (t) => {
 		const avgShort = totalHexShort / trials;
 		const avgLong = totalHexLong / trials;
 
-		console.log(`Average Hexagons (Short): ${avgShort}`);
-		console.log(`Average Hexagons (Long): ${avgLong}`);
+		t.diagnostic(`Average Hexagons (Short): ${avgShort}`);
+		t.diagnostic(`Average Hexagons (Long): ${avgLong}`);
 
 		// Long paths should generally have more hexagons
 		assert.ok(avgLong > avgShort, `Long paths should have more hexagons on average. Long: ${avgLong}, Short: ${avgShort}`);

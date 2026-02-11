@@ -1,4 +1,5 @@
 import { Grid } from "./grid";
+import type { IRng } from "./rng";
 import { CellType, Color, EdgeType, NodeType, SymmetryType, type Point, type SolutionPath, type ValidationResult } from "./types";
 
 /**
@@ -6,6 +7,11 @@ import { CellType, Color, EdgeType, NodeType, SymmetryType, type Point, type Sol
  */
 export class PuzzleValidator {
 	private tetrisCache: Map<string, boolean> = new Map();
+	private rng: IRng | null = null;
+
+	public setRng(rng: IRng | null) {
+		this.rng = rng;
+	}
 
 	/**
 	 * 与えられたグリッドと回答パスが正当かどうかを検証する
@@ -1412,7 +1418,8 @@ export class PuzzleValidator {
 		// 少なくともいくつかの解を見つけやすくする
 		if (grid.rows * grid.cols > 30) {
 			for (let i = validMoves.length - 1; i > 0; i--) {
-				const j = Math.floor(Math.random() * (i + 1));
+				const rnd = this.rng ? this.rng.next() : Math.random();
+				const j = Math.floor(rnd * (i + 1));
 				[validMoves[i], validMoves[j]] = [validMoves[j], validMoves[i]];
 			}
 		}
