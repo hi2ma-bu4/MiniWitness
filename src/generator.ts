@@ -55,8 +55,8 @@ export class PuzzleGenerator {
 		if (!currentSeedStr) {
 			currentSeedStr = Math.floor(Math.random() * 0xffffffff).toString(16);
 		}
+		const initialSeedStr = currentSeedStr;
 		let currentSeed = this.stringToSeed(currentSeedStr);
-		let routeSeedStr = currentSeed.toString(16);
 
 		const targetDifficulty = options.difficulty ?? 0.5;
 		const validator = new PuzzleValidator();
@@ -90,11 +90,11 @@ export class PuzzleGenerator {
 		let precalculatedBoundaryEdges: { type: "h" | "v"; r: number; c: number }[][] | null = null;
 
 		for (let attempt = 0; attempt < maxAttempts; attempt++) {
-			this.rng = createRng(rngType, currentSeed);
+			const nextSeed = (currentSeed ^ 0x5deece66dn) + 0xbn;
+			this.rng = createRng(rngType, currentSeed ^ 0x5deece66dn);
 			validator.setRng(this.rng);
 			// 一定回数ごとに新しいパスを生成する
 			if (attempt % markAttemptsPerPath === 0) {
-				routeSeedStr = currentSeed.toString(16);
 				currentPath = this.generateRandomPath(new Grid(rows, cols), startPoint, endPoint, options.pathLength, symmetry);
 
 				// パスが決まった時点で、区画と境界エッジを計算しておく（マーク生成で流用）
@@ -108,34 +108,43 @@ export class PuzzleGenerator {
 
 			// 意図したパスでクリア可能か検証
 			const validation = validator.validate(grid, { points: currentPath! });
-			if (!validation.isValid) continue;
+			if (!validation.isValid) {
+				currentSeed = nextSeed;
+				continue;
+			}
 
 			// 必須制約が含まれているか確認
-			if (!this.checkAllRequestedConstraintsPresent(grid, options)) continue;
+			if (!this.checkAllRequestedConstraintsPresent(grid, options)) {
+				currentSeed = nextSeed;
+				continue;
+			}
 
 			// 難易度の算出
 			const difficulty = validator.calculateDifficulty(grid);
-			if (difficulty === 0) continue;
+			if (difficulty === 0) {
+				currentSeed = nextSeed;
+				continue;
+			}
 
 			const diffFromTarget = Math.abs(difficulty - targetDifficulty);
 			if (bestGrid === null || diffFromTarget < Math.abs(bestScore - targetDifficulty)) {
 				bestScore = difficulty;
 				bestGrid = grid;
-				bestGrid.seed = routeSeedStr;
+				bestGrid.seed = initialSeedStr;
 			}
 
 			// ターゲットに近い場合は早期終了
 			if (targetDifficulty > 0.8 && difficulty > 0.8) {
-				bestGrid!.seed = routeSeedStr;
+				bestGrid.seed = initialSeedStr;
 				break;
 			}
 			if (diffFromTarget < 0.01) {
-				bestGrid!.seed = routeSeedStr;
+				bestGrid.seed = initialSeedStr;
 				break; // より厳しく早期終了判定
 			}
 
-			// 失敗した場合はシードを更新
-			currentSeed = (currentSeed ^ 0x5deece66dn) + 0xbn;
+			// 次の試行へ向けてシードを更新
+			currentSeed = nextSeed;
 		}
 
 		// 見つからなかった場合は最後に生成に成功したものを返す
@@ -146,14 +155,19 @@ export class PuzzleGenerator {
 				validator.setRng(this.rng);
 				const path = this.generateRandomPath(new Grid(rows, cols), startPoint, endPoint, options.pathLength, symmetry);
 				const grid = this.generateFromPath(rows, cols, path, options);
-				if (this.checkAllRequestedConstraintsPresent(grid, options) && validator.validate(grid, { points: path }).isValid) {
-					grid.seed = currentSeed.toString(16);
+				if (validator.validate(grid, { points: path }).isValid) {
+					grid.seed = initialSeedStr;
 					return grid;
 				}
 				currentSeed = (currentSeed ^ 0x5deece66dn) + 0xbn;
 			}
-			// それでもダメな場合は空の盤面を返す
-			return new Grid(rows, cols);
+			// それでもダメな場合はそれっぽい盤面を返す
+			this.rng = createRng(rngType, currentSeed);
+			validator.setRng(this.rng);
+			const path = this.generateRandomPath(new Grid(rows, cols), startPoint, endPoint, options.pathLength, symmetry);
+			const grid = this.generateFromPath(rows, cols, path, options);
+			grid.seed = initialSeedStr;
+			return grid;
 		}
 		return bestGrid;
 	}

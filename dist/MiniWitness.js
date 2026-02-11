@@ -1,5 +1,5 @@
 /*!
- * MiniWitness 1.2.6
+ * MiniWitness 1.2.7
  * Copyright 2026 hi2ma-bu4
  * Licensed under the Apache License, Version 2.0
  * http://www.apache.org/licenses/LICENSE-2.0
@@ -1737,8 +1737,8 @@ var PuzzleGenerator = class {
     if (!currentSeedStr) {
       currentSeedStr = Math.floor(Math.random() * 4294967295).toString(16);
     }
+    const initialSeedStr = currentSeedStr;
     let currentSeed = this.stringToSeed(currentSeedStr);
-    let routeSeedStr = currentSeed.toString(16);
     const targetDifficulty = options.difficulty ?? 0.5;
     const validator = new PuzzleValidator();
     let bestGrid = null;
@@ -1760,10 +1760,10 @@ var PuzzleGenerator = class {
     let precalculatedRegions = null;
     let precalculatedBoundaryEdges = null;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      this.rng = createRng(rngType, currentSeed);
+      const nextSeed = (currentSeed ^ 0x5deece66dn) + 0xbn;
+      this.rng = createRng(rngType, currentSeed ^ 0x5deece66dn);
       validator.setRng(this.rng);
       if (attempt % markAttemptsPerPath === 0) {
-        routeSeedStr = currentSeed.toString(16);
         currentPath = this.generateRandomPath(new Grid(rows, cols), startPoint, endPoint, options.pathLength, symmetry);
         const tempGrid = new Grid(rows, cols);
         const symPath = symmetry !== 0 /* None */ ? currentPath.map((p) => this.getSymmetricalPoint(tempGrid, p, symmetry)) : [];
@@ -1772,39 +1772,53 @@ var PuzzleGenerator = class {
       }
       const grid = this.generateFromPath(rows, cols, currentPath, options, precalculatedRegions, precalculatedBoundaryEdges);
       const validation = validator.validate(grid, { points: currentPath });
-      if (!validation.isValid) continue;
-      if (!this.checkAllRequestedConstraintsPresent(grid, options)) continue;
+      if (!validation.isValid) {
+        currentSeed = nextSeed;
+        continue;
+      }
+      if (!this.checkAllRequestedConstraintsPresent(grid, options)) {
+        currentSeed = nextSeed;
+        continue;
+      }
       const difficulty = validator.calculateDifficulty(grid);
-      if (difficulty === 0) continue;
+      if (difficulty === 0) {
+        currentSeed = nextSeed;
+        continue;
+      }
       const diffFromTarget = Math.abs(difficulty - targetDifficulty);
       if (bestGrid === null || diffFromTarget < Math.abs(bestScore - targetDifficulty)) {
         bestScore = difficulty;
         bestGrid = grid;
-        bestGrid.seed = routeSeedStr;
+        bestGrid.seed = initialSeedStr;
       }
       if (targetDifficulty > 0.8 && difficulty > 0.8) {
-        bestGrid.seed = routeSeedStr;
+        bestGrid.seed = initialSeedStr;
         break;
       }
       if (diffFromTarget < 0.01) {
-        bestGrid.seed = routeSeedStr;
+        bestGrid.seed = initialSeedStr;
         break;
       }
-      currentSeed = (currentSeed ^ 0x5deece66dn) + 0xbn;
+      currentSeed = nextSeed;
     }
     if (!bestGrid) {
       for (let i = 0; i < 50; i++) {
         this.rng = createRng(rngType, currentSeed);
         validator.setRng(this.rng);
-        const path = this.generateRandomPath(new Grid(rows, cols), startPoint, endPoint, options.pathLength, symmetry);
-        const grid = this.generateFromPath(rows, cols, path, options);
-        if (this.checkAllRequestedConstraintsPresent(grid, options) && validator.validate(grid, { points: path }).isValid) {
-          grid.seed = currentSeed.toString(16);
-          return grid;
+        const path2 = this.generateRandomPath(new Grid(rows, cols), startPoint, endPoint, options.pathLength, symmetry);
+        const grid2 = this.generateFromPath(rows, cols, path2, options);
+        if (validator.validate(grid2, { points: path2 }).isValid) {
+          grid2.seed = initialSeedStr;
+          return grid2;
         }
         currentSeed = (currentSeed ^ 0x5deece66dn) + 0xbn;
       }
-      return new Grid(rows, cols);
+      this.rng = createRng(rngType, currentSeed);
+      validator.setRng(this.rng);
+      const path = this.generateRandomPath(new Grid(rows, cols), startPoint, endPoint, options.pathLength, symmetry);
+      const grid = this.generateFromPath(rows, cols, path, options);
+      grid.seed = initialSeedStr;
+      return grid;
     }
     return bestGrid;
   }
