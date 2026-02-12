@@ -402,7 +402,11 @@ var PuzzleValidator = class {
         possible.sort((a, b) => {
           const costA = a.invalidatedCells.length + a.invalidatedHexagons.length + a.invalidatedNodeHexagons.length;
           const costB = b.invalidatedCells.length + b.invalidatedHexagons.length + b.invalidatedNodeHexagons.length;
-          return costA - costB;
+          if (costA !== costB) return costA - costB;
+          const hexPriorityA = a.invalidatedHexagons.length + a.invalidatedNodeHexagons.length;
+          const hexPriorityB = b.invalidatedHexagons.length + b.invalidatedNodeHexagons.length;
+          if (hexPriorityA !== hexPriorityB) return hexPriorityB - hexPriorityA;
+          return a.invalidatedCells.length - b.invalidatedCells.length;
         });
         regionResults.push(possible);
       }
@@ -609,9 +613,11 @@ var PuzzleValidator = class {
         for (let i = usedErasersCount; i < erasers.length; i++) {
           errorCells2.push(erasers[i]);
         }
-        const errorCount = errorCells2.length;
-        if (errorCount < minErrorCount) {
-          minErrorCount = errorCount;
+        const unresolvedHexagons = Math.max(0, adjacentMissedHexagons.length - toInvalidateHexagons.length);
+        const unresolvedNodeHexagons = Math.max(0, adjacentMissedNodeHexagons.length - toInvalidateNodeHexagons.length);
+        const totalErrorCount = errorCells2.length + unresolvedHexagons + unresolvedNodeHexagons;
+        if (totalErrorCount < minErrorCount) {
+          minErrorCount = totalErrorCount;
           bestResult = {
             invalidatedCells: [...toInvalidateCells, ...negatedErasers],
             invalidatedHexagons: toInvalidateHexagons,
@@ -2514,6 +2520,7 @@ var PuzzleGenerator = class {
                 }
               }
               const allPieces = [...tiledPieces, ...negativePiecesToPlace];
+              if (allPieces.length > potentialCells.length) continue;
               for (const p of allPieces) {
                 if (potentialCells.length === 0) break;
                 const cell = potentialCells.pop();
@@ -2612,14 +2619,20 @@ var PuzzleGenerator = class {
                   }
                   errorPlaced = true;
                 }
-              } else if (errorType === "tetrisNegative" && potentialCells.length >= 2) {
+              } else if (errorType === "tetrisNegative" && this.canPlaceGeneratedTetrisNegative(grid, region, potentialCells)) {
+                if (!this.hasRegionTetrisSymbol(grid, region)) {
+                  const posCell = potentialCells.pop();
+                  grid.cells[posCell.y][posCell.x].type = 3 /* Tetris */;
+                  grid.cells[posCell.y][posCell.x].shape = [[1]];
+                  grid.cells[posCell.y][posCell.x].color = getDefColor(3 /* Tetris */, Color.None);
+                  tetrisPlaced++;
+                }
                 const cell = potentialCells.pop();
                 grid.cells[cell.y][cell.x].type = 5 /* TetrisNegative */;
                 grid.cells[cell.y][cell.x].shape = [[1]];
                 grid.cells[cell.y][cell.x].color = getDefColor(5 /* TetrisNegative */, Color.Cyan);
                 tetrisNegativePlaced++;
-                errorPlaced = true;
-              } else if (errorType === "eraser" && potentialCells.length >= 2) {
+              } else if (errorType === "eraser" && this.canPlaceGeneratedEraser(grid, region, potentialCells)) {
                 const errCell = potentialCells.pop();
                 grid.cells[errCell.y][errCell.x].type = 7 /* Eraser */;
                 grid.cells[errCell.y][errCell.x].color = getDefColor(7 /* Eraser */, Color.White);
@@ -2627,7 +2640,7 @@ var PuzzleGenerator = class {
                 errorPlaced = true;
               }
             }
-            if (errorPlaced) {
+            if (errorPlaced && this.canPlaceGeneratedEraser(grid, region, potentialCells)) {
               const cell = potentialCells.pop();
               grid.cells[cell.y][cell.x].type = 7 /* Eraser */;
               const defColor = getDefColor(7 /* Eraser */, Color.White);
@@ -3064,6 +3077,31 @@ var PuzzleGenerator = class {
     const rotations = this.getAllRotations(s1);
     const s2Str = JSON.stringify(s2);
     return rotations.some((r) => JSON.stringify(r) === s2Str);
+  }
+  countRegionNonEraserSymbols(grid, region) {
+    let count = 0;
+    for (const cell of region) {
+      const type = grid.cells[cell.y][cell.x].type;
+      if (type !== 0 /* None */ && type !== 7 /* Eraser */) count++;
+    }
+    return count;
+  }
+  hasRegionTetrisSymbol(grid, region) {
+    for (const cell of region) {
+      const type = grid.cells[cell.y][cell.x].type;
+      if (type === 3 /* Tetris */ || type === 4 /* TetrisRotated */) return true;
+    }
+    return false;
+  }
+  canPlaceGeneratedTetrisNegative(grid, region, potentialCells) {
+    if (potentialCells.length < 1) return false;
+    if (this.hasRegionTetrisSymbol(grid, region)) return true;
+    return potentialCells.length >= 2;
+  }
+  canPlaceGeneratedEraser(grid, region, potentialCells) {
+    if (potentialCells.length < 1) return false;
+    if (this.countRegionNonEraserSymbols(grid, region) > 0) return true;
+    return potentialCells.length >= 2;
   }
   canTilePieceWith(p, t, n) {
     const areaP = this.getShapeArea(p);

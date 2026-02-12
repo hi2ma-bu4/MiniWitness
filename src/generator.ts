@@ -997,6 +997,7 @@ export class PuzzleGenerator {
 							}
 
 							const allPieces: TiledPiece[] = [...tiledPieces, ...negativePiecesToPlace];
+							if (allPieces.length > potentialCells.length) continue;
 							for (const p of allPieces) {
 								if (potentialCells.length === 0) break;
 								const cell = potentialCells.pop()!;
@@ -1106,14 +1107,20 @@ export class PuzzleGenerator {
 									}
 									errorPlaced = true;
 								}
-							} else if (errorType === "tetrisNegative" && potentialCells.length >= 2) {
+							} else if (errorType === "tetrisNegative" && this.canPlaceGeneratedTetrisNegative(grid, region, potentialCells)) {
+								if (!this.hasRegionTetrisSymbol(grid, region)) {
+									const posCell = potentialCells.pop()!;
+									grid.cells[posCell.y][posCell.x].type = CellType.Tetris;
+									grid.cells[posCell.y][posCell.x].shape = [[1]];
+									grid.cells[posCell.y][posCell.x].color = getDefColor(CellType.Tetris, Color.None);
+									tetrisPlaced++;
+								}
 								const cell = potentialCells.pop()!;
 								grid.cells[cell.y][cell.x].type = CellType.TetrisNegative;
 								grid.cells[cell.y][cell.x].shape = [[1]];
 								grid.cells[cell.y][cell.x].color = getDefColor(CellType.TetrisNegative, Color.Cyan);
 								tetrisNegativePlaced++;
-								errorPlaced = true;
-							} else if (errorType === "eraser" && potentialCells.length >= 2) {
+							} else if (errorType === "eraser" && this.canPlaceGeneratedEraser(grid, region, potentialCells)) {
 								const errCell = potentialCells.pop()!;
 								grid.cells[errCell.y][errCell.x].type = CellType.Eraser;
 								grid.cells[errCell.y][errCell.x].color = getDefColor(CellType.Eraser, Color.White);
@@ -1122,7 +1129,7 @@ export class PuzzleGenerator {
 							}
 						}
 
-						if (errorPlaced) {
+						if (errorPlaced && this.canPlaceGeneratedEraser(grid, region, potentialCells)) {
 							const cell = potentialCells.pop()!;
 							grid.cells[cell.y][cell.x].type = CellType.Eraser;
 							const defColor = getDefColor(CellType.Eraser, Color.White);
@@ -1600,6 +1607,36 @@ export class PuzzleGenerator {
 		const rotations = this.getAllRotations(s1);
 		const s2Str = JSON.stringify(s2);
 		return rotations.some((r) => JSON.stringify(r) === s2Str);
+	}
+	private countRegionNonEraserSymbols(grid: Grid, region: Point[]): number {
+		let count = 0;
+		for (const cell of region) {
+			const type = grid.cells[cell.y][cell.x].type;
+			if (type !== CellType.None && type !== CellType.Eraser) count++;
+		}
+		return count;
+	}
+
+	private hasRegionTetrisSymbol(grid: Grid, region: Point[]): boolean {
+		for (const cell of region) {
+			const type = grid.cells[cell.y][cell.x].type;
+			if (type === CellType.Tetris || type === CellType.TetrisRotated) return true;
+		}
+		return false;
+	}
+
+	private canPlaceGeneratedTetrisNegative(grid: Grid, region: Point[], potentialCells: Point[]): boolean {
+		if (potentialCells.length < 1) return false;
+		if (this.hasRegionTetrisSymbol(grid, region)) return true;
+		// 既存テトリスが無い場合は、対応するテトリスを別セルに置ける空きが必要
+		return potentialCells.length >= 2;
+	}
+
+	private canPlaceGeneratedEraser(grid: Grid, region: Point[], potentialCells: Point[]): boolean {
+		if (potentialCells.length < 1) return false;
+		if (this.countRegionNonEraserSymbols(grid, region) > 0) return true;
+		// 既存の消去対象が無い場合は、対応要素を置くための空きを最低1セル確保する
+		return potentialCells.length >= 2;
 	}
 	private canTilePieceWith(p: number[][], t: number[][], n: number[][]): boolean {
 		const areaP = this.getShapeArea(p);

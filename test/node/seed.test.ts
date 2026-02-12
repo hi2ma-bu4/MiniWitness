@@ -139,11 +139,11 @@ describe("PuzzleGenerator Seed Tests", { concurrency: true }, () => {
 			complexity: 0.5,
 		};
 
-		const sampleCount = 8;
+		const sampleCount = 15;
 		const measure = (rngType: RngType) => {
 			const values: number[] = [];
 			for (let i = 0; i < sampleCount; i++) {
-				const grid = generator.generate(4, 4, {
+				const grid = generator.generate(3, 3, {
 					...coreOptions,
 					rngType,
 					seed: rngType === RngType.MathRandom ? undefined : `rng-parity-${i}`,

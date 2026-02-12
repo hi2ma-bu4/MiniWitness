@@ -1,6 +1,6 @@
 import assert from "node:assert";
 import { describe, test } from "node:test";
-import { CellType, Color, NodeType, type PuzzleData, WitnessCore } from "../../dist/MiniWitness.js";
+import { CellType, Color, NodeType, type PuzzleData, PuzzleSerializer, WitnessCore } from "../../dist/MiniWitness.js";
 
 const core = new WitnessCore();
 
@@ -114,5 +114,38 @@ describe("Error reporting - Eraser", { concurrency: true }, () => {
 		assert.strictEqual(result.invalidatedCells?.length, 0);
 		assert.ok(result.errorCells?.some((p) => p.x === 1 && p.y === 0));
 		assert.ok(!result.errorCells?.some((p) => p.x === 0 && p.y === 0));
+	});
+
+	test("Eraser should prioritize unresolved hexagon over unrelated square", () => {
+		const puzzle = createBasicGrid(2, 3);
+
+		// region1: single white star (must remain as error)
+		puzzle.cells[0][0] = { type: CellType.Star, color: Color.White };
+
+		// region2: white square + red eraser + missed node hexagon
+		puzzle.cells[0][1] = { type: CellType.Square, color: Color.White };
+		puzzle.cells[0][2] = { type: CellType.Eraser, color: Color.Red };
+		puzzle.nodes[1][2].type = NodeType.Hexagon;
+
+		const path = {
+			points: [
+				{ x: 0, y: 2 },
+				{ x: 1, y: 2 },
+				{ x: 1, y: 1 },
+				{ x: 1, y: 0 },
+				{ x: 2, y: 0 },
+				{ x: 3, y: 0 },
+			],
+		};
+
+		const result = core.validateSolution(puzzle, path);
+		(async () => console.log(await PuzzleSerializer.serialize(puzzle, {})))();
+
+		assert.strictEqual(result.isValid, false);
+		const errorCellKeys = new Set((result.errorCells || []).map((pt) => `${pt.x},${pt.y}`));
+		const invalidatedNodeKeys = new Set((result.invalidatedNodes || []).map((pt) => `${pt.x},${pt.y}`));
+
+		assert.deepStrictEqual(errorCellKeys, new Set(["0,0"]));
+		assert.deepStrictEqual(invalidatedNodeKeys, new Set(["2,1"]));
 	});
 });

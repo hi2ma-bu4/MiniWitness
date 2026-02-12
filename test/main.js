@@ -194,7 +194,7 @@ class WitnessGame {
 			const serialized = await PuzzleSerializer.serialize(this.puzzle, this.currentOptions);
 			const url = new URL(window.location.href);
 			url.searchParams.set("puzzle", serialized);
-			if (this.puzzle.seed && options.rngType !== RngType.MathRandom) {
+			if (this.puzzle.seed && this.currentOptions?.rngType !== RngType.MathRandom) {
 				url.searchParams.set("seed", this.puzzle.seed);
 			}
 			url.searchParams.set("rng", document.getElementById("rng-select").value);

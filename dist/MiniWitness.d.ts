@@ -332,6 +332,10 @@ export declare class PuzzleGenerator {
 	private canPlace;
 	private placePiece;
 	private isSameShape;
+	private countRegionNonEraserSymbols;
+	private hasRegionTetrisSymbol;
+	private canPlaceGeneratedTetrisNegative;
+	private canPlaceGeneratedEraser;
 	private canTilePieceWith;
 	private findStandardTriple;
 	private shuffleArray;

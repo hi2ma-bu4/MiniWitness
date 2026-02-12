@@ -260,7 +260,14 @@ export class PuzzleValidator {
 				possible.sort((a, b) => {
 					const costA = a.invalidatedCells.length + a.invalidatedHexagons.length + a.invalidatedNodeHexagons.length;
 					const costB = b.invalidatedCells.length + b.invalidatedHexagons.length + b.invalidatedNodeHexagons.length;
-					return costA - costB;
+					if (costA !== costB) return costA - costB;
+
+					// 同コストなら六角形（エッジ/ノード）を優先して無効化する
+					const hexPriorityA = a.invalidatedHexagons.length + a.invalidatedNodeHexagons.length;
+					const hexPriorityB = b.invalidatedHexagons.length + b.invalidatedNodeHexagons.length;
+					if (hexPriorityA !== hexPriorityB) return hexPriorityB - hexPriorityA;
+
+					return a.invalidatedCells.length - b.invalidatedCells.length;
 				});
 				regionResults.push(possible);
 			}
@@ -506,9 +513,12 @@ export class PuzzleValidator {
 					errorCells.push(erasers[i]);
 				}
 
-				const errorCount = errorCells.length;
-				if (errorCount < minErrorCount) {
-					minErrorCount = errorCount;
+				const unresolvedHexagons = Math.max(0, adjacentMissedHexagons.length - toInvalidateHexagons.length);
+				const unresolvedNodeHexagons = Math.max(0, adjacentMissedNodeHexagons.length - toInvalidateNodeHexagons.length);
+				const totalErrorCount = errorCells.length + unresolvedHexagons + unresolvedNodeHexagons;
+
+				if (totalErrorCount < minErrorCount) {
+					minErrorCount = totalErrorCount;
 
 					bestResult = {
 						invalidatedCells: [...toInvalidateCells, ...negatedErasers],
