@@ -33,10 +33,6 @@
 				<label><input type="checkbox" id="use-tetris-negative"> Tetris-</label>
 				<label><input type="checkbox" id="use-eraser"> Erasers</label>
 				<label><input type="checkbox" id="use-broken-edges"> Cuts</label>
-				<label><input type="checkbox" id="custom-theme" checked> Custom Theme</label>
-				<label><input type="checkbox" id="use-worker"> WebWorker</label>
-				<label><input type="checkbox" id="blink-marks" checked> Blink Marks</label>
-				<label><input type="checkbox" id="stay-path" checked> Stay Path</label>
 			</div>
 			<div class="control-group">
 				<label for="symmetry-select">Symmetry:</label>
@@ -54,28 +50,37 @@
 					<option value="transparent">Transparent</option>
 				</select>
 			</div>
-			<div class="control-group">
-				<label for="complexity-slider">Complexity (Constraint Density):</label>
-				<input type="range" id="complexity-slider" min="0" max="1" step="0.1" value="1">
-			</div>
-			<div class="control-group">
-				<label for="difficulty-slider">Difficulty (Hardest at 1.0):</label>
-				<input type="range" id="difficulty-slider" min="0" max="1" step="0.1" value="1">
-			</div>
-			<div class="control-group">
-				<label for="path-length-slider">Path Length (Longest at 1.0):</label>
-				<input type="range" id="path-length-slider" min="0" max="1" step="0.1" value="0.5">
-			</div>
-			<div class="control-group">
-				<label for="seed-input">Seed (Hex):</label>
-				<input type="text" id="seed-input" placeholder="Random" style="width: 100px;">
-				<label for="rng-select">RNG:</label>
-				<select id="rng-select">
-					<option value="0">Mulberry32</option>
-					<option value="1">XorShift128+</option>
-					<option value="2">Math.random</option>
-				</select>
-			</div>
+			<details class="advanced-settings">
+				<summary>Advanced Settings</summary>
+				<div class="control-group">
+					<label><input type="checkbox" id="custom-theme" checked> Custom Theme</label>
+					<label><input type="checkbox" id="use-worker"> WebWorker</label>
+					<label><input type="checkbox" id="blink-marks" checked> Blink Marks</label>
+					<label><input type="checkbox" id="stay-path" checked> Stay Path</label>
+				</div>
+				<div class="control-group">
+					<label for="complexity-slider">Complexity (Constraint Density):</label>
+					<input type="range" id="complexity-slider" min="0" max="1" step="0.1" value="1">
+				</div>
+				<div class="control-group">
+					<label for="difficulty-slider">Difficulty (Hardest at 1.0):</label>
+					<input type="range" id="difficulty-slider" min="0" max="1" step="0.1" value="1">
+				</div>
+				<div class="control-group">
+					<label for="path-length-slider">Path Length (Longest at 1.0):</label>
+					<input type="range" id="path-length-slider" min="0" max="1" step="0.1" value="0.5">
+				</div>
+				<div class="control-group">
+					<label for="seed-input">Seed (Hex):</label>
+					<input type="text" id="seed-input" placeholder="Random" style="width: 100px;">
+					<label for="rng-select">RNG:</label>
+					<select id="rng-select">
+						<option value="0">Mulberry32</option>
+						<option value="1">XorShift128+</option>
+						<option value="2">Math.random</option>
+					</select>
+				</div>
+			</details>
 			<div class="control-group">
 				<button id="new-puzzle-btn">New Puzzle</button>
 				<button id="share-puzzle-btn">Share Puzzle</button>
@@ -92,8 +97,9 @@
 		<p><strong>操作方法:</strong> 始点（大きな丸）からドラッグして線を引き、出口まで繋げてください。</p>
 	</div>
 	<footer id="copyright">
+		<p><a href="https://store.steampowered.com/app/210970/The_Witness/" target="_blank" rel="noopener">Based on The Witness (Steam)</a></p>
 		<a href="https://github.com/hi2ma-bu4/MiniWitness" target="_blank" rel="noopener">
-			© 2026 hi2ma-bu4
+			MiniWitness © 2026 hi2ma-bu4
 		</a>
 	</footer>
 </body>

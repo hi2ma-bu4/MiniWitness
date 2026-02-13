@@ -660,6 +660,10 @@ export declare class WitnessUI {
 	 */
 	private getSymmetricalPoint;
 	/**
+	 * 指定されたパスの先端が出口の出っ張りにあるか判定する
+	 */
+	private isPathAtExit;
+	/**
 	 * 二点間のエッジを識別するユニークなキーを取得する
 	 */
 	private getEdgeKey;

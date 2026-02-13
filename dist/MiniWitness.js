@@ -3908,6 +3908,26 @@ var WitnessUI = class {
           }
         }
       }
+      let symTipPos = null;
+      if (this.isDrawing || this.exitTipPos) {
+        const tip = this.isDrawing ? this.currentMousePos : this.exitTipPos;
+        if (this.puzzle.symmetry !== void 0 && this.puzzle.symmetry !== 0 /* None */) {
+          const gridRelX = (tip.x - this.options.gridPadding) / this.options.cellSize;
+          const gridRelY = (tip.y - this.options.gridPadding) / this.options.cellSize;
+          const symGridRel = this.getSymmetricalPoint({ x: gridRelX, y: gridRelY }, true);
+          symTipPos = {
+            x: symGridRel.x * this.options.cellSize + this.options.gridPadding,
+            y: symGridRel.y * this.options.cellSize + this.options.gridPadding
+          };
+        }
+      }
+      const isAtExit = this.isPathAtExit(this.path, this.isDrawing ? this.currentMousePos : this.exitTipPos);
+      if (isAtExit && !this.isInvalidPath && !this.isSuccessFading) {
+        const originalAlpha = this.colorToRgba(color).a;
+        const pulseFactor = (Math.sin(now * Math.PI * 2 / 600) + 1) / 2;
+        color = this.lerpColor(color, "#ffffff", pulseFactor * 0.6);
+        color = this.setAlpha(color, originalAlpha);
+      }
       this.drawPath(ctx, this.path, this.isDrawing, color, pathOpacity, this.isDrawing ? this.currentMousePos : this.exitTipPos);
       if (this.puzzle.symmetry !== void 0 && this.puzzle.symmetry !== 0 /* None */) {
         const symPath = this.getSymmetryPath(this.path);
@@ -3930,16 +3950,10 @@ var WitnessUI = class {
             }
           }
         }
-        let symTipPos = null;
-        if (this.isDrawing || this.exitTipPos) {
-          const tip = this.isDrawing ? this.currentMousePos : this.exitTipPos;
-          const gridRelX = (tip.x - this.options.gridPadding) / this.options.cellSize;
-          const gridRelY = (tip.y - this.options.gridPadding) / this.options.cellSize;
-          const symGridRel = this.getSymmetricalPoint({ x: gridRelX, y: gridRelY }, true);
-          symTipPos = {
-            x: symGridRel.x * this.options.cellSize + this.options.gridPadding,
-            y: symGridRel.y * this.options.cellSize + this.options.gridPadding
-          };
+        if (isAtExit && !this.isInvalidPath && !this.isSuccessFading) {
+          const pulseFactor = (Math.sin(now * Math.PI * 2 / 400) + 1) / 2;
+          symColor = this.lerpColor(symColor, "#ffffff", pulseFactor * 0.6);
+          symColor = this.setAlpha(symColor, originalSymAlpha);
         }
         this.drawPath(ctx, symPath, this.isDrawing, symColor, symPathOpacity, symTipPos);
       }
@@ -4531,6 +4545,20 @@ var WitnessUI = class {
       return { x: cols - p.x, y: rows - p.y };
     }
     return { ...p };
+  }
+  /**
+   * 指定されたパスの先端が出口の出っ張りにあるか判定する
+   */
+  isPathAtExit(path, tipPos) {
+    if (path.length === 0 || !tipPos) return false;
+    const lastPoint = path[path.length - 1];
+    const exitDir = this.getExitDir(lastPoint.x, lastPoint.y);
+    if (!exitDir) return false;
+    const lastPos = this.getCanvasCoords(lastPoint.x, lastPoint.y);
+    const dx = tipPos.x - lastPos.x;
+    const dy = tipPos.y - lastPos.y;
+    const dot = dx * exitDir.x + dy * exitDir.y;
+    return dot >= this.options.exitLength * 0.9;
   }
   /**
    * 二点間のエッジを識別するユニークなキーを取得する

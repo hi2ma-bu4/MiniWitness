@@ -202,4 +202,29 @@ describe("WitnessUI Full Test Suite", { concurrency: false }, async () => {
 			(global as any).HTMLCanvasElement = originalCanvasElement;
 		}
 	});
+
+	await test("WitnessUI isPathAtExit detects goal reach", () => {
+		const puzzle = createEmptyPuzzle(1, 1);
+		puzzle.nodes[0][1].type = NodeType.End;
+		const ui = new WitnessUI(createMockCanvas() as unknown as HTMLCanvasElement, puzzle as any);
+		const internalUI = ui as any;
+
+		internalUI.path = [
+			{ x: 0, y: 0 },
+			{ x: 1, y: 0 },
+		];
+		internalUI.isDrawing = true;
+
+		// 座標計算
+		const lastPos = internalUI.getCanvasCoords(1, 0);
+		// exitLength はデフォルトで 25
+
+		// 届いていない場合 (90%未満)
+		internalUI.currentMousePos = { x: lastPos.x + 10, y: lastPos.y };
+		assert.strictEqual(internalUI.isPathAtExit(internalUI.path, internalUI.currentMousePos), false);
+
+		// 届いている場合 (90%以上)
+		internalUI.currentMousePos = { x: lastPos.x + 23, y: lastPos.y };
+		assert.strictEqual(internalUI.isPathAtExit(internalUI.path, internalUI.currentMousePos), true);
+	});
 });
