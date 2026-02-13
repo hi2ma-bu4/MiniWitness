@@ -814,6 +814,11 @@ export class PuzzleGenerator {
 				if (defaultColors[type] !== undefined) return defaultColors[type] as Color;
 				const name = CellType[type] as keyof typeof CellType;
 				if (name && defaultColors[name] !== undefined) return defaultColors[name] as Color;
+
+				// Rotated variants fallback to their base types
+				if (type === CellType.TetrisRotated) return getDefColor(CellType.Tetris, fallback);
+				if (type === CellType.TetrisNegativeRotated) return getDefColor(CellType.TetrisNegative, fallback);
+
 				return fallback;
 			};
 			const regionIndices = Array.from({ length: regions.length }, (_, i) => i);
@@ -1152,7 +1157,7 @@ export class PuzzleGenerator {
 										const cell = potentialCells.pop()!;
 										grid.cells[cell.y][cell.x].type = p.isRotated ? CellType.TetrisRotated : CellType.Tetris;
 										grid.cells[cell.y][cell.x].shape = p.isRotated ? p.displayShape : p.shape;
-										grid.cells[cell.y][cell.x].color = Color.None;
+										grid.cells[cell.y][cell.x].color = getDefColor(grid.cells[cell.y][cell.x].type, Color.None);
 										tetrisPlaced++;
 									}
 									errorPlaced = true;
@@ -1181,7 +1186,7 @@ export class PuzzleGenerator {
 								let errorCount = (actualCount + 1) % 4;
 								if (errorCount === 0) errorCount = 1;
 								grid.cells[errCell.y][errCell.x].count = errorCount;
-								grid.cells[errCell.y][errCell.x].color = Color.None;
+								grid.cells[errCell.y][errCell.x].color = getDefColor(CellType.Triangle, Color.None);
 								trianglesPlaced++;
 								errorPlaced = true;
 							} else if (errorType === "eraser" && this.canPlaceGeneratedEraser(grid, region, potentialCells)) {
