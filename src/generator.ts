@@ -717,6 +717,7 @@ export class PuzzleGenerator {
 		const useTetris = options.useTetris ?? false;
 		const useTetrisNegative = options.useTetrisNegative ?? false;
 		const useEraser = options.useEraser ?? false;
+		const useTriangles = options.useTriangles ?? false;
 
 		let hexagonsPlaced = 0;
 		let squaresPlaced = 0;
@@ -805,7 +806,7 @@ export class PuzzleGenerator {
 		}
 
 		// 区画ルールの配置
-		if (useSquares || useStars || useTetris || useEraser) {
+		if (useSquares || useStars || useTetris || useEraser || useTriangles) {
 			const regions = precalculatedRegions || this.calculateRegions(grid, path, symPath);
 			const availableColors = options.availableColors ?? [Color.Black, Color.White, Color.Red, Color.Blue];
 			const defaultColors = options.defaultColors ?? {};
@@ -826,9 +827,15 @@ export class PuzzleGenerator {
 				tetris: useTetris,
 				tetrisNegative: useTetrisNegative,
 				eraser: useEraser,
+				triangle: useTriangles,
 			};
 
 			let tetrisNegativePlaced = 0;
+			let trianglesPlaced = 0;
+
+			const pathEdges = new Set<string>();
+			for (let i = 0; i < path.length - 1; i++) pathEdges.add(this.getEdgeKey(path[i], path[i + 1]));
+			for (let i = 0; i < symPath.length - 1; i++) pathEdges.add(this.getEdgeKey(symPath[i], symPath[i + 1]));
 
 			for (let rIdx = 0; rIdx < regionIndices.length; rIdx++) {
 				const idx = regionIndices[rIdx];
@@ -836,7 +843,7 @@ export class PuzzleGenerator {
 
 				// 盤面が大きく区画が多い場合、後半に偏るのを防ぐため確率を調整
 				const remainingRegions = regionIndices.length - rIdx;
-				const forceOne = (needs.square && squaresPlaced === 0) || (needs.star && starsPlaced === 0) || (needs.tetris && tetrisPlaced === 0) || (needs.tetrisNegative && tetrisNegativePlaced === 0) || (needs.eraser && erasersPlaced === 0);
+				const forceOne = (needs.square && squaresPlaced === 0) || (needs.star && starsPlaced === 0) || (needs.tetris && tetrisPlaced === 0) || (needs.tetrisNegative && tetrisNegativePlaced === 0) || (needs.eraser && erasersPlaced === 0) || (needs.triangle && trianglesPlaced === 0);
 
 				// 必須なものがまだ配置されていない場合、残り区画数が少なくなってきたら確率を上げる
 				let placementProb = 0.2 + complexity * 0.6;
@@ -1005,7 +1012,7 @@ export class PuzzleGenerator {
 
 								if (isNeg) {
 									grid.cells[cell.y][cell.x].type = p.isRotated ? CellType.TetrisNegativeRotated : CellType.TetrisNegative;
-									grid.cells[cell.y][cell.x].color = getDefColor(CellType.TetrisNegative, Color.Cyan);
+									grid.cells[cell.y][cell.x].color = getDefColor(CellType.TetrisNegative, Color.None);
 									tetrisNegativePlaced++;
 								} else {
 									grid.cells[cell.y][cell.x].type = p.isRotated ? CellType.TetrisRotated : CellType.Tetris;
@@ -1030,6 +1037,48 @@ export class PuzzleGenerator {
 					}
 				}
 
+				// 三角形の配置
+				if (useTriangles) {
+					let shouldPlaceTriangle = this.rng!.next() < 0.2 + complexity * 0.5;
+					if (trianglesPlaced === 0 && remainingRegions <= 2) shouldPlaceTriangle = true;
+
+					if (shouldPlaceTriangle && potentialCells.length > 0) {
+						this.shuffleArray(potentialCells);
+						const numToTry = Math.min(potentialCells.length, Math.max(1, Math.floor(region.length / 3)));
+						let placedInRegion = 0;
+
+						for (let i = 0; i < potentialCells.length && placedInRegion < numToTry; i++) {
+							const cell = potentialCells[i];
+							const cellEdges = [this.getEdgeKey({ x: cell.x, y: cell.y }, { x: cell.x + 1, y: cell.y }), this.getEdgeKey({ x: cell.x, y: cell.y + 1 }, { x: cell.x + 1, y: cell.y + 1 }), this.getEdgeKey({ x: cell.x, y: cell.y }, { x: cell.x, y: cell.y + 1 }), this.getEdgeKey({ x: cell.x + 1, y: cell.y }, { x: cell.x + 1, y: cell.y + 1 })];
+							let count = 0;
+							for (const edge of cellEdges) {
+								if (pathEdges.has(edge)) count++;
+							}
+
+							if (count >= 1 && count <= 3) {
+								grid.cells[cell.y][cell.x].type = CellType.Triangle;
+								grid.cells[cell.y][cell.x].count = count;
+
+								const defColor = getDefColor(CellType.Triangle, Color.None);
+								let triangleColor = defColor;
+								if (useStars && this.rng!.next() < 0.3) {
+									const candidates = availableColors.filter((c) => c !== defColor && !intendedColors.has(c));
+									if (candidates.length > 0) {
+										triangleColor = candidates[Math.floor(this.rng!.next() * candidates.length)];
+										intendedColors.add(triangleColor);
+									}
+								}
+								grid.cells[cell.y][cell.x].color = triangleColor;
+
+								potentialCells.splice(i, 1);
+								i--;
+								trianglesPlaced++;
+								placedInRegion++;
+							}
+						}
+					}
+				}
+
 				// テトラポッド（エラー削除）の配置
 				if (useEraser && erasersPlaced < 1) {
 					const prob = 0.05 + complexity * 0.2;
@@ -1047,6 +1096,7 @@ export class PuzzleGenerator {
 						}
 						if (useTetris) errorTypes.push("tetris");
 						if (useTetrisNegative) errorTypes.push("tetrisNegative");
+						if (useTriangles) errorTypes.push("triangle");
 
 						this.shuffleArray(errorTypes);
 						if (potentialCells.length >= 2) errorTypes.push("eraser");
@@ -1118,8 +1168,22 @@ export class PuzzleGenerator {
 								const cell = potentialCells.pop()!;
 								grid.cells[cell.y][cell.x].type = CellType.TetrisNegative;
 								grid.cells[cell.y][cell.x].shape = [[1]];
-								grid.cells[cell.y][cell.x].color = getDefColor(CellType.TetrisNegative, Color.Cyan);
+								grid.cells[cell.y][cell.x].color = getDefColor(CellType.TetrisNegative, Color.None);
 								tetrisNegativePlaced++;
+							} else if (errorType === "triangle" && potentialCells.length >= 2) {
+								const errCell = potentialCells.pop()!;
+								grid.cells[errCell.y][errCell.x].type = CellType.Triangle;
+								const cellEdges = [this.getEdgeKey({ x: errCell.x, y: errCell.y }, { x: errCell.x + 1, y: errCell.y }), this.getEdgeKey({ x: errCell.x, y: errCell.y + 1 }, { x: errCell.x + 1, y: errCell.y + 1 }), this.getEdgeKey({ x: errCell.x, y: errCell.y }, { x: errCell.x, y: errCell.y + 1 }), this.getEdgeKey({ x: errCell.x + 1, y: errCell.y }, { x: errCell.x + 1, y: errCell.y + 1 })];
+								let actualCount = 0;
+								for (const edge of cellEdges) if (pathEdges.has(edge)) actualCount++;
+
+								// 実際の数と異なる数を設定
+								let errorCount = (actualCount + 1) % 4;
+								if (errorCount === 0) errorCount = 1;
+								grid.cells[errCell.y][errCell.x].count = errorCount;
+								grid.cells[errCell.y][errCell.x].color = Color.None;
+								trianglesPlaced++;
+								errorPlaced = true;
 							} else if (errorType === "eraser" && this.canPlaceGeneratedEraser(grid, region, potentialCells)) {
 								const errCell = potentialCells.pop()!;
 								grid.cells[errCell.y][errCell.x].type = CellType.Eraser;
@@ -1401,6 +1465,7 @@ export class PuzzleGenerator {
 		const useTetris = options.useTetris ?? false;
 		const useTetrisNegative = options.useTetrisNegative ?? false;
 		const useEraser = options.useEraser ?? false;
+		const useTriangles = options.useTriangles ?? false;
 		const useBrokenEdges = options.useBrokenEdges ?? false;
 
 		if (useBrokenEdges) {
@@ -1453,6 +1518,7 @@ export class PuzzleGenerator {
 			let fT = false;
 			let fTN = false;
 			let fE = false;
+			let fTri = false;
 			const sqC = new Set<number>();
 			const stC = new Set<number>();
 			for (let r = 0; r < grid.rows; r++)
@@ -1469,12 +1535,14 @@ export class PuzzleGenerator {
 					if (type === CellType.Tetris || type === CellType.TetrisRotated) fT = true;
 					if (type === CellType.TetrisNegative || type === CellType.TetrisNegativeRotated) fTN = true;
 					if (type === CellType.Eraser) fE = true;
+					if (type === CellType.Triangle) fTri = true;
 				}
 			if (useSquares && !fSq) return false;
 			if (useStars && !fSt) return false;
 			if (useTetris && !fT) return false;
 			if (useTetrisNegative && !fTN) return false;
 			if (useEraser && !fE) return false;
+			if (useTriangles && !fTri) return false;
 
 			// 四角形の追加制約: 他の色の四角形、または同色の星が存在しない場合は2色以上必要
 			if (useSquares && fSq) {

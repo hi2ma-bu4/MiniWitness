@@ -21,6 +21,8 @@ export enum CellType {
 	TetrisNegativeRotated = 6,
 	/** テトラポッド (エラー削除) */
 	Eraser = 7,
+	/** 三角形 (通過辺数指定) */
+	Triangle = 8,
 }
 
 export enum EdgeType {
@@ -70,7 +72,6 @@ export const Color = {
 	White: 2 as Color,
 	Red: 3 as Color,
 	Blue: 4 as Color,
-	Cyan: 5 as Color,
 } as const;
 
 export interface Point {
@@ -82,6 +83,7 @@ export interface CellConstraint {
 	type: CellType;
 	color: Color;
 	shape?: number[][]; // [row][col] 0 or 1
+	count?: number; // Triangle count (1-3)
 }
 
 export interface EdgeConstraint {
@@ -136,6 +138,7 @@ export interface GenerationOptions {
 	useTetris?: boolean;
 	useTetrisNegative?: boolean;
 	useEraser?: boolean;
+	useTriangles?: boolean;
 	useBrokenEdges?: boolean;
 	complexity?: number; // 0.0 - 1.0 (制約の密度)
 	difficulty?: number; // 0.0 (Easy) - 1.0 (Hard) (解パターンの数に基づく)

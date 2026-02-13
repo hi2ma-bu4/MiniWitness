@@ -21,7 +21,9 @@ export declare enum CellType {
 	/** テトリス (減算・回転可能) */
 	TetrisNegativeRotated = 6,
 	/** テトラポッド (エラー削除) */
-	Eraser = 7
+	Eraser = 7,
+	/** 三角形 (通過辺数指定) */
+	Triangle = 8
 }
 export declare enum EdgeType {
 	Normal = 0,
@@ -67,7 +69,6 @@ export declare const Color: {
 	readonly White: Color;
 	readonly Red: Color;
 	readonly Blue: Color;
-	readonly Cyan: Color;
 };
 export interface Point {
 	x: number;
@@ -77,6 +78,7 @@ export interface CellConstraint {
 	type: CellType;
 	color: Color;
 	shape?: number[][];
+	count?: number;
 }
 export interface EdgeConstraint {
 	type: EdgeType;
@@ -133,6 +135,7 @@ export interface GenerationOptions {
 	useTetris?: boolean;
 	useTetrisNegative?: boolean;
 	useEraser?: boolean;
+	useTriangles?: boolean;
 	useBrokenEdges?: boolean;
 	complexity?: number;
 	difficulty?: number;
@@ -614,6 +617,10 @@ export declare class WitnessUI {
 	 * 星を描画する
 	 */
 	private drawStar;
+	/**
+	 * 三角形を描画する
+	 */
+	private drawTriangle;
 	/**
 	 * テトリスピースを描画する
 	 */

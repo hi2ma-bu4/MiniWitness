@@ -1,4 +1,4 @@
-import type { CellConstraint, GenerationOptions, PuzzleData } from "./types";
+import { CellType, type CellConstraint, type GenerationOptions, type PuzzleData } from "./types";
 
 /* ================= Bit IO ================= */
 
@@ -95,9 +95,11 @@ export class PuzzleSerializer {
 		/* ---- cells ---- */
 		for (const row of puzzle.cells) {
 			for (const c of row) {
-				bw.write(c.type, 3);
+				bw.write(c.type, 4);
 				bw.write(c.color, 3);
-				if (c.shape) {
+				if (c.type === CellType.Triangle) {
+					bw.write(c.count || 0, 2);
+				} else if (c.shape) {
 					bw.write(1, 1);
 					bw.write(shapeIndex.get(JSON.stringify(c.shape))!, 5);
 				} else {
@@ -120,6 +122,7 @@ export class PuzzleSerializer {
 		bw.write(+!!options.useTetris, 1);
 		bw.write(+!!options.useTetrisNegative, 1);
 		bw.write(+!!options.useEraser, 1);
+		bw.write(+!!options.useTriangles, 1);
 		bw.write(+!!options.useBrokenEdges, 1);
 		bw.write(options.symmetry ?? 0, 2);
 
@@ -189,12 +192,16 @@ export class PuzzleSerializer {
 		for (let y = 0; y < rows; y++) {
 			const row: CellConstraint[] = [];
 			for (let x = 0; x < cols; x++) {
-				const type = br.read(3);
+				const type = br.read(4) as CellType;
 				const color = br.read(3);
-				const hasShape = br.read(1);
 
 				const cell: CellConstraint = { type, color };
-				if (hasShape) cell.shape = shapes[br.read(5)].map((r) => r.slice());
+				if (type === CellType.Triangle) {
+					cell.count = br.read(2);
+				} else {
+					const hasShape = br.read(1);
+					if (hasShape) cell.shape = shapes[br.read(5)].map((r) => r.slice());
+				}
 
 				row.push(cell);
 			}
@@ -221,6 +228,7 @@ export class PuzzleSerializer {
 		const useTetris = !!br.read(1);
 		const useTetrisNegative = !!br.read(1);
 		const useEraser = !!br.read(1);
+		const useTriangles = !!br.read(1);
 		const useBroken = !!br.read(1);
 		const optSymmetry = br.read(2);
 
@@ -230,6 +238,7 @@ export class PuzzleSerializer {
 		if (useTetris) options.useTetris = true;
 		if (useTetrisNegative) options.useTetrisNegative = true;
 		if (useEraser) options.useEraser = true;
+		if (useTriangles) options.useTriangles = true;
 		if (useBroken) options.useBrokenEdges = true;
 		options.symmetry = optSymmetry;
 

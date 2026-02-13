@@ -112,6 +112,7 @@ class WitnessGame {
 			useStars: document.getElementById("use-stars").checked,
 			useTetris: document.getElementById("use-tetris").checked,
 			useTetrisNegative: document.getElementById("use-tetris-negative").checked,
+			useTriangles: document.getElementById("use-triangles").checked,
 			useEraser: document.getElementById("use-eraser").checked,
 			useBrokenEdges: document.getElementById("use-broken-edges").checked,
 			symmetry: parseInt(document.getElementById("symmetry-select").value),
@@ -119,7 +120,7 @@ class WitnessGame {
 			difficulty: parseFloat(document.getElementById("difficulty-slider").value),
 			pathLength: parseFloat(document.getElementById("path-length-slider").value),
 			availableColors: useCustomTheme ? [1, 2, 3, 4] : undefined,
-			defaultColors: useCustomTheme ? { Tetris: 5 } : undefined,
+			defaultColors: useCustomTheme ? { Tetris: 5, TetrisNegative: 5, Triangle: 5 } : undefined,
 			seed: document.getElementById("seed-input").value || undefined,
 			rngType: parseInt(document.getElementById("rng-select").value),
 		};
@@ -150,6 +151,7 @@ class WitnessGame {
 		document.getElementById("use-stars").checked = !!options.useStars;
 		document.getElementById("use-tetris").checked = !!options.useTetris;
 		document.getElementById("use-tetris-negative").checked = !!options.useTetrisNegative;
+		document.getElementById("use-triangles").checked = !!options.useTriangles;
 		document.getElementById("use-eraser").checked = !!options.useEraser;
 		document.getElementById("use-broken-edges").checked = !!options.useBrokenEdges;
 		document.getElementById("symmetry-select").value = options.symmetry ?? 0;

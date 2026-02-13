@@ -169,7 +169,6 @@ export class WitnessUI {
 					[Color.White]: "#fff",
 					[Color.Red]: "#f00",
 					[Color.Blue]: "#00f",
-					[Color.Cyan]: "#00ffff",
 					[Color.None]: "#ffcc00",
 				},
 			colorList: options.colors?.colorList ?? this.options?.colors?.colorList,
@@ -1055,6 +1054,8 @@ export class WitnessUI {
 			this.drawTetris(ctx, pos.x, pos.y, cell.shape || [], cell.type === CellType.TetrisNegativeRotated, cell.color, true, overrideColor);
 		} else if (cell.type === CellType.Eraser) {
 			this.drawEraser(ctx, pos.x, pos.y, 14, 3, cell.color, overrideColor);
+		} else if (cell.type === CellType.Triangle) {
+			this.drawTriangle(ctx, pos.x, pos.y, cell.count || 0, cell.color, overrideColor);
 		}
 	}
 
@@ -1248,6 +1249,37 @@ export class WitnessUI {
 		}
 		ctx.closePath();
 		ctx.fill();
+	}
+
+	/**
+	 * 三角形を描画する
+	 */
+	private drawTriangle(ctx: WitnessContext, x: number, y: number, count: number, colorEnum: Color, overrideColor?: string) {
+		if (count <= 0) return;
+		const color = overrideColor || this.getColorCode(colorEnum, "#ffcc00");
+		ctx.fillStyle = color;
+
+		const size = 12; // 三角形の外接円半径に近いサイズ
+		const r = size * 0.8;
+		const spacing = r * 2.2;
+
+		const drawSingleTriangle = (tx: number, ty: number) => {
+			ctx.beginPath();
+			for (let i = 0; i < 3; i++) {
+				const angle = (Math.PI * 2 * i) / 3 - Math.PI / 2;
+				const px = tx + r * Math.cos(angle);
+				const py = ty + r * Math.sin(angle);
+				if (i === 0) ctx.moveTo(px, py);
+				else ctx.lineTo(px, py);
+			}
+			ctx.closePath();
+			ctx.fill();
+		};
+
+		const offset = (count - 1) * spacing * 0.5;
+		for (let i = 0; i < count; i++) {
+			drawSingleTriangle(x - offset + i * spacing, y);
+		}
 	}
 
 	/**

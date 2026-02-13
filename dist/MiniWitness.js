@@ -1,5 +1,5 @@
 /*!
- * MiniWitness 1.2.7
+ * MiniWitness 1.3.1
  * Copyright 2026 hi2ma-bu4
  * Licensed under the Apache License, Version 2.0
  * http://www.apache.org/licenses/LICENSE-2.0
@@ -22,6 +22,7 @@ var CellType = /* @__PURE__ */ ((CellType2) => {
   CellType2[CellType2["TetrisNegative"] = 5] = "TetrisNegative";
   CellType2[CellType2["TetrisNegativeRotated"] = 6] = "TetrisNegativeRotated";
   CellType2[CellType2["Eraser"] = 7] = "Eraser";
+  CellType2[CellType2["Triangle"] = 8] = "Triangle";
   return CellType2;
 })(CellType || {});
 var EdgeType = /* @__PURE__ */ ((EdgeType2) => {
@@ -54,8 +55,7 @@ var Color = {
   Black: 1,
   White: 2,
   Red: 3,
-  Blue: 4,
-  Cyan: 5
+  Blue: 4
 };
 var RngType = /* @__PURE__ */ ((RngType2) => {
   RngType2[RngType2["Mulberry32"] = 0] = "Mulberry32";
@@ -252,7 +252,16 @@ var PuzzleValidator = class {
     }
     const regions = this.calculateRegions(grid, path, symPath, externalCellsPrecalculated);
     const missed = this.getMissedHexagons(grid, path, symPath);
-    const result = this.validateWithErasers(grid, regions, missed.edges, missed.nodes);
+    const pathEdges = /* @__PURE__ */ new Set();
+    for (let i = 0; i < path.length - 1; i++) {
+      pathEdges.add(this.getEdgeKey(path[i], path[i + 1]));
+    }
+    if (symmetry !== 0 /* None */) {
+      for (let i = 0; i < symPath.length - 1; i++) {
+        pathEdges.add(this.getEdgeKey(symPath[i], symPath[i + 1]));
+      }
+    }
+    const result = this.validateWithErasers(grid, regions, missed.edges, missed.nodes, pathEdges);
     result.regions = regions;
     return result;
   }
@@ -267,7 +276,17 @@ var PuzzleValidator = class {
   validateFast(grid, path, symPath, externalCells) {
     const regions = this.calculateRegions(grid, path, symPath, externalCells);
     const missed = this.getMissedHexagons(grid, path, symPath);
-    return this.validateWithErasers(grid, regions, missed.edges, missed.nodes);
+    const pathEdges = /* @__PURE__ */ new Set();
+    for (let i = 0; i < path.length - 1; i++) {
+      pathEdges.add(this.getEdgeKey(path[i], path[i + 1]));
+    }
+    const symmetry = grid.symmetry || 0 /* None */;
+    if (symmetry !== 0 /* None */) {
+      for (let i = 0; i < symPath.length - 1; i++) {
+        pathEdges.add(this.getEdgeKey(symPath[i], symPath[i + 1]));
+      }
+    }
+    return this.validateWithErasers(grid, regions, missed.edges, missed.nodes, pathEdges);
   }
   /**
    * 二点間が断線（Broken or Absent）しているか確認する
@@ -378,7 +397,7 @@ var PuzzleValidator = class {
    * @param missedNodeHexagons 通過しなかったノード六角形
    * @returns 検証結果
    */
-  validateWithErasers(grid, regions, missedHexagons, missedNodeHexagons) {
+  validateWithErasers(grid, regions, missedHexagons, missedNodeHexagons, pathEdges) {
     const regionResults = [];
     let allRegionsPossiblyValid = true;
     for (let i = 0; i < regions.length; i++) {
@@ -393,10 +412,10 @@ var PuzzleValidator = class {
       for (let j = 0; j < missedNodeHexagons.length; j++) {
         if (this.isNodeHexagonAdjacentToRegion(grid, missedNodeHexagons[j], region)) adjacentMissedNodeHexagons.push(j);
       }
-      const possible = this.getPossibleErasures(grid, region, erasers, otherMarks, adjacentMissedHexagons, adjacentMissedNodeHexagons);
+      const possible = this.getPossibleErasures(grid, region, erasers, otherMarks, adjacentMissedHexagons, adjacentMissedNodeHexagons, pathEdges);
       if (possible.length === 0) {
         allRegionsPossiblyValid = false;
-        const bestEffort = this.getBestEffortErasures(grid, region, erasers, otherMarks, adjacentMissedHexagons, adjacentMissedNodeHexagons);
+        const bestEffort = this.getBestEffortErasures(grid, region, erasers, otherMarks, adjacentMissedHexagons, adjacentMissedNodeHexagons, pathEdges);
         regionResults.push([bestEffort]);
       } else {
         possible.sort((a, b) => {
@@ -506,18 +525,18 @@ var PuzzleValidator = class {
    * @param adjacentMissedNodeHexagons 隣接する未通過ノード六角形
    * @returns 可能な削除パターンのリスト
    */
-  getPossibleErasures(grid, region, erasers, otherMarks, adjacentMissedHexagons, adjacentMissedNodeHexagons) {
+  getPossibleErasures(grid, region, erasers, otherMarks, adjacentMissedHexagons, adjacentMissedNodeHexagons, pathEdges) {
     const results = [];
     const numErasers = erasers.length;
     if (numErasers === 0) {
-      const errorCells = this.getRegionErrors(grid, region, []);
+      const errorCells = this.getRegionErrors(grid, region, [], pathEdges);
       if (errorCells.length === 0 && adjacentMissedHexagons.length === 0 && adjacentMissedNodeHexagons.length === 0) {
         results.push({ invalidatedCells: [], invalidatedHexagons: [], invalidatedNodeHexagons: [], isValid: true, errorCells: [] });
       }
       return results;
     }
     const itemsToNegate = [...otherMarks.map((p) => ({ type: "cell", pos: p })), ...adjacentMissedHexagons.map((idx) => ({ type: "hex", index: idx })), ...adjacentMissedNodeHexagons.map((idx) => ({ type: "nodeHex", index: idx }))];
-    const initiallyValid = this.getRegionErrors(grid, region, []).length === 0 && adjacentMissedHexagons.length === 0 && adjacentMissedNodeHexagons.length === 0;
+    const initiallyValid = this.getRegionErrors(grid, region, [], pathEdges).length === 0 && adjacentMissedHexagons.length === 0 && adjacentMissedNodeHexagons.length === 0;
     for (let N = 0; N <= numErasers; N++) {
       const negatedEraserCombinations = this.getNCombinations(erasers, N);
       for (const negatedErasers of negatedEraserCombinations) {
@@ -530,7 +549,7 @@ var PuzzleValidator = class {
             const negatedCells = negatedItems.filter((it) => it.type === "cell").map((it) => it.pos);
             const negatedHexIndices = negatedItems.filter((it) => it.type === "hex").map((it) => it.index);
             const negatedNodeHexIndices = negatedItems.filter((it) => it.type === "nodeHex").map((it) => it.index);
-            const errorCells = this.getRegionErrors(grid, region, [...negatedCells, ...negatedErasers]);
+            const errorCells = this.getRegionErrors(grid, region, [...negatedCells, ...negatedErasers], pathEdges);
             const isValid = errorCells.length === 0;
             if (isValid) {
               let isUseful = true;
@@ -544,7 +563,7 @@ var PuzzleValidator = class {
                   const subsetNodeHexIndices = new Set(subset.filter((it) => it.type === "nodeHex").map((it) => it.index));
                   const allHexSatisfied = adjacentMissedHexagons.every((idx) => subsetHexIndices.has(idx));
                   const allNodeHexSatisfied = adjacentMissedNodeHexagons.every((idx) => subsetNodeHexIndices.has(idx));
-                  if (this.getRegionErrors(grid, region, subsetCells).length === 0 && allHexSatisfied && allNodeHexSatisfied) {
+                  if (this.getRegionErrors(grid, region, subsetCells, pathEdges).length === 0 && allHexSatisfied && allNodeHexSatisfied) {
                     isUseful = false;
                     break;
                   }
@@ -576,8 +595,8 @@ var PuzzleValidator = class {
    * @param adjacentMissedNodeHexagons 隣接する未通過ノード六角形
    * @returns ベストエフォートな削除結果
    */
-  getBestEffortErasures(grid, region, erasers, otherMarks, adjacentMissedHexagons, adjacentMissedNodeHexagons) {
-    const naturalErrors = this.getRegionErrors(grid, region, []);
+  getBestEffortErasures(grid, region, erasers, otherMarks, adjacentMissedHexagons, adjacentMissedNodeHexagons, pathEdges) {
+    const naturalErrors = this.getRegionErrors(grid, region, [], pathEdges);
     const initiallyValid = naturalErrors.length === 0 && adjacentMissedHexagons.length === 0 && adjacentMissedNodeHexagons.length === 0;
     if (initiallyValid) {
       return {
@@ -609,7 +628,7 @@ var PuzzleValidator = class {
         const N = Math.floor(remainingForPairs / 2);
         const negatedErasers = erasers.slice(usedErasersCount, usedErasersCount + N);
         usedErasersCount += N * 2;
-        const errorCells2 = this.getRegionErrors(grid, region, [...toInvalidateCells, ...negatedErasers]);
+        const errorCells2 = this.getRegionErrors(grid, region, [...toInvalidateCells, ...negatedErasers], pathEdges);
         for (let i = usedErasersCount; i < erasers.length; i++) {
           errorCells2.push(erasers[i]);
         }
@@ -672,8 +691,8 @@ var PuzzleValidator = class {
    * @param erasedCells 無効化されたセルのリスト
    * @returns 有効かどうか
    */
-  checkRegionValid(grid, region, erasedCells) {
-    return this.getRegionErrors(grid, region, erasedCells).length === 0;
+  checkRegionValid(grid, region, erasedCells, pathEdges) {
+    return this.getRegionErrors(grid, region, erasedCells, pathEdges).length === 0;
   }
   /**
    * 区画内のエラーとなっているセルを特定する
@@ -682,7 +701,7 @@ var PuzzleValidator = class {
    * @param erasedCells 無効化されたセルのリスト
    * @returns エラーセルのリスト
    */
-  getRegionErrors(grid, region, erasedCells) {
+  getRegionErrors(grid, region, erasedCells, pathEdges) {
     const erasedSet = new Set(erasedCells.map((p) => `${p.x},${p.y}`));
     const colorCounts = /* @__PURE__ */ new Map();
     const colorCells = /* @__PURE__ */ new Map();
@@ -690,6 +709,7 @@ var PuzzleValidator = class {
     const squareColors = /* @__PURE__ */ new Set();
     const tetrisPieces = [];
     const tetrisNegativePieces = [];
+    const triangleCells = [];
     for (const cell of region) {
       if (erasedSet.has(`${cell.x},${cell.y}`)) continue;
       const constraint = grid.cells[cell.y][cell.x];
@@ -706,6 +726,8 @@ var PuzzleValidator = class {
         if (constraint.shape) tetrisPieces.push({ shape: constraint.shape, rotatable: constraint.type === 4 /* TetrisRotated */, pos: cell });
       } else if (constraint.type === 5 /* TetrisNegative */ || constraint.type === 6 /* TetrisNegativeRotated */) {
         if (constraint.shape) tetrisNegativePieces.push({ shape: constraint.shape, rotatable: constraint.type === 6 /* TetrisNegativeRotated */, pos: cell });
+      } else if (constraint.type === 8 /* Triangle */) {
+        triangleCells.push({ count: constraint.count || 0, pos: cell });
       }
     }
     const errorCells = [];
@@ -724,6 +746,16 @@ var PuzzleValidator = class {
             errorCells.push(p);
           }
         }
+      }
+    }
+    for (const tri of triangleCells) {
+      let passedEdges = 0;
+      const cellEdges = [this.getEdgeKey({ x: tri.pos.x, y: tri.pos.y }, { x: tri.pos.x + 1, y: tri.pos.y }), this.getEdgeKey({ x: tri.pos.x, y: tri.pos.y + 1 }, { x: tri.pos.x + 1, y: tri.pos.y + 1 }), this.getEdgeKey({ x: tri.pos.x, y: tri.pos.y }, { x: tri.pos.x, y: tri.pos.y + 1 }), this.getEdgeKey({ x: tri.pos.x + 1, y: tri.pos.y }, { x: tri.pos.x + 1, y: tri.pos.y + 1 })];
+      for (const edge of cellEdges) {
+        if (pathEdges.has(edge)) passedEdges++;
+      }
+      if (passedEdges !== tri.count) {
+        errorCells.push(tri.pos);
       }
     }
     if (tetrisPieces.length > 0 || tetrisNegativePieces.length > 0) {
@@ -1249,6 +1281,7 @@ var PuzzleValidator = class {
     if (hexagonEdges.size > 0) constraintTypes.add(999);
     let tetrisCount = 0;
     let rotatedTetrisCount = 0;
+    let triangleCount = 0;
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         const cell = grid.cells[r][c];
@@ -1259,6 +1292,8 @@ var PuzzleValidator = class {
           else if (cell.type === 4 /* TetrisRotated */) {
             tetrisCount++;
             rotatedTetrisCount++;
+          } else if (cell.type === 8 /* Triangle */) {
+            triangleCount++;
           }
         }
       }
@@ -1287,6 +1322,9 @@ var PuzzleValidator = class {
     if (negTetrisCount > 0) {
       difficulty += (negTetrisCount - rotatedNegTetrisCount) * 0.6;
       difficulty += rotatedNegTetrisCount * 0.3;
+    }
+    if (triangleCount > 0) {
+      difficulty += triangleCount * 0.25;
     }
     const cellCount = rows * cols;
     const density = constraintCount / cellCount;
@@ -2303,6 +2341,7 @@ var PuzzleGenerator = class {
     const useTetris = options.useTetris ?? false;
     const useTetrisNegative = options.useTetrisNegative ?? false;
     const useEraser = options.useEraser ?? false;
+    const useTriangles = options.useTriangles ?? false;
     let hexagonsPlaced = 0;
     let squaresPlaced = 0;
     let starsPlaced = 0;
@@ -2373,7 +2412,7 @@ var PuzzleGenerator = class {
         this.setEdgeHexagon(grid, p1, p2, type);
       }
     }
-    if (useSquares || useStars || useTetris || useEraser) {
+    if (useSquares || useStars || useTetris || useEraser || useTriangles) {
       const regions = precalculatedRegions || this.calculateRegions(grid, path, symPath);
       const availableColors = options.availableColors ?? [Color.Black, Color.White, Color.Red, Color.Blue];
       const defaultColors = options.defaultColors ?? {};
@@ -2391,14 +2430,19 @@ var PuzzleGenerator = class {
         star: useStars,
         tetris: useTetris,
         tetrisNegative: useTetrisNegative,
-        eraser: useEraser
+        eraser: useEraser,
+        triangle: useTriangles
       };
       let tetrisNegativePlaced = 0;
+      let trianglesPlaced = 0;
+      const pathEdges = /* @__PURE__ */ new Set();
+      for (let i = 0; i < path.length - 1; i++) pathEdges.add(this.getEdgeKey(path[i], path[i + 1]));
+      for (let i = 0; i < symPath.length - 1; i++) pathEdges.add(this.getEdgeKey(symPath[i], symPath[i + 1]));
       for (let rIdx = 0; rIdx < regionIndices.length; rIdx++) {
         const idx = regionIndices[rIdx];
         const region = regions[idx];
         const remainingRegions = regionIndices.length - rIdx;
-        const forceOne = needs.square && squaresPlaced === 0 || needs.star && starsPlaced === 0 || needs.tetris && tetrisPlaced === 0 || needs.tetrisNegative && tetrisNegativePlaced === 0 || needs.eraser && erasersPlaced === 0;
+        const forceOne = needs.square && squaresPlaced === 0 || needs.star && starsPlaced === 0 || needs.tetris && tetrisPlaced === 0 || needs.tetrisNegative && tetrisNegativePlaced === 0 || needs.eraser && erasersPlaced === 0 || needs.triangle && trianglesPlaced === 0;
         let placementProb = 0.2 + complexity * 0.6;
         if (forceOne && remainingRegions <= 3) placementProb = 1;
         else if (forceOne && remainingRegions <= 6) placementProb = 0.7;
@@ -2527,7 +2571,7 @@ var PuzzleGenerator = class {
                 const isNeg = p.isNegative;
                 if (isNeg) {
                   grid.cells[cell.y][cell.x].type = p.isRotated ? 6 /* TetrisNegativeRotated */ : 5 /* TetrisNegative */;
-                  grid.cells[cell.y][cell.x].color = getDefColor(5 /* TetrisNegative */, Color.Cyan);
+                  grid.cells[cell.y][cell.x].color = getDefColor(5 /* TetrisNegative */, Color.None);
                   tetrisNegativePlaced++;
                 } else {
                   grid.cells[cell.y][cell.x].type = p.isRotated ? 4 /* TetrisRotated */ : 3 /* Tetris */;
@@ -2549,6 +2593,41 @@ var PuzzleGenerator = class {
             }
           }
         }
+        if (useTriangles) {
+          let shouldPlaceTriangle = this.rng.next() < 0.2 + complexity * 0.5;
+          if (trianglesPlaced === 0 && remainingRegions <= 2) shouldPlaceTriangle = true;
+          if (shouldPlaceTriangle && potentialCells.length > 0) {
+            this.shuffleArray(potentialCells);
+            const numToTry = Math.min(potentialCells.length, Math.max(1, Math.floor(region.length / 3)));
+            let placedInRegion = 0;
+            for (let i = 0; i < potentialCells.length && placedInRegion < numToTry; i++) {
+              const cell = potentialCells[i];
+              const cellEdges = [this.getEdgeKey({ x: cell.x, y: cell.y }, { x: cell.x + 1, y: cell.y }), this.getEdgeKey({ x: cell.x, y: cell.y + 1 }, { x: cell.x + 1, y: cell.y + 1 }), this.getEdgeKey({ x: cell.x, y: cell.y }, { x: cell.x, y: cell.y + 1 }), this.getEdgeKey({ x: cell.x + 1, y: cell.y }, { x: cell.x + 1, y: cell.y + 1 })];
+              let count = 0;
+              for (const edge of cellEdges) {
+                if (pathEdges.has(edge)) count++;
+              }
+              if (count >= 1 && count <= 3) {
+                grid.cells[cell.y][cell.x].type = 8 /* Triangle */;
+                grid.cells[cell.y][cell.x].count = count;
+                const defColor = getDefColor(8 /* Triangle */, Color.None);
+                let triangleColor = defColor;
+                if (useStars && this.rng.next() < 0.3) {
+                  const candidates = availableColors.filter((c) => c !== defColor && !intendedColors.has(c));
+                  if (candidates.length > 0) {
+                    triangleColor = candidates[Math.floor(this.rng.next() * candidates.length)];
+                    intendedColors.add(triangleColor);
+                  }
+                }
+                grid.cells[cell.y][cell.x].color = triangleColor;
+                potentialCells.splice(i, 1);
+                i--;
+                trianglesPlaced++;
+                placedInRegion++;
+              }
+            }
+          }
+        }
         if (useEraser && erasersPlaced < 1) {
           const prob = 0.05 + complexity * 0.2;
           let shouldPlaceEraser = this.rng.next() < prob;
@@ -2564,6 +2643,7 @@ var PuzzleGenerator = class {
             }
             if (useTetris) errorTypes.push("tetris");
             if (useTetrisNegative) errorTypes.push("tetrisNegative");
+            if (useTriangles) errorTypes.push("triangle");
             this.shuffleArray(errorTypes);
             if (potentialCells.length >= 2) errorTypes.push("eraser");
             let errorPlaced = false;
@@ -2630,8 +2710,20 @@ var PuzzleGenerator = class {
                 const cell = potentialCells.pop();
                 grid.cells[cell.y][cell.x].type = 5 /* TetrisNegative */;
                 grid.cells[cell.y][cell.x].shape = [[1]];
-                grid.cells[cell.y][cell.x].color = getDefColor(5 /* TetrisNegative */, Color.Cyan);
+                grid.cells[cell.y][cell.x].color = getDefColor(5 /* TetrisNegative */, Color.None);
                 tetrisNegativePlaced++;
+              } else if (errorType === "triangle" && potentialCells.length >= 2) {
+                const errCell = potentialCells.pop();
+                grid.cells[errCell.y][errCell.x].type = 8 /* Triangle */;
+                const cellEdges = [this.getEdgeKey({ x: errCell.x, y: errCell.y }, { x: errCell.x + 1, y: errCell.y }), this.getEdgeKey({ x: errCell.x, y: errCell.y + 1 }, { x: errCell.x + 1, y: errCell.y + 1 }), this.getEdgeKey({ x: errCell.x, y: errCell.y }, { x: errCell.x, y: errCell.y + 1 }), this.getEdgeKey({ x: errCell.x + 1, y: errCell.y }, { x: errCell.x + 1, y: errCell.y + 1 })];
+                let actualCount = 0;
+                for (const edge of cellEdges) if (pathEdges.has(edge)) actualCount++;
+                let errorCount = (actualCount + 1) % 4;
+                if (errorCount === 0) errorCount = 1;
+                grid.cells[errCell.y][errCell.x].count = errorCount;
+                grid.cells[errCell.y][errCell.x].color = Color.None;
+                trianglesPlaced++;
+                errorPlaced = true;
               } else if (errorType === "eraser" && this.canPlaceGeneratedEraser(grid, region, potentialCells)) {
                 const errCell = potentialCells.pop();
                 grid.cells[errCell.y][errCell.x].type = 7 /* Eraser */;
@@ -2879,6 +2971,7 @@ var PuzzleGenerator = class {
     const useTetris = options.useTetris ?? false;
     const useTetrisNegative = options.useTetrisNegative ?? false;
     const useEraser = options.useEraser ?? false;
+    const useTriangles = options.useTriangles ?? false;
     const useBrokenEdges = options.useBrokenEdges ?? false;
     if (useBrokenEdges) {
       let found = false;
@@ -2932,6 +3025,7 @@ var PuzzleGenerator = class {
       let fT = false;
       let fTN = false;
       let fE = false;
+      let fTri = false;
       const sqC = /* @__PURE__ */ new Set();
       const stC = /* @__PURE__ */ new Set();
       for (let r = 0; r < grid.rows; r++)
@@ -2948,12 +3042,14 @@ var PuzzleGenerator = class {
           if (type === 3 /* Tetris */ || type === 4 /* TetrisRotated */) fT = true;
           if (type === 5 /* TetrisNegative */ || type === 6 /* TetrisNegativeRotated */) fTN = true;
           if (type === 7 /* Eraser */) fE = true;
+          if (type === 8 /* Triangle */) fTri = true;
         }
       if (useSquares && !fSq) return false;
       if (useStars && !fSt) return false;
       if (useTetris && !fT) return false;
       if (useTetrisNegative && !fTN) return false;
       if (useEraser && !fE) return false;
+      if (useTriangles && !fTri) return false;
       if (useSquares && fSq) {
         if (sqC.size < 2) {
           const onlyColor = sqC.values().next().value;
@@ -3257,9 +3353,11 @@ var PuzzleSerializer = class {
     shapes.forEach((s, i) => shapeIndex.set(JSON.stringify(s), i));
     for (const row of puzzle.cells) {
       for (const c of row) {
-        bw.write(c.type, 3);
+        bw.write(c.type, 4);
         bw.write(c.color, 3);
-        if (c.shape) {
+        if (c.type === 8 /* Triangle */) {
+          bw.write(c.count || 0, 2);
+        } else if (c.shape) {
           bw.write(1, 1);
           bw.write(shapeIndex.get(JSON.stringify(c.shape)), 5);
         } else {
@@ -3276,6 +3374,7 @@ var PuzzleSerializer = class {
     bw.write(+!!options.useTetris, 1);
     bw.write(+!!options.useTetrisNegative, 1);
     bw.write(+!!options.useEraser, 1);
+    bw.write(+!!options.useTriangles, 1);
     bw.write(+!!options.useBrokenEdges, 1);
     bw.write(options.symmetry ?? 0, 2);
     bw.write(Math.round((options.complexity ?? 0) * 254), 8);
@@ -3325,11 +3424,15 @@ var PuzzleSerializer = class {
     for (let y = 0; y < rows; y++) {
       const row = [];
       for (let x = 0; x < cols; x++) {
-        const type = br.read(3);
+        const type = br.read(4);
         const color = br.read(3);
-        const hasShape = br.read(1);
         const cell = { type, color };
-        if (hasShape) cell.shape = shapes[br.read(5)].map((r) => r.slice());
+        if (type === 8 /* Triangle */) {
+          cell.count = br.read(2);
+        } else {
+          const hasShape = br.read(1);
+          if (hasShape) cell.shape = shapes[br.read(5)].map((r) => r.slice());
+        }
         row.push(cell);
       }
       cells.push(row);
@@ -3348,6 +3451,7 @@ var PuzzleSerializer = class {
     const useTetris = !!br.read(1);
     const useTetrisNegative = !!br.read(1);
     const useEraser = !!br.read(1);
+    const useTriangles = !!br.read(1);
     const useBroken = !!br.read(1);
     const optSymmetry = br.read(2);
     if (useHexagons) options.useHexagons = true;
@@ -3356,6 +3460,7 @@ var PuzzleSerializer = class {
     if (useTetris) options.useTetris = true;
     if (useTetrisNegative) options.useTetrisNegative = true;
     if (useEraser) options.useEraser = true;
+    if (useTriangles) options.useTriangles = true;
     if (useBroken) options.useBrokenEdges = true;
     options.symmetry = optSymmetry;
     const complexity = readRatio();
@@ -3457,7 +3562,6 @@ var WitnessUI = class {
         [Color.White]: "#fff",
         [Color.Red]: "#f00",
         [Color.Blue]: "#00f",
-        [Color.Cyan]: "#00ffff",
         [Color.None]: "#ffcc00"
       },
       colorList: options.colors?.colorList ?? this.options?.colors?.colorList
@@ -4217,6 +4321,8 @@ var WitnessUI = class {
       this.drawTetris(ctx, pos.x, pos.y, cell.shape || [], cell.type === 6 /* TetrisNegativeRotated */, cell.color, true, overrideColor);
     } else if (cell.type === 7 /* Eraser */) {
       this.drawEraser(ctx, pos.x, pos.y, 14, 3, cell.color, overrideColor);
+    } else if (cell.type === 8 /* Triangle */) {
+      this.drawTriangle(ctx, pos.x, pos.y, cell.count || 0, cell.color, overrideColor);
     }
   }
   /**
@@ -4389,6 +4495,33 @@ var WitnessUI = class {
     }
     ctx.closePath();
     ctx.fill();
+  }
+  /**
+   * 三角形を描画する
+   */
+  drawTriangle(ctx, x, y, count, colorEnum, overrideColor) {
+    if (count <= 0) return;
+    const color = overrideColor || this.getColorCode(colorEnum, "#ffcc00");
+    ctx.fillStyle = color;
+    const size = 12;
+    const r = size * 0.8;
+    const spacing = r * 2.2;
+    const drawSingleTriangle = (tx, ty) => {
+      ctx.beginPath();
+      for (let i = 0; i < 3; i++) {
+        const angle = Math.PI * 2 * i / 3 - Math.PI / 2;
+        const px = tx + r * Math.cos(angle);
+        const py = ty + r * Math.sin(angle);
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.fill();
+    };
+    const offset = (count - 1) * spacing * 0.5;
+    for (let i = 0; i < count; i++) {
+      drawSingleTriangle(x - offset + i * spacing, y);
+    }
   }
   /**
    * テトリスピースを描画する

@@ -90,8 +90,20 @@ export class PuzzleValidator {
 		const regions = this.calculateRegions(grid, path, symPath, externalCellsPrecalculated);
 		// 通過しなかった六角形の取得
 		const missed = this.getMissedHexagons(grid, path, symPath);
+
+		// パスが通ったエッジを記録 (三角形のバリデーション用)
+		const pathEdges = new Set<string>();
+		for (let i = 0; i < path.length - 1; i++) {
+			pathEdges.add(this.getEdgeKey(path[i], path[i + 1]));
+		}
+		if (symmetry !== SymmetryType.None) {
+			for (let i = 0; i < symPath.length - 1; i++) {
+				pathEdges.add(this.getEdgeKey(symPath[i], symPath[i + 1]));
+			}
+		}
+
 		// エラー削除（テトラポッド）を考慮した制約検証
-		const result = this.validateWithErasers(grid, regions, missed.edges, missed.nodes);
+		const result = this.validateWithErasers(grid, regions, missed.edges, missed.nodes, pathEdges);
 		result.regions = regions;
 		return result;
 	}
@@ -107,7 +119,19 @@ export class PuzzleValidator {
 	private validateFast(grid: Grid, path: Point[], symPath: Point[], externalCells?: Set<string>): ValidationResult {
 		const regions = this.calculateRegions(grid, path, symPath, externalCells);
 		const missed = this.getMissedHexagons(grid, path, symPath);
-		return this.validateWithErasers(grid, regions, missed.edges, missed.nodes);
+
+		const pathEdges = new Set<string>();
+		for (let i = 0; i < path.length - 1; i++) {
+			pathEdges.add(this.getEdgeKey(path[i], path[i + 1]));
+		}
+		const symmetry = grid.symmetry || SymmetryType.None;
+		if (symmetry !== SymmetryType.None) {
+			for (let i = 0; i < symPath.length - 1; i++) {
+				pathEdges.add(this.getEdgeKey(symPath[i], symPath[i + 1]));
+			}
+		}
+
+		return this.validateWithErasers(grid, regions, missed.edges, missed.nodes, pathEdges);
 	}
 
 	/**
@@ -229,7 +253,7 @@ export class PuzzleValidator {
 	 * @param missedNodeHexagons 通過しなかったノード六角形
 	 * @returns 検証結果
 	 */
-	private validateWithErasers(grid: Grid, regions: Point[][], missedHexagons: { type: "h" | "v"; r: number; c: number }[], missedNodeHexagons: Point[]): ValidationResult {
+	private validateWithErasers(grid: Grid, regions: Point[][], missedHexagons: { type: "h" | "v"; r: number; c: number }[], missedNodeHexagons: Point[], pathEdges: Set<string>): ValidationResult {
 		const regionResults: { invalidatedCells: Point[]; invalidatedHexagons: number[]; invalidatedNodeHexagons: number[]; isValid: boolean; errorCells: Point[] }[][] = [];
 		let allRegionsPossiblyValid = true;
 
@@ -249,11 +273,11 @@ export class PuzzleValidator {
 			}
 
 			// 各区画でエラー削除の全組み合わせを試行
-			const possible = this.getPossibleErasures(grid, region, erasers, otherMarks, adjacentMissedHexagons, adjacentMissedNodeHexagons);
+			const possible = this.getPossibleErasures(grid, region, erasers, otherMarks, adjacentMissedHexagons, adjacentMissedNodeHexagons, pathEdges);
 			if (possible.length === 0) {
 				allRegionsPossiblyValid = false;
 				// エラー箇所を特定するためのベストエフォート（ランダムな削除）
-				const bestEffort = this.getBestEffortErasures(grid, region, erasers, otherMarks, adjacentMissedHexagons, adjacentMissedNodeHexagons);
+				const bestEffort = this.getBestEffortErasures(grid, region, erasers, otherMarks, adjacentMissedHexagons, adjacentMissedNodeHexagons, pathEdges);
 				regionResults.push([bestEffort]);
 			} else {
 				// 最小の削除数を持つ解決策を優先する
@@ -379,11 +403,11 @@ export class PuzzleValidator {
 	 * @param adjacentMissedNodeHexagons 隣接する未通過ノード六角形
 	 * @returns 可能な削除パターンのリスト
 	 */
-	private getPossibleErasures(grid: Grid, region: Point[], erasers: Point[], otherMarks: Point[], adjacentMissedHexagons: number[], adjacentMissedNodeHexagons: number[]): { invalidatedCells: Point[]; invalidatedHexagons: number[]; invalidatedNodeHexagons: number[]; isValid: boolean; errorCells: Point[] }[] {
+	private getPossibleErasures(grid: Grid, region: Point[], erasers: Point[], otherMarks: Point[], adjacentMissedHexagons: number[], adjacentMissedNodeHexagons: number[], pathEdges: Set<string>): { invalidatedCells: Point[]; invalidatedHexagons: number[]; invalidatedNodeHexagons: number[]; isValid: boolean; errorCells: Point[] }[] {
 		const results: { invalidatedCells: Point[]; invalidatedHexagons: number[]; invalidatedNodeHexagons: number[]; isValid: boolean; errorCells: Point[] }[] = [];
 		const numErasers = erasers.length;
 		if (numErasers === 0) {
-			const errorCells = this.getRegionErrors(grid, region, []);
+			const errorCells = this.getRegionErrors(grid, region, [], pathEdges);
 			if (errorCells.length === 0 && adjacentMissedHexagons.length === 0 && adjacentMissedNodeHexagons.length === 0) {
 				results.push({ invalidatedCells: [], invalidatedHexagons: [], invalidatedNodeHexagons: [], isValid: true, errorCells: [] });
 			}
@@ -393,7 +417,7 @@ export class PuzzleValidator {
 		const itemsToNegate = [...otherMarks.map((p) => ({ type: "cell" as const, pos: p })), ...adjacentMissedHexagons.map((idx) => ({ type: "hex" as const, index: idx })), ...adjacentMissedNodeHexagons.map((idx) => ({ type: "nodeHex" as const, index: idx }))];
 
 		// 初期状態でエラーがあるか確認
-		const initiallyValid = this.getRegionErrors(grid, region, []).length === 0 && adjacentMissedHexagons.length === 0 && adjacentMissedNodeHexagons.length === 0;
+		const initiallyValid = this.getRegionErrors(grid, region, [], pathEdges).length === 0 && adjacentMissedHexagons.length === 0 && adjacentMissedNodeHexagons.length === 0;
 
 		for (let N = 0; N <= numErasers; N++) {
 			const negatedEraserCombinations = this.getNCombinations(erasers, N);
@@ -410,7 +434,7 @@ export class PuzzleValidator {
 						const negatedHexIndices = negatedItems.filter((it) => it.type === "hex").map((it) => it.index as number);
 						const negatedNodeHexIndices = negatedItems.filter((it) => it.type === "nodeHex").map((it) => it.index as number);
 
-						const errorCells = this.getRegionErrors(grid, region, [...negatedCells, ...negatedErasers]);
+						const errorCells = this.getRegionErrors(grid, region, [...negatedCells, ...negatedErasers], pathEdges);
 						const isValid = errorCells.length === 0;
 
 						if (isValid) {
@@ -427,7 +451,7 @@ export class PuzzleValidator {
 									const allHexSatisfied = adjacentMissedHexagons.every((idx) => subsetHexIndices.has(idx));
 									const allNodeHexSatisfied = adjacentMissedNodeHexagons.every((idx) => subsetNodeHexIndices.has(idx));
 
-									if (this.getRegionErrors(grid, region, subsetCells).length === 0 && allHexSatisfied && allNodeHexSatisfied) {
+									if (this.getRegionErrors(grid, region, subsetCells, pathEdges).length === 0 && allHexSatisfied && allNodeHexSatisfied) {
 										isUseful = false;
 										break;
 									}
@@ -461,8 +485,8 @@ export class PuzzleValidator {
 	 * @param adjacentMissedNodeHexagons 隣接する未通過ノード六角形
 	 * @returns ベストエフォートな削除結果
 	 */
-	private getBestEffortErasures(grid: Grid, region: Point[], erasers: Point[], otherMarks: Point[], adjacentMissedHexagons: number[], adjacentMissedNodeHexagons: number[]): { invalidatedCells: Point[]; invalidatedHexagons: number[]; invalidatedNodeHexagons: number[]; isValid: boolean; errorCells: Point[] } {
-		const naturalErrors = this.getRegionErrors(grid, region, []);
+	private getBestEffortErasures(grid: Grid, region: Point[], erasers: Point[], otherMarks: Point[], adjacentMissedHexagons: number[], adjacentMissedNodeHexagons: number[], pathEdges: Set<string>): { invalidatedCells: Point[]; invalidatedHexagons: number[]; invalidatedNodeHexagons: number[]; isValid: boolean; errorCells: Point[] } {
+		const naturalErrors = this.getRegionErrors(grid, region, [], pathEdges);
 		const initiallyValid = naturalErrors.length === 0 && adjacentMissedHexagons.length === 0 && adjacentMissedNodeHexagons.length === 0;
 
 		// 初期状態で有効なら、テトラポッド自体がエラー。
@@ -507,7 +531,7 @@ export class PuzzleValidator {
 
 				// 消しゴム自身がエラーかどうかを判定するため、getRegionErrorsを呼ぶ
 				// 消しゴム自身は（消し合ったペアを除き）マークとして残る
-				const errorCells = this.getRegionErrors(grid, region, [...toInvalidateCells, ...negatedErasers]);
+				const errorCells = this.getRegionErrors(grid, region, [...toInvalidateCells, ...negatedErasers], pathEdges);
 				// 使われなかった消しゴムはエラー
 				for (let i = usedErasersCount; i < erasers.length; i++) {
 					errorCells.push(erasers[i]);
@@ -582,8 +606,8 @@ export class PuzzleValidator {
 	 * @param erasedCells 無効化されたセルのリスト
 	 * @returns 有効かどうか
 	 */
-	private checkRegionValid(grid: Grid, region: Point[], erasedCells: Point[]): boolean {
-		return this.getRegionErrors(grid, region, erasedCells).length === 0;
+	private checkRegionValid(grid: Grid, region: Point[], erasedCells: Point[], pathEdges: Set<string>): boolean {
+		return this.getRegionErrors(grid, region, erasedCells, pathEdges).length === 0;
 	}
 
 	/**
@@ -593,7 +617,7 @@ export class PuzzleValidator {
 	 * @param erasedCells 無効化されたセルのリスト
 	 * @returns エラーセルのリスト
 	 */
-	private getRegionErrors(grid: Grid, region: Point[], erasedCells: Point[]): Point[] {
+	private getRegionErrors(grid: Grid, region: Point[], erasedCells: Point[], pathEdges: Set<string>): Point[] {
 		const erasedSet = new Set(erasedCells.map((p) => `${p.x},${p.y}`));
 		const colorCounts = new Map<number, number>();
 		const colorCells = new Map<number, Point[]>();
@@ -601,6 +625,7 @@ export class PuzzleValidator {
 		const squareColors = new Set<number>();
 		const tetrisPieces: { shape: number[][]; rotatable: boolean; pos: Point }[] = [];
 		const tetrisNegativePieces: { shape: number[][]; rotatable: boolean; pos: Point }[] = [];
+		const triangleCells: { count: number; pos: Point }[] = [];
 
 		for (const cell of region) {
 			if (erasedSet.has(`${cell.x},${cell.y}`)) continue;
@@ -620,6 +645,8 @@ export class PuzzleValidator {
 				if (constraint.shape) tetrisPieces.push({ shape: constraint.shape, rotatable: constraint.type === CellType.TetrisRotated, pos: cell });
 			} else if (constraint.type === CellType.TetrisNegative || constraint.type === CellType.TetrisNegativeRotated) {
 				if (constraint.shape) tetrisNegativePieces.push({ shape: constraint.shape, rotatable: constraint.type === CellType.TetrisNegativeRotated, pos: cell });
+			} else if (constraint.type === CellType.Triangle) {
+				triangleCells.push({ count: constraint.count || 0, pos: cell });
 			}
 		}
 
@@ -642,6 +669,18 @@ export class PuzzleValidator {
 						errorCells.push(p);
 					}
 				}
+			}
+		}
+
+		// 三角形のルール：通過辺数
+		for (const tri of triangleCells) {
+			let passedEdges = 0;
+			const cellEdges = [this.getEdgeKey({ x: tri.pos.x, y: tri.pos.y }, { x: tri.pos.x + 1, y: tri.pos.y }), this.getEdgeKey({ x: tri.pos.x, y: tri.pos.y + 1 }, { x: tri.pos.x + 1, y: tri.pos.y + 1 }), this.getEdgeKey({ x: tri.pos.x, y: tri.pos.y }, { x: tri.pos.x, y: tri.pos.y + 1 }), this.getEdgeKey({ x: tri.pos.x + 1, y: tri.pos.y }, { x: tri.pos.x + 1, y: tri.pos.y + 1 })];
+			for (const edge of cellEdges) {
+				if (pathEdges.has(edge)) passedEdges++;
+			}
+			if (passedEdges !== tri.count) {
+				errorCells.push(tri.pos);
 			}
 		}
 
@@ -1254,6 +1293,7 @@ export class PuzzleValidator {
 
 		let tetrisCount = 0;
 		let rotatedTetrisCount = 0;
+		let triangleCount = 0;
 		for (let r = 0; r < rows; r++) {
 			for (let c = 0; c < cols; c++) {
 				const cell = grid.cells[r][c];
@@ -1264,6 +1304,8 @@ export class PuzzleValidator {
 					else if (cell.type === CellType.TetrisRotated) {
 						tetrisCount++;
 						rotatedTetrisCount++;
+					} else if (cell.type === CellType.Triangle) {
+						triangleCount++;
 					}
 				}
 			}
@@ -1301,6 +1343,10 @@ export class PuzzleValidator {
 		if (negTetrisCount > 0) {
 			difficulty += (negTetrisCount - rotatedNegTetrisCount) * 0.6; // 減算は配置がよりシビアなため少し高めに設定
 			difficulty += rotatedNegTetrisCount * 0.3;
+		}
+
+		if (triangleCount > 0) {
+			difficulty += triangleCount * 0.25;
 		}
 
 		const cellCount = rows * cols;
