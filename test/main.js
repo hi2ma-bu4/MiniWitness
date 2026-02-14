@@ -44,7 +44,9 @@ class WitnessGame {
 		} else {
 			this.ui = new WitnessUI(this.canvas, null, {
 				onPathComplete: (path) => this.validate(path),
+				pixelRatio: document.getElementById("use-hidpi").checked ? window.devicePixelRatio : 1,
 			});
+			this.setupUIEvents();
 		}
 
 		this.newPuzzleBtn.addEventListener("click", () => this.startNewGame());
@@ -74,6 +76,15 @@ class WitnessGame {
 
 		document.getElementById("stay-path").addEventListener("change", () => {
 			const options = { stayPathOnError: document.getElementById("stay-path").checked };
+			if (this.ui) {
+				this.ui.setOptions(options);
+			} else if (this.worker) {
+				this.worker.postMessage({ type: "setOptions", payload: options });
+			}
+		});
+
+		document.getElementById("use-hidpi").addEventListener("change", () => {
+			const options = { pixelRatio: document.getElementById("use-hidpi").checked ? window.devicePixelRatio : 1 };
 			if (this.ui) {
 				this.ui.setOptions(options);
 			} else if (this.worker) {
@@ -230,6 +241,7 @@ class WitnessGame {
 				useWorker: true,
 				workerScript: "../dist/MiniWitness.js",
 				autoValidate: true,
+				pixelRatio: document.getElementById("use-hidpi").checked ? window.devicePixelRatio : 1,
 				onPathComplete: (path) => this.validate(path),
 				onPuzzleCreated: (payload) => this.loadPuzzle(payload.puzzle, payload.genOptions),
 				onValidationResult: (result) => {
@@ -241,6 +253,7 @@ class WitnessGame {
 				},
 			});
 			// In worker mode, WitnessUI automatically forwards events and syncs state.
+			this.setupUIEvents();
 			return;
 		}
 
@@ -382,6 +395,26 @@ class WitnessGame {
 				}
 			}
 		};
+	}
+
+	setupUIEvents() {
+		if (!this.ui) return;
+
+		const logEl = document.getElementById("event-log");
+		const log = (msg) => {
+			const entry = document.createElement("div");
+			entry.className = "log-entry";
+			entry.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+			logEl.prepend(entry);
+			if (logEl.children.length > 50) logEl.removeChild(logEl.lastChild);
+		};
+
+		this.ui.on("path:start", (data) => log(`Path Start: (${data.x}, ${data.y})`));
+		this.ui.on("path:end", (data) => log(`Path End: exit=${data.isExit}, len=${data.path.length}`));
+		this.ui.on("goal:reachable", (data) => log(`Goal Reachable: ${data.reachable}`));
+		this.ui.on("goal:reached", (data) => log(`Goal Reached: valid=${data.isValid}`));
+		this.ui.on("goal:validated", (data) => log(`Goal Validated: valid=${data.result.isValid}`));
+		this.ui.on("puzzle:created", () => log(`Puzzle Created`));
 	}
 
 	validate(path) {

@@ -438,7 +438,62 @@ export interface WitnessUIOptions {
 	}) => void;
 	/** バリデーション結果が返ってきた際のコールバック (Workerモード時のみ有効) */
 	onValidationResult?: (result: ValidationResult) => void;
+	/** 高解像度ディスプレイ(Retina等)に対応させるためのピクセル比。省略時はwindow.devicePixelRatioが使用されます。 */
+	pixelRatio?: number;
 }
+/**
+ * WitnessUIが発行するイベントのマップ
+ */
+export interface WitnessEventMap {
+	/** 描画の直前 (コンテキストが渡される) */
+	"render:before": {
+		ctx: WitnessContext;
+	};
+	/** 描画の直後 (コンテキストが渡される) */
+	"render:after": {
+		ctx: WitnessContext;
+	};
+	/** パスの描き始め (グリッド座標) */
+	"path:start": {
+		x: number;
+		y: number;
+	};
+	/** パスの移動中 (グリッド座標、パス全体、現在のマウス位置) */
+	"path:move": {
+		x: number;
+		y: number;
+		path: Point[];
+		currentMousePos: Point;
+	};
+	/** パスの終了 (パス全体、出口に到達したか) */
+	"path:end": {
+		path: Point[];
+		isExit: boolean;
+	};
+	/** パスが完了し、出口に到達した瞬間 */
+	"path:complete": {
+		path: Point[];
+	};
+	/** ゴール可能状態（先端がゴールの出っ張りに近い）の変化 */
+	"goal:reachable": {
+		reachable: boolean;
+	};
+	/** ゴールに到達し、成功または失敗のアニメーションが開始された時 */
+	"goal:reached": {
+		path: Point[];
+		isValid: boolean;
+	};
+	/** 無効化アニメーション（消しゴム等）が終了し、完全にバリデーション表示が完了した時 */
+	"goal:validated": {
+		result: ValidationResult;
+	};
+	/** 新しいパズルがセットされた時 */
+	"puzzle:created": {
+		puzzle: PuzzleData;
+	};
+}
+export type WitnessEventName = keyof WitnessEventMap;
+export type WitnessContext = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 /**
  * the witnessパズルの描画とユーザー操作を管理するクラス
  */
@@ -448,6 +503,7 @@ export declare class WitnessUI {
 	private worker;
 	private puzzle;
 	private options;
+	private listeners;
 	private path;
 	private isDrawing;
 	private currentMousePos;
@@ -496,6 +552,26 @@ export declare class WitnessUI {
 	 * 表示オプションを更新する
 	 */
 	setOptions(options: WitnessUIOptions): void;
+	/**
+	 * イベントリスナーを追加する
+	 */
+	addEventListener<K extends WitnessEventName>(type: K, listener: (data: WitnessEventMap[K]) => void): void;
+	/**
+	 * イベントリスナーを削除する
+	 */
+	removeEventListener<K extends WitnessEventName>(type: K, listener: (data: WitnessEventMap[K]) => void): void;
+	/**
+	 * イベントリスナーを追加する (エイリアス)
+	 */
+	on<K extends WitnessEventName>(type: K, listener: (data: WitnessEventMap[K]) => void): this;
+	/**
+	 * イベントリスナーを削除する (エイリアス)
+	 */
+	off<K extends WitnessEventName>(type: K, listener: (data: WitnessEventMap[K]) => void): this;
+	/**
+	 * 内部イベントを発行する
+	 */
+	private emit;
 	/**
 	 * 検証結果を反映させる（不正解時の赤点滅や、消しゴムによる無効化の表示）
 	 */
@@ -579,6 +655,7 @@ export declare class WitnessUI {
 	 * アニメーションループ
 	 */
 	private animate;
+	private lastGoalReachable;
 	draw(): void;
 	/**
 	 * ゴール地点の波紋アニメーションを描画する

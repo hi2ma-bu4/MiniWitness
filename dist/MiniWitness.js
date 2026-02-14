@@ -3287,6 +3287,7 @@ var WitnessUI = class {
   worker = null;
   puzzle = null;
   options;
+  listeners = /* @__PURE__ */ new Map();
   path = [];
   isDrawing = false;
   currentMousePos = { x: 0, y: 0 };
@@ -3359,12 +3360,16 @@ var WitnessUI = class {
             this.isDrawing = payload !== false;
           } else if (type === "drawingEnded") {
             this.isDrawing = false;
-          } else if (type === "pathComplete" && this.options.onPathComplete) {
-            this.options.onPathComplete(payload);
-          } else if (type === "puzzleCreated" && this.options.onPuzzleCreated) {
-            this.options.onPuzzleCreated(payload);
-          } else if (type === "validationResult" && this.options.onValidationResult) {
-            this.options.onValidationResult(payload);
+          } else if (type === "pathComplete") {
+            if (this.options.onPathComplete) this.options.onPathComplete(payload);
+            this.emit("path:complete", { path: payload });
+          } else if (type === "puzzleCreated") {
+            if (this.options.onPuzzleCreated) this.options.onPuzzleCreated(payload);
+          } else if (type === "validationResult") {
+            if (this.options.onValidationResult) this.options.onValidationResult(payload);
+            this.emit("goal:validated", { result: payload });
+          } else if (type === "uiEvent") {
+            this.emit(payload.type, payload.data);
           }
         });
       }
@@ -3430,7 +3435,8 @@ var WitnessUI = class {
       onPathComplete: options.onPathComplete ?? this.options?.onPathComplete ?? (() => {
       }),
       onPuzzleCreated: options.onPuzzleCreated ?? this.options?.onPuzzleCreated,
-      onValidationResult: options.onValidationResult ?? this.options?.onValidationResult
+      onValidationResult: options.onValidationResult ?? this.options?.onValidationResult,
+      pixelRatio: options.pixelRatio ?? this.options?.pixelRatio ?? (typeof window !== "undefined" ? window.devicePixelRatio : 1)
     };
   }
   /**
@@ -3443,6 +3449,7 @@ var WitnessUI = class {
         this.resizeCanvas();
       }
       this.worker.postMessage({ type: "setPuzzle", payload: { puzzle } });
+      this.emit("puzzle:created", { puzzle });
       return;
     }
     this.puzzle = puzzle;
@@ -3460,6 +3467,7 @@ var WitnessUI = class {
       this.resizeCanvas();
     }
     this.draw();
+    this.emit("puzzle:created", { puzzle });
   }
   /**
    * 表示オプションを更新する
@@ -3478,6 +3486,61 @@ var WitnessUI = class {
       this.resizeCanvas();
     }
     this.draw();
+  }
+  // --- Event Emitter ---
+  /**
+   * イベントリスナーを追加する
+   */
+  addEventListener(type, listener) {
+    if (!this.listeners.has(type)) {
+      this.listeners.set(type, /* @__PURE__ */ new Set());
+    }
+    this.listeners.get(type).add(listener);
+  }
+  /**
+   * イベントリスナーを削除する
+   */
+  removeEventListener(type, listener) {
+    const set = this.listeners.get(type);
+    if (set) {
+      set.delete(listener);
+    }
+  }
+  /**
+   * イベントリスナーを追加する (エイリアス)
+   */
+  on(type, listener) {
+    this.addEventListener(type, listener);
+    return this;
+  }
+  /**
+   * イベントリスナーを削除する (エイリアス)
+   */
+  off(type, listener) {
+    this.removeEventListener(type, listener);
+    return this;
+  }
+  /**
+   * 内部イベントを発行する
+   */
+  emit(type, data) {
+    const set = this.listeners.get(type);
+    if (set) {
+      set.forEach((l) => l(data));
+    }
+    if (typeof self !== "undefined" && self.postMessage && !this.worker) {
+      const isOffscreen = typeof OffscreenCanvas !== "undefined" && this.canvas instanceof OffscreenCanvas;
+      if (isOffscreen) {
+        const nonSerializableEvents = ["render:before", "render:after"];
+        const redundantEvents = ["path:complete", "puzzle:created", "goal:validated"];
+        if (!nonSerializableEvents.includes(type) && !redundantEvents.includes(type)) {
+          try {
+            self.postMessage({ type: "uiEvent", payload: { type, data } });
+          } catch (e) {
+          }
+        }
+      }
+    }
   }
   /**
    * 検証結果を反映させる（不正解時の赤点滅や、消しゴムによる無効化の表示）
@@ -3499,6 +3562,7 @@ var WitnessUI = class {
     } else {
       this.isInvalidPath = true;
     }
+    this.emit("goal:reached", { path: this.path, isValid });
   }
   /**
    * パズルのサイズに合わせてCanvasの物理サイズを調整する
@@ -3507,15 +3571,16 @@ var WitnessUI = class {
     if (!this.puzzle || !this.canvas) return;
     const w = this.puzzle.cols * this.options.cellSize + this.options.gridPadding * 2;
     const h = this.puzzle.rows * this.options.cellSize + this.options.gridPadding * 2;
+    const dpr = this.options.pixelRatio;
     if (typeof HTMLCanvasElement !== "undefined" && this.canvas instanceof HTMLCanvasElement) {
       try {
-        this.canvas.width = w;
-        this.canvas.height = h;
+        this.canvas.width = w * dpr;
+        this.canvas.height = h * dpr;
       } catch (e) {
       }
     } else {
-      this.canvas.width = w;
-      this.canvas.height = h;
+      this.canvas.width = w * dpr;
+      this.canvas.height = h * dpr;
     }
     if (this.worker && this.boundUpdateRect) {
       this.boundUpdateRect();
@@ -3670,9 +3735,10 @@ var WitnessUI = class {
       return true;
     }
     if (!this.puzzle) return false;
-    const rect = this.canvasRect || (typeof HTMLCanvasElement !== "undefined" && this.canvas instanceof HTMLCanvasElement ? this.canvas.getBoundingClientRect() : { left: 0, top: 0, width: this.canvas.width, height: this.canvas.height });
-    const mouseX = (e.clientX - rect.left) * (this.canvas.width / rect.width);
-    const mouseY = (e.clientY - rect.top) * (this.canvas.height / rect.height);
+    const dpr = this.options.pixelRatio;
+    const rect = this.canvasRect || (typeof HTMLCanvasElement !== "undefined" && this.canvas instanceof HTMLCanvasElement ? this.canvas.getBoundingClientRect() : { left: 0, top: 0, width: this.canvas.width / dpr, height: this.canvas.height / dpr });
+    const mouseX = (e.clientX - rect.left) * (this.canvas.width / dpr / rect.width);
+    const mouseY = (e.clientY - rect.top) * (this.canvas.height / dpr / rect.height);
     for (let r = 0; r <= this.puzzle.rows; r++) {
       for (let c = 0; c <= this.puzzle.cols; c++) {
         if (this.puzzle.nodes[r][c].type === 1 /* Start */) {
@@ -3693,6 +3759,7 @@ var WitnessUI = class {
             this.currentMousePos = nodePos;
             this.exitTipPos = null;
             this.draw();
+            this.emit("path:start", { x: c, y: r });
             return true;
           }
         }
@@ -3708,9 +3775,10 @@ var WitnessUI = class {
       return;
     }
     if (!this.puzzle || !this.isDrawing) return;
-    const rect = this.canvasRect || (typeof HTMLCanvasElement !== "undefined" && this.canvas instanceof HTMLCanvasElement ? this.canvas.getBoundingClientRect() : { left: 0, top: 0, width: this.canvas.width, height: this.canvas.height });
-    const mouseX = (e.clientX - rect.left) * (this.canvas.width / rect.width);
-    const mouseY = (e.clientY - rect.top) * (this.canvas.height / rect.height);
+    const dpr = this.options.pixelRatio;
+    const rect = this.canvasRect || (typeof HTMLCanvasElement !== "undefined" && this.canvas instanceof HTMLCanvasElement ? this.canvas.getBoundingClientRect() : { left: 0, top: 0, width: this.canvas.width / dpr, height: this.canvas.height / dpr });
+    const mouseX = (e.clientX - rect.left) * (this.canvas.width / dpr / rect.width);
+    const mouseY = (e.clientY - rect.top) * (this.canvas.height / dpr / rect.height);
     const lastPoint = this.path[this.path.length - 1];
     const lastPos = this.getCanvasCoords(lastPoint.x, lastPoint.y);
     const dx = mouseX - lastPos.x;
@@ -3818,8 +3886,12 @@ var WitnessUI = class {
               if (edgeKey === symEdgeKey) continue;
             }
             this.path.push(n);
+            this.emit("path:move", { x: n.x, y: n.y, path: this.path, currentMousePos: this.currentMousePos });
           } else if (idx === this.path.length - 2) {
-            this.path.pop();
+            const popped = this.path.pop();
+            if (popped) {
+              this.emit("path:move", { x: popped.x, y: popped.y, path: this.path, currentMousePos: this.currentMousePos });
+            }
           }
         }
       }
@@ -3839,6 +3911,7 @@ var WitnessUI = class {
     const lastPoint = this.path[this.path.length - 1];
     const lastPos = this.getCanvasCoords(lastPoint.x, lastPoint.y);
     const exitDir = this.getExitDir(lastPoint.x, lastPoint.y);
+    let isExit = false;
     if (exitDir) {
       const dx_exit = this.currentMousePos.x - lastPos.x;
       const dy_exit = this.currentMousePos.y - lastPos.y;
@@ -3848,11 +3921,15 @@ var WitnessUI = class {
           x: lastPos.x + exitDir.x * this.options.exitLength,
           y: lastPos.y + exitDir.y * this.options.exitLength
         };
+        isExit = true;
         this.options.onPathComplete(this.path);
+        this.emit("path:complete", { path: this.path });
+        this.emit("path:end", { path: this.path, isExit: true });
         return;
       }
     }
     this.exitTipPos = exitDir ? { ...this.currentMousePos } : null;
+    this.emit("path:end", { path: this.path, isExit: false });
     this.startFade(this.options.colors.interrupted);
   }
   /**
@@ -3903,6 +3980,17 @@ var WitnessUI = class {
       if (this.fadeOpacity <= 0) {
         this.isFading = false;
         this.fadeOpacity = 0;
+        if (this.isInvalidPath) {
+          this.isInvalidPath = false;
+          this.emit("goal:validated", { result: { isValid: false } });
+        }
+      }
+    }
+    if (this.isSuccessFading) {
+      const elapsed = now - this.successFadeStartTime;
+      if (elapsed > this.options.animations.blinkDuration + this.options.animations.fadeDuration) {
+        this.isSuccessFading = false;
+        this.emit("goal:validated", { result: { isValid: true } });
       }
     }
     if (this.isInvalidPath && !this.options.stayPathOnError && !this.isFading && this.path.length > 0) {
@@ -3919,12 +4007,16 @@ var WitnessUI = class {
     }
   }
   // --- Drawing Logic ---
+  lastGoalReachable = false;
   draw() {
     if (!this.puzzle || !this.ctx) return;
     const ctx = this.ctx;
+    this.emit("render:before", { ctx });
     const now = Date.now();
+    const dpr = this.options.pixelRatio;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.globalAlpha = 1;
-    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    ctx.clearRect(0, 0, this.canvas.width / dpr, this.canvas.height / dpr);
     this.drawGrid(ctx);
     this.drawConstraints(ctx);
     this.drawNodes(ctx);
@@ -3990,6 +4082,10 @@ var WitnessUI = class {
         }
       }
       const isAtExit = this.isPathAtExit(this.path, this.isDrawing ? this.currentMousePos : this.exitTipPos);
+      if (isAtExit !== this.lastGoalReachable) {
+        this.lastGoalReachable = isAtExit;
+        this.emit("goal:reachable", { reachable: isAtExit });
+      }
       if (isAtExit && !this.isInvalidPath && !this.isSuccessFading) {
         const originalAlpha = this.colorToRgba(color).a;
         const pulseFactor = (Math.sin(now * Math.PI * 2 / 600) + 1) / 2;
@@ -4026,6 +4122,7 @@ var WitnessUI = class {
         this.drawPath(ctx, symPath, this.isDrawing, symColor, symPathOpacity, symTipPos);
       }
     }
+    this.emit("render:after", { ctx });
   }
   /**
    * ゴール地点の波紋アニメーションを描画する
@@ -4143,6 +4240,7 @@ var WitnessUI = class {
           const { canvas: tempCanvas, ctx: tempCtx } = this.prepareOffscreen();
           this.drawConstraintItem(tempCtx, cell, pos, overrideColor);
           ctx.save();
+          ctx.setTransform(1, 0, 0, 1, 0, 0);
           ctx.globalAlpha = opacity;
           ctx.drawImage(tempCanvas, 0, 0);
           ctx.restore();
@@ -4350,6 +4448,7 @@ var WitnessUI = class {
     const { canvas: tempCanvas, ctx: tempCtx } = this.prepareOffscreen();
     this.drawPathInternal(tempCtx, path, isDrawing, finalColor, tipPos);
     ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalAlpha = finalOpacity;
     ctx.drawImage(tempCanvas, 0, 0);
     ctx.restore();
@@ -4687,6 +4786,7 @@ var WitnessUI = class {
     return sanitized;
   }
   prepareOffscreen() {
+    const dpr = this.options.pixelRatio;
     if (!this.offscreenCanvas) {
       if (typeof document !== "undefined") {
         this.offscreenCanvas = document.createElement("canvas");
@@ -4702,7 +4802,8 @@ var WitnessUI = class {
       this.offscreenCanvas.height = this.canvas.height;
     }
     if (!this.offscreenCtx) throw new Error("Could not get offscreen 2D context.");
-    this.offscreenCtx.clearRect(0, 0, this.offscreenCanvas.width, this.offscreenCanvas.height);
+    this.offscreenCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.offscreenCtx.clearRect(0, 0, this.offscreenCanvas.width / dpr, this.offscreenCanvas.height / dpr);
     return { canvas: this.offscreenCanvas, ctx: this.offscreenCtx };
   }
 };

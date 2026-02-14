@@ -63,6 +63,7 @@
 					</select>
 					<label><input type="checkbox" id="blink-marks" checked> Blink Marks</label>
 					<label><input type="checkbox" id="stay-path" checked> Stay Path</label>
+					<label><input type="checkbox" id="use-hidpi" checked> High DPI</label>
 				</div>
 				<div class="control-group">
 					<label for="complexity-slider">Complexity (Constraint Density):</label>
@@ -97,6 +98,11 @@
 
 	<div id="game-container">
 		<canvas id="game-canvas"></canvas>
+	</div>
+
+	<div id="event-log-container">
+		<div id="event-log-title">Internal Events:</div>
+		<div id="event-log"></div>
 	</div>
 
 	<div class="instructions">

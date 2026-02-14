@@ -70,7 +70,37 @@ export interface WitnessUIOptions {
 	onPuzzleCreated?: (payload: { puzzle: PuzzleData; genOptions: any }) => void;
 	/** バリデーション結果が返ってきた際のコールバック (Workerモード時のみ有効) */
 	onValidationResult?: (result: ValidationResult) => void;
+	/** 高解像度ディスプレイ(Retina等)に対応させるためのピクセル比。省略時はwindow.devicePixelRatioが使用されます。 */
+	pixelRatio?: number;
 }
+
+/**
+ * WitnessUIが発行するイベントのマップ
+ */
+export interface WitnessEventMap {
+	/** 描画の直前 (コンテキストが渡される) */
+	"render:before": { ctx: WitnessContext };
+	/** 描画の直後 (コンテキストが渡される) */
+	"render:after": { ctx: WitnessContext };
+	/** パスの描き始め (グリッド座標) */
+	"path:start": { x: number; y: number };
+	/** パスの移動中 (グリッド座標、パス全体、現在のマウス位置) */
+	"path:move": { x: number; y: number; path: Point[]; currentMousePos: Point };
+	/** パスの終了 (パス全体、出口に到達したか) */
+	"path:end": { path: Point[]; isExit: boolean };
+	/** パスが完了し、出口に到達した瞬間 */
+	"path:complete": { path: Point[] };
+	/** ゴール可能状態（先端がゴールの出っ張りに近い）の変化 */
+	"goal:reachable": { reachable: boolean };
+	/** ゴールに到達し、成功または失敗のアニメーションが開始された時 */
+	"goal:reached": { path: Point[]; isValid: boolean };
+	/** 無効化アニメーション（消しゴム等）が終了し、完全にバリデーション表示が完了した時 */
+	"goal:validated": { result: ValidationResult };
+	/** 新しいパズルがセットされた時 */
+	"puzzle:created": { puzzle: PuzzleData };
+}
+
+export type WitnessEventName = keyof WitnessEventMap;
 
 type WitnessContext = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 
@@ -83,6 +113,7 @@ export class WitnessUI {
 	private worker: Worker | null = null;
 	private puzzle: PuzzleData | null = null;
 	private options: Required<WitnessUIOptions>;
+	private listeners: Map<string, Set<Function>> = new Map();
 
 	private path: Point[] = [];
 	private isDrawing = false;
@@ -166,12 +197,17 @@ export class WitnessUI {
 						this.isDrawing = payload !== false; // payloadがfalseなら開始失敗
 					} else if (type === "drawingEnded") {
 						this.isDrawing = false;
-					} else if (type === "pathComplete" && this.options.onPathComplete) {
-						this.options.onPathComplete(payload);
-					} else if (type === "puzzleCreated" && this.options.onPuzzleCreated) {
-						this.options.onPuzzleCreated(payload);
-					} else if (type === "validationResult" && this.options.onValidationResult) {
-						this.options.onValidationResult(payload);
+					} else if (type === "pathComplete") {
+						if (this.options.onPathComplete) this.options.onPathComplete(payload);
+						this.emit("path:complete", { path: payload });
+					} else if (type === "puzzleCreated") {
+						if (this.options.onPuzzleCreated) this.options.onPuzzleCreated(payload);
+						// puzzle:created は setPuzzle 内で発行されるためここでは行わない
+					} else if (type === "validationResult") {
+						if (this.options.onValidationResult) this.options.onValidationResult(payload);
+						this.emit("goal:validated", { result: payload });
+					} else if (type === "uiEvent") {
+						this.emit(payload.type, payload.data);
 					}
 				});
 			}
@@ -244,6 +280,7 @@ export class WitnessUI {
 			onPathComplete: options.onPathComplete ?? this.options?.onPathComplete ?? (() => {}),
 			onPuzzleCreated: options.onPuzzleCreated ?? this.options?.onPuzzleCreated,
 			onValidationResult: options.onValidationResult ?? this.options?.onValidationResult,
+			pixelRatio: options.pixelRatio ?? this.options?.pixelRatio ?? (typeof window !== "undefined" ? window.devicePixelRatio : 1),
 		};
 	}
 
@@ -257,6 +294,7 @@ export class WitnessUI {
 				this.resizeCanvas();
 			}
 			this.worker.postMessage({ type: "setPuzzle", payload: { puzzle } });
+			this.emit("puzzle:created", { puzzle });
 			return;
 		}
 
@@ -276,6 +314,7 @@ export class WitnessUI {
 			this.resizeCanvas();
 		}
 		this.draw();
+		this.emit("puzzle:created", { puzzle });
 	}
 
 	/**
@@ -295,6 +334,73 @@ export class WitnessUI {
 			this.resizeCanvas();
 		}
 		this.draw();
+	}
+
+	// --- Event Emitter ---
+
+	/**
+	 * イベントリスナーを追加する
+	 */
+	public addEventListener<K extends WitnessEventName>(type: K, listener: (data: WitnessEventMap[K]) => void) {
+		if (!this.listeners.has(type)) {
+			this.listeners.set(type, new Set());
+		}
+		this.listeners.get(type)!.add(listener);
+	}
+
+	/**
+	 * イベントリスナーを削除する
+	 */
+	public removeEventListener<K extends WitnessEventName>(type: K, listener: (data: WitnessEventMap[K]) => void) {
+		const set = this.listeners.get(type);
+		if (set) {
+			set.delete(listener);
+		}
+	}
+
+	/**
+	 * イベントリスナーを追加する (エイリアス)
+	 */
+	public on<K extends WitnessEventName>(type: K, listener: (data: WitnessEventMap[K]) => void) {
+		this.addEventListener(type, listener);
+		return this;
+	}
+
+	/**
+	 * イベントリスナーを削除する (エイリアス)
+	 */
+	public off<K extends WitnessEventName>(type: K, listener: (data: WitnessEventMap[K]) => void) {
+		this.removeEventListener(type, listener);
+		return this;
+	}
+
+	/**
+	 * 内部イベントを発行する
+	 */
+	private emit<K extends WitnessEventName>(type: K, data: WitnessEventMap[K]) {
+		const set = this.listeners.get(type);
+		if (set) {
+			set.forEach((l) => l(data));
+		}
+
+		// Workerモードで、自身がWorker内で動作している場合、メインスレッドにイベントを転送する
+		// ただし、非シリアライズ可能なデータ（CanvasRenderingContext2Dなど）を含むイベントは転送しない
+		if (typeof self !== "undefined" && (self as any).postMessage && !this.worker) {
+			const isOffscreen = typeof OffscreenCanvas !== "undefined" && this.canvas instanceof OffscreenCanvas;
+			if (isOffscreen) {
+				const nonSerializableEvents = ["render:before", "render:after"];
+				// 以下のイベントは個別のメッセージ(pathComplete等)でも送信されるため、
+				// 二重発行を防ぐためにuiEventとしては送信しない
+				const redundantEvents = ["path:complete", "puzzle:created", "goal:validated"];
+				if (!nonSerializableEvents.includes(type) && !redundantEvents.includes(type)) {
+					try {
+						(self as any).postMessage({ type: "uiEvent", payload: { type, data } });
+					} catch (e) {
+						// シリアライズ不可なデータが含まれていた場合は無視
+					}
+				}
+			}
+		}
 	}
 
 	/**
@@ -321,6 +427,8 @@ export class WitnessUI {
 			this.isInvalidPath = true;
 			// 失敗時のフェードアウト設定が有効な場合、アニメーション（点滅）待ちの後に startFade が呼ばれるようにする
 		}
+
+		this.emit("goal:reached", { path: this.path, isValid });
 	}
 
 	/**
@@ -331,16 +439,18 @@ export class WitnessUI {
 		const w = this.puzzle.cols * this.options.cellSize + this.options.gridPadding * 2;
 		const h = this.puzzle.rows * this.options.cellSize + this.options.gridPadding * 2;
 
+		const dpr = this.options.pixelRatio;
+
 		if (typeof HTMLCanvasElement !== "undefined" && this.canvas instanceof HTMLCanvasElement) {
 			try {
-				this.canvas.width = w;
-				this.canvas.height = h;
+				this.canvas.width = w * dpr;
+				this.canvas.height = h * dpr;
 			} catch (e) {
 				// InvalidStateError occurs after transferControlToOffscreen()
 			}
 		} else {
-			this.canvas.width = w;
-			this.canvas.height = h;
+			this.canvas.width = w * dpr;
+			this.canvas.height = h * dpr;
 		}
 
 		// サイズ変更後に矩形情報を再計算してWorkerに通知
@@ -519,9 +629,10 @@ export class WitnessUI {
 		}
 		if (!this.puzzle) return false;
 
-		const rect = this.canvasRect || (typeof HTMLCanvasElement !== "undefined" && this.canvas instanceof HTMLCanvasElement ? this.canvas.getBoundingClientRect() : { left: 0, top: 0, width: this.canvas.width, height: this.canvas.height });
-		const mouseX = (e.clientX - rect.left) * (this.canvas.width / rect.width);
-		const mouseY = (e.clientY - rect.top) * (this.canvas.height / rect.height);
+		const dpr = this.options.pixelRatio;
+		const rect = this.canvasRect || (typeof HTMLCanvasElement !== "undefined" && this.canvas instanceof HTMLCanvasElement ? this.canvas.getBoundingClientRect() : { left: 0, top: 0, width: this.canvas.width / dpr, height: this.canvas.height / dpr });
+		const mouseX = (e.clientX - rect.left) * (this.canvas.width / dpr / rect.width);
+		const mouseY = (e.clientY - rect.top) * (this.canvas.height / dpr / rect.height);
 
 		for (let r = 0; r <= this.puzzle.rows; r++) {
 			for (let c = 0; c <= this.puzzle.cols; c++) {
@@ -545,6 +656,7 @@ export class WitnessUI {
 						this.currentMousePos = nodePos;
 						this.exitTipPos = null;
 						this.draw();
+						this.emit("path:start", { x: c, y: r });
 						return true;
 					}
 				}
@@ -562,9 +674,10 @@ export class WitnessUI {
 		}
 		if (!this.puzzle || !this.isDrawing) return;
 
-		const rect = this.canvasRect || (typeof HTMLCanvasElement !== "undefined" && this.canvas instanceof HTMLCanvasElement ? this.canvas.getBoundingClientRect() : { left: 0, top: 0, width: this.canvas.width, height: this.canvas.height });
-		const mouseX = (e.clientX - rect.left) * (this.canvas.width / rect.width);
-		const mouseY = (e.clientY - rect.top) * (this.canvas.height / rect.height);
+		const dpr = this.options.pixelRatio;
+		const rect = this.canvasRect || (typeof HTMLCanvasElement !== "undefined" && this.canvas instanceof HTMLCanvasElement ? this.canvas.getBoundingClientRect() : { left: 0, top: 0, width: this.canvas.width / dpr, height: this.canvas.height / dpr });
+		const mouseX = (e.clientX - rect.left) * (this.canvas.width / dpr / rect.width);
+		const mouseY = (e.clientY - rect.top) * (this.canvas.height / dpr / rect.height);
 
 		const lastPoint = this.path[this.path.length - 1];
 		const lastPos = this.getCanvasCoords(lastPoint.x, lastPoint.y);
@@ -701,8 +814,12 @@ export class WitnessUI {
 							if (edgeKey === symEdgeKey) continue;
 						}
 						this.path.push(n);
+						this.emit("path:move", { x: n.x, y: n.y, path: this.path, currentMousePos: this.currentMousePos });
 					} else if (idx === this.path.length - 2) {
-						this.path.pop();
+						const popped = this.path.pop();
+						if (popped) {
+							this.emit("path:move", { x: popped.x, y: popped.y, path: this.path, currentMousePos: this.currentMousePos });
+						}
 					}
 				}
 			}
@@ -726,6 +843,7 @@ export class WitnessUI {
 		const lastPos = this.getCanvasCoords(lastPoint.x, lastPoint.y);
 		const exitDir = this.getExitDir(lastPoint.x, lastPoint.y);
 
+		let isExit = false;
 		if (exitDir) {
 			const dx_exit = this.currentMousePos.x - lastPos.x;
 			const dy_exit = this.currentMousePos.y - lastPos.y;
@@ -737,12 +855,16 @@ export class WitnessUI {
 					x: lastPos.x + exitDir.x * this.options.exitLength,
 					y: lastPos.y + exitDir.y * this.options.exitLength,
 				};
+				isExit = true;
 				this.options.onPathComplete(this.path);
+				this.emit("path:complete", { path: this.path });
+				this.emit("path:end", { path: this.path, isExit: true });
 				return;
 			}
 		}
 
 		this.exitTipPos = exitDir ? { ...this.currentMousePos } : null;
+		this.emit("path:end", { path: this.path, isExit: false });
 		this.startFade(this.options.colors.interrupted); // 途中で離した場合は指定されたフェード色で消える
 	}
 
@@ -799,6 +921,18 @@ export class WitnessUI {
 			if (this.fadeOpacity <= 0) {
 				this.isFading = false;
 				this.fadeOpacity = 0;
+				if (this.isInvalidPath) {
+					this.isInvalidPath = false;
+					this.emit("goal:validated", { result: { isValid: false } as any });
+				}
+			}
+		}
+
+		if (this.isSuccessFading) {
+			const elapsed = now - this.successFadeStartTime;
+			if (elapsed > this.options.animations.blinkDuration + this.options.animations.fadeDuration) {
+				this.isSuccessFading = false;
+				this.emit("goal:validated", { result: { isValid: true } as any });
 			}
 		}
 
@@ -821,13 +955,20 @@ export class WitnessUI {
 
 	// --- Drawing Logic ---
 
+	private lastGoalReachable = false;
+
 	public draw() {
 		if (!this.puzzle || !this.ctx) return;
 
 		const ctx = this.ctx;
+		this.emit("render:before", { ctx });
+
 		const now = Date.now();
+		const dpr = this.options.pixelRatio;
+
+		ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 		ctx.globalAlpha = 1.0;
-		ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+		ctx.clearRect(0, 0, this.canvas.width / dpr, this.canvas.height / dpr);
 
 		this.drawGrid(ctx);
 		this.drawConstraints(ctx);
@@ -907,6 +1048,12 @@ export class WitnessUI {
 
 			// ゴール到達時の発光処理（点滅）
 			const isAtExit = this.isPathAtExit(this.path, this.isDrawing ? this.currentMousePos : this.exitTipPos);
+
+			if (isAtExit !== this.lastGoalReachable) {
+				this.lastGoalReachable = isAtExit;
+				this.emit("goal:reachable", { reachable: isAtExit });
+			}
+
 			if (isAtExit && !this.isInvalidPath && !this.isSuccessFading) {
 				const originalAlpha = this.colorToRgba(color).a;
 				const pulseFactor = (Math.sin((now * Math.PI * 2) / 600) + 1) / 2;
@@ -951,6 +1098,7 @@ export class WitnessUI {
 				this.drawPath(ctx, symPath, this.isDrawing, symColor, symPathOpacity, symTipPos);
 			}
 		}
+		this.emit("render:after", { ctx });
 	}
 
 	/**
@@ -1088,6 +1236,7 @@ export class WitnessUI {
 					const { canvas: tempCanvas, ctx: tempCtx } = this.prepareOffscreen();
 					this.drawConstraintItem(tempCtx, cell, pos, overrideColor);
 					ctx.save();
+					ctx.setTransform(1, 0, 0, 1, 0, 0);
 					ctx.globalAlpha = opacity;
 					ctx.drawImage(tempCanvas, 0, 0);
 					ctx.restore();
@@ -1311,6 +1460,7 @@ export class WitnessUI {
 		const { canvas: tempCanvas, ctx: tempCtx } = this.prepareOffscreen();
 		this.drawPathInternal(tempCtx, path, isDrawing, finalColor, tipPos);
 		ctx.save();
+		ctx.setTransform(1, 0, 0, 1, 0, 0);
 		ctx.globalAlpha = finalOpacity;
 		ctx.drawImage(tempCanvas, 0, 0);
 		ctx.restore();
@@ -1686,6 +1836,7 @@ export class WitnessUI {
 	}
 
 	private prepareOffscreen(): { canvas: HTMLCanvasElement | OffscreenCanvas; ctx: WitnessContext } {
+		const dpr = this.options.pixelRatio;
 		if (!this.offscreenCanvas) {
 			if (typeof document !== "undefined") {
 				this.offscreenCanvas = document.createElement("canvas");
@@ -1701,7 +1852,8 @@ export class WitnessUI {
 			this.offscreenCanvas.height = this.canvas.height;
 		}
 		if (!this.offscreenCtx) throw new Error("Could not get offscreen 2D context.");
-		this.offscreenCtx.clearRect(0, 0, this.offscreenCanvas.width, this.offscreenCanvas.height);
+		this.offscreenCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+		this.offscreenCtx.clearRect(0, 0, this.offscreenCanvas.width / dpr, this.offscreenCanvas.height / dpr);
 		return { canvas: this.offscreenCanvas, ctx: this.offscreenCtx };
 	}
 }

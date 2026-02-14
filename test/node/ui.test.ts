@@ -3,6 +3,38 @@ import { describe, test } from "node:test";
 import { CellType, Color, NodeType, PuzzleSerializer, WitnessUI } from "../../dist/MiniWitness.js";
 
 describe("WitnessUI Full Test Suite", { concurrency: false }, async () => {
+	if (typeof (global as any).OffscreenCanvas === "undefined") {
+		(global as any).OffscreenCanvas = class {
+			width: number;
+			height: number;
+			constructor(width: number, height: number) {
+				this.width = width;
+				this.height = height;
+			}
+			getContext() {
+				return {
+					imageSmoothingEnabled: true,
+					clearRect: () => {},
+					save: () => {},
+					restore: () => {},
+					beginPath: () => {},
+					moveTo: () => {},
+					lineTo: () => {},
+					stroke: () => {},
+					fill: () => {},
+					arc: () => {},
+					fillRect: () => {},
+					translate: () => {},
+					rotate: () => {},
+					setTransform: () => {},
+					closePath: () => {},
+					quadraticCurveTo: () => {},
+					drawImage: () => {},
+				};
+			}
+		};
+	}
+
 	await test("WitnessUI export", () => {
 		assert.ok(WitnessUI, "WitnessUI should be exported");
 	});
@@ -28,6 +60,7 @@ describe("WitnessUI Full Test Suite", { concurrency: false }, async () => {
 			fillRect: () => {},
 			translate: () => {},
 			rotate: () => {},
+			setTransform: () => {},
 			closePath: () => {},
 			quadraticCurveTo: () => {},
 			drawImage: () => {},
@@ -79,6 +112,62 @@ describe("WitnessUI Full Test Suite", { concurrency: false }, async () => {
 		const rect = { left: 10, top: 20, width: 300, height: 400 };
 		ui.setCanvasRect(rect);
 		assert.deepStrictEqual(internalUI.canvasRect, rect);
+	});
+
+	await test("WitnessUI DPI Scaling (pixelRatio)", () => {
+		const puzzle = createEmptyPuzzle(4, 4);
+		const canvas = createMockCanvas();
+		const ui = new WitnessUI(canvas as any, puzzle as any, { pixelRatio: 2, cellSize: 80, gridPadding: 60 });
+
+		// 4x80 + 60*2 = 440. 440 * 2 = 880.
+		assert.strictEqual(canvas.width, 880);
+		assert.strictEqual(canvas.height, 880);
+	});
+
+	await test("WitnessUI Event Emitter (on/emit)", () => {
+		const ui = new WitnessUI(createMockCanvas() as any);
+		let eventFired = false;
+		let receivedData = null;
+
+		ui.on("path:start", (data) => {
+			eventFired = true;
+			receivedData = data;
+		});
+
+		(ui as any).emit("path:start", { x: 1, y: 2 });
+
+		assert.strictEqual(eventFired, true);
+		assert.deepStrictEqual(receivedData, { x: 1, y: 2 });
+	});
+
+	await test("WitnessUI goal:reachable event", () => {
+		const puzzle = createEmptyPuzzle(1, 1);
+		puzzle.nodes[0][1].type = NodeType.End;
+		const ui = new WitnessUI(createMockCanvas() as any, puzzle as any);
+
+		let reachable = false;
+		ui.on("goal:reachable", (data) => {
+			reachable = data.reachable;
+		});
+
+		const internalUI = ui as any;
+		internalUI.path = [
+			{ x: 0, y: 0 },
+			{ x: 1, y: 0 },
+		];
+
+		// 届いている状態にする
+		const lastPos = internalUI.getCanvasCoords(1, 0);
+		internalUI.currentMousePos = { x: lastPos.x + 23, y: lastPos.y };
+		internalUI.isDrawing = true;
+
+		ui.draw();
+		assert.strictEqual(reachable, true);
+
+		// 離れた状態にする
+		internalUI.currentMousePos = { x: lastPos.x, y: lastPos.y };
+		ui.draw();
+		assert.strictEqual(reachable, false);
 	});
 
 	await test("WitnessUI new options are merged correctly", () => {
