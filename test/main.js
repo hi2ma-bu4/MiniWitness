@@ -21,24 +21,26 @@ class WitnessGame {
 	}
 
 	async init() {
-		const useWorkerCheckbox = document.getElementById("use-worker");
-		useWorkerCheckbox.addEventListener("change", () => {
+		const workerSelect = document.getElementById("worker-select");
+		workerSelect.addEventListener("change", () => {
 			alert("Mode change requires page reload. Reloading now...");
 			const url = new URL(window.location.href);
-			url.searchParams.set("worker", useWorkerCheckbox.checked ? "1" : "0");
+			url.searchParams.set("worker", workerSelect.value);
 			window.location.href = url.toString();
 		});
 
 		const params = new URLSearchParams(window.location.search);
-		if (params.get("worker") == null) {
-			this.isWorkerMode = !!window.Worker && !!this.canvas.transferControlToOffscreen;
+		const workerParam = params.get("worker");
+		if (workerParam == null) {
+			this.workerType = !!window.Worker && !!this.canvas.transferControlToOffscreen ? 2 : 0;
 		} else {
-			this.isWorkerMode = params.get("worker") === "1";
+			this.workerType = parseInt(workerParam);
 		}
-		useWorkerCheckbox.checked = this.isWorkerMode;
+		workerSelect.value = this.workerType;
+		this.isWorkerMode = this.workerType > 0;
 
 		if (this.isWorkerMode && this.canvas.transferControlToOffscreen) {
-			this.initWorker();
+			this.initWorker(this.workerType);
 		} else {
 			this.ui = new WitnessUI(this.canvas, null, {
 				onPathComplete: (path) => this.validate(path),
@@ -54,28 +56,28 @@ class WitnessGame {
 					symmetry: document.getElementById("sym-color-select").value,
 				},
 			};
-			if (this.isWorkerMode) {
-				this.worker.postMessage({ type: "setOptions", payload: options });
-			} else if (this.ui) {
+			if (this.ui) {
 				this.ui.setOptions(options);
+			} else if (this.worker) {
+				this.worker.postMessage({ type: "setOptions", payload: options });
 			}
 		});
 
 		document.getElementById("blink-marks").addEventListener("change", () => {
 			const options = { blinkMarksOnError: document.getElementById("blink-marks").checked };
-			if (this.isWorkerMode) {
-				this.worker.postMessage({ type: "setOptions", payload: options });
-			} else if (this.ui) {
+			if (this.ui) {
 				this.ui.setOptions(options);
+			} else if (this.worker) {
+				this.worker.postMessage({ type: "setOptions", payload: options });
 			}
 		});
 
 		document.getElementById("stay-path").addEventListener("change", () => {
 			const options = { stayPathOnError: document.getElementById("stay-path").checked };
-			if (this.isWorkerMode) {
-				this.worker.postMessage({ type: "setOptions", payload: options });
-			} else if (this.ui) {
+			if (this.ui) {
 				this.ui.setOptions(options);
+			} else if (this.worker) {
+				this.worker.postMessage({ type: "setOptions", payload: options });
 			}
 		});
 
@@ -127,7 +129,10 @@ class WitnessGame {
 
 		this.updateStatus("Generating puzzle... (Searching for optimal difficulty)");
 		setTimeout(() => {
-			if (this.isWorkerMode) {
+			if (this.ui && this.workerType === 2) {
+				// Use the library's built-in worker interface
+				this.ui.createPuzzle(size, size, options);
+			} else if (this.isWorkerMode) {
 				this.worker.postMessage({ type: "createPuzzle", payload: { rows: size, cols: size, genOptions: options } });
 			} else {
 				const puzzle = this.core.createPuzzle(size, size, options);
@@ -178,11 +183,11 @@ class WitnessGame {
 			},
 		};
 
-		if (this.isWorkerMode) {
-			this.worker.postMessage({ type: "setPuzzle", payload: { puzzle: this.puzzle, options: uiOptions } });
-		} else {
+		if (this.ui) {
 			this.ui.setOptions(uiOptions);
 			this.ui.setPuzzle(this.puzzle);
+		} else if (this.worker) {
+			this.worker.postMessage({ type: "setPuzzle", payload: { puzzle: this.puzzle, options: uiOptions } });
 		}
 		let status = `Puzzle loaded! (Difficulty: ${diff.toFixed(2)})`;
 		if (this.puzzle.seed && options.rngType !== RngType.MathRandom) status += ` [Seed: ${this.puzzle.seed}]`;
@@ -218,22 +223,145 @@ class WitnessGame {
 		this.statusMsg.style.color = color;
 	}
 
-	initWorker() {
-		this.worker = new Worker("./worker.js", { type: "module" });
-		const offscreen = this.canvas.transferControlToOffscreen();
+	initWorker(type) {
+		if (type === 2) {
+			// Direct Worker: Everything is handled by the library internally
+			this.ui = new WitnessUI(this.canvas, null, {
+				useWorker: true,
+				workerScript: "../dist/MiniWitness.js",
+				autoValidate: true,
+				onPathComplete: (path) => this.validate(path),
+				onPuzzleCreated: (payload) => this.loadPuzzle(payload.puzzle, payload.genOptions),
+				onValidationResult: (result) => {
+					if (result.isValid) {
+						this.updateStatus("Correct! Well done!", "#4f4");
+					} else {
+						this.updateStatus("Incorrect: " + (result.errorReason || "Try again"), "#f44");
+					}
+				},
+			});
+			// In worker mode, WitnessUI automatically forwards events and syncs state.
+			return;
+		}
 
-		this.worker.postMessage(
-			{
-				type: "init",
-				payload: {
-					canvas: offscreen,
-					options: {
-						onPathComplete: true, // Marker to indicate we want callbacks
+		// Custom Worker: Manual init (legacy)
+		const script = "./worker.js";
+		this.worker = new Worker(script, { type: "module" });
+
+		if (true) {
+			const offscreen = this.canvas.transferControlToOffscreen();
+			this.worker.postMessage(
+				{
+					type: "init",
+					payload: {
+						canvas: offscreen,
+						options: {
+							onPathComplete: true,
+						},
 					},
 				},
-			},
-			[offscreen],
-		);
+				[offscreen],
+			);
+
+			// Forward events manually (legacy)
+			const forwardEvent = (e) => {
+				const touch = (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0]);
+				const eventData = {
+					clientX: e.clientX || (touch ? touch.clientX : 0),
+					clientY: e.clientY || (touch ? touch.clientY : 0),
+				};
+				this.worker.postMessage({
+					type: "event",
+					payload: {
+						eventType: e.type,
+						eventData,
+					},
+				});
+			};
+
+			this.canvas.addEventListener("mousedown", (e) => {
+				forwardEvent(e);
+			});
+			window.addEventListener("mousemove", (e) => {
+				if (this.isDrawing) forwardEvent(e);
+			});
+			window.addEventListener("mouseup", (e) => {
+				if (this.isDrawing) forwardEvent(e);
+			});
+
+			this.canvas.addEventListener(
+				"touchstart",
+				(e) => {
+					// スタートノードの判定
+					const rect = this.canvas.getBoundingClientRect();
+					const touch = e.touches[0];
+					const mouseX = (touch.clientX - rect.left) * (this.canvas.width / rect.width);
+					const mouseY = (touch.clientY - rect.top) * (this.canvas.height / rect.height);
+
+					let hitStart = false;
+					if (this.puzzle) {
+						const gridPadding = 60;
+						const cellSize = 80;
+						const startNodeRadius = 22;
+						for (let r = 0; r <= this.puzzle.rows; r++) {
+							for (let c = 0; c <= this.puzzle.cols; c++) {
+								if (this.puzzle.nodes[r][c].type === 1) {
+									const nodeX = gridPadding + c * cellSize;
+									const nodeY = gridPadding + r * cellSize;
+									if (Math.hypot(nodeX - mouseX, nodeY - mouseY) < startNodeRadius) {
+										hitStart = true;
+										break;
+									}
+								}
+							}
+							if (hitStart) break;
+						}
+					}
+
+					if (hitStart) {
+						forwardEvent(e);
+						if (e.cancelable) e.preventDefault();
+					}
+				},
+				{ passive: false },
+			);
+			window.addEventListener(
+				"touchmove",
+				(e) => {
+					if (this.isDrawing) {
+						forwardEvent(e);
+						if (e.cancelable) e.preventDefault();
+					}
+				},
+				{ passive: false },
+			);
+			window.addEventListener(
+				"touchend",
+				(e) => {
+					if (this.isDrawing) {
+						forwardEvent(e);
+						if (e.cancelable) e.preventDefault();
+					}
+				},
+				{ passive: false },
+			);
+
+			const updateRect = () => {
+				const rect = this.canvas.getBoundingClientRect();
+				this.worker.postMessage({
+					type: "setCanvasRect",
+					payload: {
+						left: rect.left,
+						top: rect.top,
+						width: rect.width,
+						height: rect.height,
+					},
+				});
+			};
+			window.addEventListener("resize", updateRect);
+			window.addEventListener("scroll", updateRect);
+			updateRect();
+		}
 
 		this.worker.onmessage = (e) => {
 			const { type, payload } = e.data;
@@ -254,111 +382,10 @@ class WitnessGame {
 				}
 			}
 		};
-
-		// フォワードイベント
-		const forwardEvent = (e) => {
-			const touch = (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0]);
-			const eventData = {
-				clientX: e.clientX || (touch ? touch.clientX : 0),
-				clientY: e.clientY || (touch ? touch.clientY : 0),
-			};
-			this.worker.postMessage({
-				type: "event",
-				payload: {
-					eventType: e.type,
-					eventData,
-				},
-			});
-		};
-
-		this.canvas.addEventListener("mousedown", (e) => {
-			forwardEvent(e);
-		});
-		window.addEventListener("mousemove", (e) => {
-			if (this.isDrawing) forwardEvent(e);
-		});
-		window.addEventListener("mouseup", (e) => {
-			if (this.isDrawing) forwardEvent(e);
-		});
-
-		this.canvas.addEventListener(
-			"touchstart",
-			(e) => {
-				// スタートノードの判定（簡易版）
-				const rect = this.canvas.getBoundingClientRect();
-				const touch = e.touches[0];
-				const mouseX = (touch.clientX - rect.left) * (this.canvas.width / rect.width);
-				const mouseY = (touch.clientY - rect.top) * (this.canvas.height / rect.height);
-
-				let hitStart = false;
-				if (this.puzzle) {
-					const gridPadding = 60;
-					const cellSize = 80;
-					const startNodeRadius = 22;
-					for (let r = 0; r <= this.puzzle.rows; r++) {
-						for (let c = 0; c <= this.puzzle.cols; c++) {
-							if (this.puzzle.nodes[r][c].type === 1) {
-								// NodeType.Start
-								const nodeX = gridPadding + c * cellSize;
-								const nodeY = gridPadding + r * cellSize;
-								if (Math.hypot(nodeX - mouseX, nodeY - mouseY) < startNodeRadius) {
-									hitStart = true;
-									break;
-								}
-							}
-						}
-						if (hitStart) break;
-					}
-				}
-
-				if (hitStart) {
-					forwardEvent(e);
-					if (e.cancelable) e.preventDefault();
-				}
-			},
-			{ passive: false },
-		);
-		window.addEventListener(
-			"touchmove",
-			(e) => {
-				if (this.isDrawing) {
-					forwardEvent(e);
-					if (e.cancelable) e.preventDefault();
-				}
-			},
-			{ passive: false },
-		);
-		window.addEventListener(
-			"touchend",
-			(e) => {
-				if (this.isDrawing) {
-					forwardEvent(e);
-					if (e.cancelable) e.preventDefault();
-				}
-			},
-			{ passive: false },
-		);
-
-		// 定期的にRectを更新
-		const updateRect = () => {
-			const rect = this.canvas.getBoundingClientRect();
-			this.worker.postMessage({
-				type: "setCanvasRect",
-				payload: {
-					left: rect.left,
-					top: rect.top,
-					width: rect.width,
-					height: rect.height,
-				},
-			});
-		};
-		window.addEventListener("resize", updateRect);
-		window.addEventListener("scroll", updateRect);
-		updateRect();
 	}
 
 	validate(path) {
-		if (this.isWorkerMode) {
+		if (this.worker) {
 			this.worker.postMessage({ type: "validate", payload: { path } });
 		} else {
 			const result = this.core.validateSolution(this.puzzle, { points: path });

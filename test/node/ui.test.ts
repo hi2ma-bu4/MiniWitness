@@ -209,6 +209,11 @@ describe("WitnessUI Full Test Suite", { concurrency: false }, async () => {
 		const ui = new WitnessUI(createMockCanvas() as unknown as HTMLCanvasElement, puzzle as any);
 		const internalUI = ui as any;
 
+		internalUI.prepareOffscreen = () => ({
+			canvas: { width: 100, height: 100 },
+			ctx: internalUI.ctx,
+		});
+
 		internalUI.path = [
 			{ x: 0, y: 0 },
 			{ x: 1, y: 0 },

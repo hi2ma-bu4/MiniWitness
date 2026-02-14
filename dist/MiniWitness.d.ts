@@ -387,6 +387,12 @@ export interface WitnessUIOptions {
 	blinkMarksOnError?: boolean;
 	/** 失敗時に引いた線（対称線含む）を残すか（falseの場合はフェードアウトする） */
 	stayPathOnError?: boolean;
+	/** パスが完了した際に自動的にバリデーションを実行するか (Workerモード時のみ有効) */
+	autoValidate?: boolean;
+	/** WebWorkerを使用して生成・検証を行うか */
+	useWorker?: boolean;
+	/** Workerスクリプトのパス (デフォルトは import.meta.url) */
+	workerScript?: string;
 	/** アニメーション設定 */
 	animations?: {
 		/** 点滅・前アニメーションの時間(ms) */
@@ -425,6 +431,13 @@ export interface WitnessUIOptions {
 	};
 	/** パスが完了（出口に到達）した際のコールバック */
 	onPathComplete?: (path: Point[]) => void;
+	/** パズルが生成された際のコールバック (Workerモード時のみ有効) */
+	onPuzzleCreated?: (payload: {
+		puzzle: PuzzleData;
+		genOptions: any;
+	}) => void;
+	/** バリデーション結果が返ってきた際のコールバック (Workerモード時のみ有効) */
+	onValidationResult?: (result: ValidationResult) => void;
 }
 /**
  * the witnessパズルの描画とユーザー操作を管理するクラス
@@ -432,6 +445,7 @@ export interface WitnessUIOptions {
 export declare class WitnessUI {
 	private canvas;
 	private ctx;
+	private worker;
 	private puzzle;
 	private options;
 	private path;
@@ -457,12 +471,16 @@ export declare class WitnessUI {
 	private offscreenCanvas;
 	private offscreenCtx;
 	private canvasRect;
+	private isDestroyed;
+	private animationFrameId;
+	private timeoutId;
 	private boundMouseDown;
 	private boundMouseMove;
 	private boundMouseUp;
 	private boundTouchStart;
 	private boundTouchMove;
 	private boundTouchEnd;
+	private boundUpdateRect;
 	constructor(canvasOrId: HTMLCanvasElement | OffscreenCanvas | string, puzzle?: PuzzleData, options?: WitnessUIOptions);
 	/**
 	 * デフォルトオプションとユーザー指定オプションをマージする
@@ -503,6 +521,10 @@ export declare class WitnessUI {
 		width: number;
 		height: number;
 	}): void;
+	/**
+	 * Workerにパズル生成を依頼する (Workerモード時のみ有効)
+	 */
+	createPuzzle(rows: number, cols: number, genOptions: any): void;
 	/**
 	 * マウス・タッチイベントを初期化する
 	 */
@@ -677,6 +699,10 @@ export declare class WitnessUI {
 	/**
 	 * 合成用のオフスクリーンCanvasを準備する
 	 */
+	/**
+	 * Workerに送信できない関数などのプロパティを除去したオプションを生成する
+	 */
+	private sanitizeOptions;
 	private prepareOffscreen;
 }
 export interface IRng {

@@ -55,7 +55,12 @@
 				<summary>Advanced Settings</summary>
 				<div class="control-group">
 					<label><input type="checkbox" id="custom-theme" checked> Custom Theme</label>
-					<label><input type="checkbox" id="use-worker"> WebWorker</label>
+					<label for="worker-select">Worker:</label>
+					<select id="worker-select">
+						<option value="0">None</option>
+						<option value="1">Custom (worker.js)</option>
+						<option value="2">Direct (MiniWitness.js)</option>
+					</select>
 					<label><input type="checkbox" id="blink-marks" checked> Blink Marks</label>
 					<label><input type="checkbox" id="stay-path" checked> Stay Path</label>
 				</div>

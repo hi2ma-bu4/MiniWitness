@@ -1,5 +1,5 @@
 /*!
- * MiniWitness 1.3.1
+ * MiniWitness 1.3.2
  * Copyright 2026 hi2ma-bu4
  * Licensed under the Apache License, Version 2.0
  * http://www.apache.org/licenses/LICENSE-2.0
@@ -3280,205 +3280,11 @@ var PuzzleGenerator = class {
   }
 };
 
-// src/serializer.ts
-var BitWriter = class {
-  bytes = [];
-  cur = 0;
-  bit = 0;
-  write(value, bits) {
-    for (let i = 0; i < bits; i++) {
-      if (value & 1 << i) this.cur |= 1 << this.bit;
-      this.bit++;
-      if (this.bit === 8) {
-        this.bytes.push(this.cur);
-        this.cur = 0;
-        this.bit = 0;
-      }
-    }
-  }
-  finish() {
-    if (this.bit > 0) this.bytes.push(this.cur);
-    return new Uint8Array(this.bytes);
-  }
-};
-var BitReader = class {
-  constructor(buf) {
-    this.buf = buf;
-  }
-  i = 0;
-  bit = 0;
-  read(bits) {
-    let v = 0;
-    for (let i = 0; i < bits; i++) {
-      if (this.buf[this.i] & 1 << this.bit) v |= 1 << i;
-      this.bit++;
-      if (this.bit === 8) {
-        this.bit = 0;
-        this.i++;
-      }
-    }
-    return v;
-  }
-};
-function collectShapes(cells) {
-  const map = /* @__PURE__ */ new Map();
-  for (const row of cells) {
-    for (const c of row) {
-      if (c.shape) {
-        const key = JSON.stringify(c.shape);
-        if (!map.has(key)) map.set(key, c.shape);
-      }
-    }
-  }
-  return [...map.values()];
-}
-var PuzzleSerializer = class {
-  /**
-   * パズルデータとオプションを圧縮されたBase64文字列に変換する
-   * @param puzzle パズルデータ
-   * @param options 生成オプション
-   * @returns シリアライズされた文字列
-   */
-  static async serialize(puzzle, options) {
-    const bw = new BitWriter();
-    bw.write(puzzle.rows, 6);
-    bw.write(puzzle.cols, 6);
-    bw.write(puzzle.symmetry ?? 0, 2);
-    const shapes = collectShapes(puzzle.cells);
-    bw.write(shapes.length, 5);
-    for (const s of shapes) {
-      bw.write(s.length, 4);
-      bw.write(s[0].length, 4);
-      for (const r of s) for (const v of r) bw.write(v, 1);
-    }
-    const shapeIndex = /* @__PURE__ */ new Map();
-    shapes.forEach((s, i) => shapeIndex.set(JSON.stringify(s), i));
-    for (const row of puzzle.cells) {
-      for (const c of row) {
-        bw.write(c.type, 4);
-        bw.write(c.color, 3);
-        if (c.type === 8 /* Triangle */) {
-          bw.write(c.count || 0, 2);
-        } else if (c.shape) {
-          bw.write(1, 1);
-          bw.write(shapeIndex.get(JSON.stringify(c.shape)), 5);
-        } else {
-          bw.write(0, 1);
-        }
-      }
-    }
-    for (let y = 0; y < puzzle.rows; y++) for (let x = 0; x < puzzle.cols + 1; x++) bw.write(puzzle.vEdges[y][x].type, 3);
-    for (let y = 0; y < puzzle.rows + 1; y++) for (let x = 0; x < puzzle.cols; x++) bw.write(puzzle.hEdges[y][x].type, 3);
-    for (let y = 0; y < puzzle.rows + 1; y++) for (let x = 0; x < puzzle.cols + 1; x++) bw.write(puzzle.nodes[y][x].type, 3);
-    bw.write(+!!options.useHexagons, 1);
-    bw.write(+!!options.useSquares, 1);
-    bw.write(+!!options.useStars, 1);
-    bw.write(+!!options.useTetris, 1);
-    bw.write(+!!options.useTetrisNegative, 1);
-    bw.write(+!!options.useEraser, 1);
-    bw.write(+!!options.useTriangles, 1);
-    bw.write(+!!options.useBrokenEdges, 1);
-    bw.write(options.symmetry ?? 0, 2);
-    bw.write(Math.round((options.complexity ?? 0) * 254), 8);
-    bw.write(Math.round((options.difficulty ?? 0) * 254), 8);
-    bw.write(Math.round((options.pathLength ?? 0) * 254), 8);
-    const raw = bw.finish();
-    const gz = new Uint8Array(await new Response(new Blob([raw.buffer]).stream().pipeThrough(new CompressionStream("gzip"))).arrayBuffer());
-    let parity = 0;
-    for (const b of gz) parity ^= b;
-    const final = new Uint8Array(gz.length + 1);
-    final.set(gz);
-    final[gz.length] = parity;
-    return btoa(String.fromCharCode(...final)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-  }
-  /**
-   * シリアライズされた文字列からパズルデータとオプションを復元する
-   * @param str シリアライズされた文字列
-   * @returns 復元されたパズルデータとオプション
-   */
-  static async deserialize(str) {
-    let s = str.replace(/-/g, "+").replace(/_/g, "/");
-    while (s.length % 4) s += "=";
-    const bin = atob(s);
-    const buf = Uint8Array.from(bin, (c) => c.charCodeAt(0));
-    let parity = 0;
-    for (let i = 0; i < buf.length - 1; i++) parity ^= buf[i];
-    if (parity !== buf.at(-1)) throw new Error("Invalid parity data");
-    const raw = new Uint8Array(await new Response(new Blob([buf.slice(0, -1).buffer]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer());
-    const br = new BitReader(raw);
-    const rows = br.read(6);
-    const cols = br.read(6);
-    const symmetry = br.read(2);
-    const shapeCount = br.read(5);
-    const shapes = [];
-    for (let i = 0; i < shapeCount; i++) {
-      const h = br.read(4);
-      const w = br.read(4);
-      const s2 = [];
-      for (let y = 0; y < h; y++) {
-        const r = [];
-        for (let x = 0; x < w; x++) r.push(br.read(1));
-        s2.push(r);
-      }
-      shapes.push(s2);
-    }
-    const cells = [];
-    for (let y = 0; y < rows; y++) {
-      const row = [];
-      for (let x = 0; x < cols; x++) {
-        const type = br.read(4);
-        const color = br.read(3);
-        const cell = { type, color };
-        if (type === 8 /* Triangle */) {
-          cell.count = br.read(2);
-        } else {
-          const hasShape = br.read(1);
-          if (hasShape) cell.shape = shapes[br.read(5)].map((r) => r.slice());
-        }
-        row.push(cell);
-      }
-      cells.push(row);
-    }
-    const vEdges = Array.from({ length: rows }, () => Array.from({ length: cols + 1 }, () => ({ type: br.read(3) })));
-    const hEdges = Array.from({ length: rows + 1 }, () => Array.from({ length: cols }, () => ({ type: br.read(3) })));
-    const nodes = Array.from({ length: rows + 1 }, () => Array.from({ length: cols + 1 }, () => ({ type: br.read(3) })));
-    const readRatio = () => {
-      const v = br.read(8);
-      return Math.round(v / 254 * 1e3) / 1e3;
-    };
-    const options = {};
-    const useHexagons = !!br.read(1);
-    const useSquares = !!br.read(1);
-    const useStars = !!br.read(1);
-    const useTetris = !!br.read(1);
-    const useTetrisNegative = !!br.read(1);
-    const useEraser = !!br.read(1);
-    const useTriangles = !!br.read(1);
-    const useBroken = !!br.read(1);
-    const optSymmetry = br.read(2);
-    if (useHexagons) options.useHexagons = true;
-    if (useSquares) options.useSquares = true;
-    if (useStars) options.useStars = true;
-    if (useTetris) options.useTetris = true;
-    if (useTetrisNegative) options.useTetrisNegative = true;
-    if (useEraser) options.useEraser = true;
-    if (useTriangles) options.useTriangles = true;
-    if (useBroken) options.useBrokenEdges = true;
-    options.symmetry = optSymmetry;
-    const complexity = readRatio();
-    const difficulty = readRatio();
-    const pathLength = readRatio();
-    if (complexity !== 0) options.complexity = complexity;
-    if (difficulty !== 0) options.difficulty = difficulty;
-    if (pathLength !== 0) options.pathLength = pathLength;
-    return { puzzle: { rows, cols, cells, vEdges, hEdges, nodes, symmetry }, options };
-  }
-};
-
 // src/ui.ts
 var WitnessUI = class {
   canvas;
-  ctx;
+  ctx = null;
+  worker = null;
   puzzle = null;
   options;
   path = [];
@@ -3506,6 +3312,9 @@ var WitnessUI = class {
   offscreenCanvas = null;
   offscreenCtx = null;
   canvasRect = null;
+  isDestroyed = false;
+  animationFrameId = null;
+  timeoutId = null;
   // イベントハンドラの参照（解除用）
   boundMouseDown = null;
   boundMouseMove = null;
@@ -3513,6 +3322,7 @@ var WitnessUI = class {
   boundTouchStart = null;
   boundTouchMove = null;
   boundTouchEnd = null;
+  boundUpdateRect = null;
   constructor(canvasOrId, puzzle, options = {}) {
     if (typeof canvasOrId === "string") {
       if (typeof document === "undefined") {
@@ -3526,16 +3336,50 @@ var WitnessUI = class {
     } else {
       this.canvas = canvasOrId;
     }
-    const context = this.canvas.getContext("2d");
-    if (!context) throw new Error("Could not get 2D context.");
-    this.ctx = context;
-    this.ctx.imageSmoothingEnabled = false;
     this.options = this.mergeOptions(options);
+    if (this.options.useWorker && typeof window !== "undefined" && this.canvas instanceof HTMLCanvasElement && this.canvas.transferControlToOffscreen) {
+      const script = this.options.workerScript ?? import.meta.url;
+      if (script) {
+        this.worker = new Worker(script, { type: "module" });
+        const offscreen = this.canvas.transferControlToOffscreen();
+        const sanitizedOptions = this.sanitizeOptions(this.options);
+        this.worker.postMessage(
+          {
+            type: "init",
+            payload: {
+              canvas: offscreen,
+              options: sanitizedOptions
+            }
+          },
+          [offscreen]
+        );
+        this.worker.addEventListener("message", (e) => {
+          const { type, payload } = e.data;
+          if (type === "drawingStarted") {
+            this.isDrawing = payload !== false;
+          } else if (type === "drawingEnded") {
+            this.isDrawing = false;
+          } else if (type === "pathComplete" && this.options.onPathComplete) {
+            this.options.onPathComplete(payload);
+          } else if (type === "puzzleCreated" && this.options.onPuzzleCreated) {
+            this.options.onPuzzleCreated(payload);
+          } else if (type === "validationResult" && this.options.onValidationResult) {
+            this.options.onValidationResult(payload);
+          }
+        });
+      }
+    }
+    if (!this.worker) {
+      const context = this.canvas.getContext("2d");
+      if (!context) throw new Error("Could not get 2D context.");
+      this.ctx = context;
+      this.ctx.imageSmoothingEnabled = false;
+      this.animate();
+    }
     if (puzzle) {
       this.setPuzzle(puzzle);
     }
     this.initEvents();
-    this.animate();
   }
   /**
    * デフォルトオプションとユーザー指定オプションをマージする
@@ -3578,16 +3422,29 @@ var WitnessUI = class {
       autoResize: options.autoResize ?? this.options?.autoResize ?? true,
       blinkMarksOnError: options.blinkMarksOnError ?? this.options?.blinkMarksOnError ?? true,
       stayPathOnError: options.stayPathOnError ?? this.options?.stayPathOnError ?? true,
+      autoValidate: options.autoValidate ?? this.options?.autoValidate ?? false,
+      useWorker: options.useWorker ?? this.options?.useWorker ?? false,
+      workerScript: options.workerScript ?? this.options?.workerScript,
       animations,
       colors,
       onPathComplete: options.onPathComplete ?? this.options?.onPathComplete ?? (() => {
-      })
+      }),
+      onPuzzleCreated: options.onPuzzleCreated ?? this.options?.onPuzzleCreated,
+      onValidationResult: options.onValidationResult ?? this.options?.onValidationResult
     };
   }
   /**
    * パズルデータを設定し、再描画する
    */
   setPuzzle(puzzle) {
+    if (this.worker) {
+      this.puzzle = puzzle;
+      if (this.options.autoResize) {
+        this.resizeCanvas();
+      }
+      this.worker.postMessage({ type: "setPuzzle", payload: { puzzle } });
+      return;
+    }
     this.puzzle = puzzle;
     this.path = [];
     this.isDrawing = false;
@@ -3609,6 +3466,14 @@ var WitnessUI = class {
    */
   setOptions(options) {
     this.options = this.mergeOptions({ ...this.options, ...options });
+    if (this.worker) {
+      if (this.options.autoResize && this.puzzle) {
+        this.resizeCanvas();
+      }
+      const sanitizedOptions = this.sanitizeOptions(options);
+      this.worker.postMessage({ type: "setOptions", payload: sanitizedOptions });
+      return;
+    }
     if (this.options.autoResize && this.puzzle) {
       this.resizeCanvas();
     }
@@ -3618,6 +3483,9 @@ var WitnessUI = class {
    * 検証結果を反映させる（不正解時の赤点滅や、消しゴムによる無効化の表示）
    */
   setValidationResult(isValid, invalidatedCells = [], invalidatedEdges = [], errorCells = [], errorEdges = [], invalidatedNodes = [], errorNodes = []) {
+    if (this.worker) {
+      return;
+    }
     this.invalidatedCells = invalidatedCells;
     this.invalidatedEdges = invalidatedEdges;
     this.invalidatedNodes = invalidatedNodes;
@@ -3637,23 +3505,69 @@ var WitnessUI = class {
    */
   resizeCanvas() {
     if (!this.puzzle || !this.canvas) return;
-    this.canvas.width = this.puzzle.cols * this.options.cellSize + this.options.gridPadding * 2;
-    this.canvas.height = this.puzzle.rows * this.options.cellSize + this.options.gridPadding * 2;
+    const w = this.puzzle.cols * this.options.cellSize + this.options.gridPadding * 2;
+    const h = this.puzzle.rows * this.options.cellSize + this.options.gridPadding * 2;
+    if (typeof HTMLCanvasElement !== "undefined" && this.canvas instanceof HTMLCanvasElement) {
+      try {
+        this.canvas.width = w;
+        this.canvas.height = h;
+      } catch (e) {
+        this.canvas.style.width = w + "px";
+        this.canvas.style.height = h + "px";
+      }
+    } else {
+      this.canvas.width = w;
+      this.canvas.height = h;
+    }
+    if (this.worker && this.boundUpdateRect) {
+      this.boundUpdateRect();
+    }
   }
   /**
    * Canvasの表示上の矩形情報を設定する（Worker時などに必要）
    */
   setCanvasRect(rect) {
-    this.canvasRect = rect;
+    const plainRect = {
+      left: rect.left,
+      top: rect.top,
+      width: rect.width,
+      height: rect.height
+    };
+    this.canvasRect = plainRect;
+    if (this.worker) {
+      this.worker.postMessage({ type: "setCanvasRect", payload: plainRect });
+    }
+  }
+  /**
+   * Workerにパズル生成を依頼する (Workerモード時のみ有効)
+   */
+  createPuzzle(rows, cols, genOptions) {
+    if (this.worker) {
+      this.worker.postMessage({ type: "createPuzzle", payload: { rows, cols, genOptions } });
+    }
   }
   /**
    * マウス・タッチイベントを初期化する
    */
   initEvents() {
-    if (typeof window === "undefined" || !(this.canvas instanceof HTMLCanvasElement)) return;
-    this.boundMouseDown = (e) => this.handleStart(e);
-    this.boundMouseMove = (e) => this.handleMove(e);
-    this.boundMouseUp = (e) => this.handleEnd(e);
+    if (typeof window === "undefined" || typeof HTMLCanvasElement === "undefined" || !(this.canvas instanceof HTMLCanvasElement)) return;
+    this.boundMouseDown = (e) => {
+      if (this.handleStart(e)) {
+        if (e.cancelable) e.preventDefault();
+      }
+    };
+    this.boundMouseMove = (e) => {
+      if (this.isDrawing) {
+        if (e.cancelable) e.preventDefault();
+      }
+      this.handleMove(e);
+    };
+    this.boundMouseUp = (e) => {
+      if (this.isDrawing) {
+        if (e.cancelable) e.preventDefault();
+      }
+      this.handleEnd(e);
+    };
     this.boundTouchStart = (e) => {
       if (this.handleStart(e.touches[0])) {
         if (e.cancelable) e.preventDefault();
@@ -3672,23 +3586,49 @@ var WitnessUI = class {
       }
     };
     this.canvas.addEventListener("mousedown", this.boundMouseDown);
-    window.addEventListener("mousemove", this.boundMouseMove);
-    window.addEventListener("mouseup", this.boundMouseUp);
+    window.addEventListener("mousemove", this.boundMouseMove, { passive: false });
+    window.addEventListener("mouseup", this.boundMouseUp, { passive: false });
     this.canvas.addEventListener("touchstart", this.boundTouchStart, { passive: false });
     window.addEventListener("touchmove", this.boundTouchMove, { passive: false });
     window.addEventListener("touchend", this.boundTouchEnd, { passive: false });
+    if (this.worker) {
+      this.boundUpdateRect = () => {
+        if (this.canvas instanceof HTMLCanvasElement) {
+          const rect = this.canvas.getBoundingClientRect();
+          this.setCanvasRect(rect);
+        }
+      };
+      window.addEventListener("resize", this.boundUpdateRect);
+      window.addEventListener("scroll", this.boundUpdateRect);
+      this.boundUpdateRect();
+    }
   }
   /**
    * イベントリスナーを解除し、リソースを解放する
    */
   destroy() {
-    if (typeof window === "undefined" || !(this.canvas instanceof HTMLCanvasElement)) return;
+    this.isDestroyed = true;
+    if (this.worker) {
+      this.worker.terminate();
+      this.worker = null;
+    }
+    if (this.animationFrameId !== null && typeof cancelAnimationFrame !== "undefined") {
+      cancelAnimationFrame(this.animationFrameId);
+    }
+    if (this.timeoutId !== null) {
+      clearTimeout(this.timeoutId);
+    }
+    if (typeof window === "undefined" || typeof HTMLCanvasElement === "undefined" || !(this.canvas instanceof HTMLCanvasElement)) return;
     if (this.boundMouseDown) this.canvas.removeEventListener("mousedown", this.boundMouseDown);
     if (this.boundMouseMove) window.removeEventListener("mousemove", this.boundMouseMove);
     if (this.boundMouseUp) window.removeEventListener("mouseup", this.boundMouseUp);
     if (this.boundTouchStart) this.canvas.removeEventListener("touchstart", this.boundTouchStart);
     if (this.boundTouchMove) window.removeEventListener("touchmove", this.boundTouchMove);
     if (this.boundTouchEnd) window.removeEventListener("touchend", this.boundTouchEnd);
+    if (this.boundUpdateRect) {
+      window.removeEventListener("resize", this.boundUpdateRect);
+      window.removeEventListener("scroll", this.boundUpdateRect);
+    }
     this.boundMouseDown = null;
     this.boundMouseMove = null;
     this.boundMouseUp = null;
@@ -3726,8 +3666,13 @@ var WitnessUI = class {
   }
   // --- イベントハンドラ ---
   handleStart(e) {
+    if (this.worker) {
+      this.isDrawing = true;
+      this.worker.postMessage({ type: "event", payload: { eventType: "mousedown", eventData: { clientX: e.clientX, clientY: e.clientY } } });
+      return true;
+    }
     if (!this.puzzle) return false;
-    const rect = this.canvasRect || (this.canvas instanceof HTMLCanvasElement ? this.canvas.getBoundingClientRect() : { left: 0, top: 0, width: this.canvas.width, height: this.canvas.height });
+    const rect = this.canvasRect || (typeof HTMLCanvasElement !== "undefined" && this.canvas instanceof HTMLCanvasElement ? this.canvas.getBoundingClientRect() : { left: 0, top: 0, width: this.canvas.width, height: this.canvas.height });
     const mouseX = (e.clientX - rect.left) * (this.canvas.width / rect.width);
     const mouseY = (e.clientY - rect.top) * (this.canvas.height / rect.height);
     for (let r = 0; r <= this.puzzle.rows; r++) {
@@ -3758,8 +3703,14 @@ var WitnessUI = class {
     return false;
   }
   handleMove(e) {
+    if (this.worker) {
+      if (this.isDrawing) {
+        this.worker.postMessage({ type: "event", payload: { eventType: "mousemove", eventData: { clientX: e.clientX, clientY: e.clientY } } });
+      }
+      return;
+    }
     if (!this.puzzle || !this.isDrawing) return;
-    const rect = this.canvasRect || (this.canvas instanceof HTMLCanvasElement ? this.canvas.getBoundingClientRect() : { left: 0, top: 0, width: this.canvas.width, height: this.canvas.height });
+    const rect = this.canvasRect || (typeof HTMLCanvasElement !== "undefined" && this.canvas instanceof HTMLCanvasElement ? this.canvas.getBoundingClientRect() : { left: 0, top: 0, width: this.canvas.width, height: this.canvas.height });
     const mouseX = (e.clientX - rect.left) * (this.canvas.width / rect.width);
     const mouseY = (e.clientY - rect.top) * (this.canvas.height / rect.height);
     const lastPoint = this.path[this.path.length - 1];
@@ -3878,6 +3829,13 @@ var WitnessUI = class {
     this.draw();
   }
   handleEnd(e) {
+    if (this.worker) {
+      if (this.isDrawing) {
+        this.isDrawing = false;
+        this.worker.postMessage({ type: "event", payload: { eventType: "mouseup", eventData: { clientX: e.clientX, clientY: e.clientY } } });
+      }
+      return;
+    }
     if (!this.puzzle || !this.isDrawing) return;
     this.isDrawing = false;
     const lastPoint = this.path[this.path.length - 1];
@@ -3939,6 +3897,7 @@ var WitnessUI = class {
    * アニメーションループ
    */
   animate() {
+    if (this.isDestroyed) return;
     const now = Date.now();
     if (this.isFading) {
       const step = 1e3 / (this.options.animations.fadeDuration * 60);
@@ -3953,7 +3912,12 @@ var WitnessUI = class {
     }
     this.draw();
     if (typeof requestAnimationFrame !== "undefined") {
-      requestAnimationFrame(() => this.animate());
+      this.animationFrameId = requestAnimationFrame(() => this.animate());
+    } else {
+      this.timeoutId = setTimeout(() => this.animate(), 1e3 / 60);
+      if (this.timeoutId && this.timeoutId.unref) {
+        this.timeoutId.unref();
+      }
     }
   }
   // --- Drawing Logic ---
@@ -4704,6 +4668,26 @@ var WitnessUI = class {
   /**
    * 合成用のオフスクリーンCanvasを準備する
    */
+  /**
+   * Workerに送信できない関数などのプロパティを除去したオプションを生成する
+   */
+  sanitizeOptions(options) {
+    const sanitized = {};
+    for (const key in options) {
+      const value = options[key];
+      if (value && typeof value === "object" && !Array.isArray(value)) {
+        sanitized[key] = {};
+        for (const subKey in value) {
+          if (typeof value[subKey] !== "function") {
+            sanitized[key][subKey] = value[subKey];
+          }
+        }
+      } else if (typeof value !== "function") {
+        sanitized[key] = value;
+      }
+    }
+    return sanitized;
+  }
   prepareOffscreen() {
     if (!this.offscreenCanvas) {
       if (typeof document !== "undefined") {
@@ -4722,6 +4706,201 @@ var WitnessUI = class {
     if (!this.offscreenCtx) throw new Error("Could not get offscreen 2D context.");
     this.offscreenCtx.clearRect(0, 0, this.offscreenCanvas.width, this.offscreenCanvas.height);
     return { canvas: this.offscreenCanvas, ctx: this.offscreenCtx };
+  }
+};
+
+// src/serializer.ts
+var BitWriter = class {
+  bytes = [];
+  cur = 0;
+  bit = 0;
+  write(value, bits) {
+    for (let i = 0; i < bits; i++) {
+      if (value & 1 << i) this.cur |= 1 << this.bit;
+      this.bit++;
+      if (this.bit === 8) {
+        this.bytes.push(this.cur);
+        this.cur = 0;
+        this.bit = 0;
+      }
+    }
+  }
+  finish() {
+    if (this.bit > 0) this.bytes.push(this.cur);
+    return new Uint8Array(this.bytes);
+  }
+};
+var BitReader = class {
+  constructor(buf) {
+    this.buf = buf;
+  }
+  i = 0;
+  bit = 0;
+  read(bits) {
+    let v = 0;
+    for (let i = 0; i < bits; i++) {
+      if (this.buf[this.i] & 1 << this.bit) v |= 1 << i;
+      this.bit++;
+      if (this.bit === 8) {
+        this.bit = 0;
+        this.i++;
+      }
+    }
+    return v;
+  }
+};
+function collectShapes(cells) {
+  const map = /* @__PURE__ */ new Map();
+  for (const row of cells) {
+    for (const c of row) {
+      if (c.shape) {
+        const key = JSON.stringify(c.shape);
+        if (!map.has(key)) map.set(key, c.shape);
+      }
+    }
+  }
+  return [...map.values()];
+}
+var PuzzleSerializer = class {
+  /**
+   * パズルデータとオプションを圧縮されたBase64文字列に変換する
+   * @param puzzle パズルデータ
+   * @param options 生成オプション
+   * @returns シリアライズされた文字列
+   */
+  static async serialize(puzzle, options) {
+    const bw = new BitWriter();
+    bw.write(puzzle.rows, 6);
+    bw.write(puzzle.cols, 6);
+    bw.write(puzzle.symmetry ?? 0, 2);
+    const shapes = collectShapes(puzzle.cells);
+    bw.write(shapes.length, 5);
+    for (const s of shapes) {
+      bw.write(s.length, 4);
+      bw.write(s[0].length, 4);
+      for (const r of s) for (const v of r) bw.write(v, 1);
+    }
+    const shapeIndex = /* @__PURE__ */ new Map();
+    shapes.forEach((s, i) => shapeIndex.set(JSON.stringify(s), i));
+    for (const row of puzzle.cells) {
+      for (const c of row) {
+        bw.write(c.type, 4);
+        bw.write(c.color, 3);
+        if (c.type === 8 /* Triangle */) {
+          bw.write(c.count || 0, 2);
+        } else if (c.shape) {
+          bw.write(1, 1);
+          bw.write(shapeIndex.get(JSON.stringify(c.shape)), 5);
+        } else {
+          bw.write(0, 1);
+        }
+      }
+    }
+    for (let y = 0; y < puzzle.rows; y++) for (let x = 0; x < puzzle.cols + 1; x++) bw.write(puzzle.vEdges[y][x].type, 3);
+    for (let y = 0; y < puzzle.rows + 1; y++) for (let x = 0; x < puzzle.cols; x++) bw.write(puzzle.hEdges[y][x].type, 3);
+    for (let y = 0; y < puzzle.rows + 1; y++) for (let x = 0; x < puzzle.cols + 1; x++) bw.write(puzzle.nodes[y][x].type, 3);
+    bw.write(+!!options.useHexagons, 1);
+    bw.write(+!!options.useSquares, 1);
+    bw.write(+!!options.useStars, 1);
+    bw.write(+!!options.useTetris, 1);
+    bw.write(+!!options.useTetrisNegative, 1);
+    bw.write(+!!options.useEraser, 1);
+    bw.write(+!!options.useTriangles, 1);
+    bw.write(+!!options.useBrokenEdges, 1);
+    bw.write(options.symmetry ?? 0, 2);
+    bw.write(Math.round((options.complexity ?? 0) * 254), 8);
+    bw.write(Math.round((options.difficulty ?? 0) * 254), 8);
+    bw.write(Math.round((options.pathLength ?? 0) * 254), 8);
+    const raw = bw.finish();
+    const gz = new Uint8Array(await new Response(new Blob([raw.buffer]).stream().pipeThrough(new CompressionStream("gzip"))).arrayBuffer());
+    let parity = 0;
+    for (const b of gz) parity ^= b;
+    const final = new Uint8Array(gz.length + 1);
+    final.set(gz);
+    final[gz.length] = parity;
+    return btoa(String.fromCharCode(...final)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+  /**
+   * シリアライズされた文字列からパズルデータとオプションを復元する
+   * @param str シリアライズされた文字列
+   * @returns 復元されたパズルデータとオプション
+   */
+  static async deserialize(str) {
+    let s = str.replace(/-/g, "+").replace(/_/g, "/");
+    while (s.length % 4) s += "=";
+    const bin = atob(s);
+    const buf = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+    let parity = 0;
+    for (let i = 0; i < buf.length - 1; i++) parity ^= buf[i];
+    if (parity !== buf.at(-1)) throw new Error("Invalid parity data");
+    const raw = new Uint8Array(await new Response(new Blob([buf.slice(0, -1).buffer]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer());
+    const br = new BitReader(raw);
+    const rows = br.read(6);
+    const cols = br.read(6);
+    const symmetry = br.read(2);
+    const shapeCount = br.read(5);
+    const shapes = [];
+    for (let i = 0; i < shapeCount; i++) {
+      const h = br.read(4);
+      const w = br.read(4);
+      const s2 = [];
+      for (let y = 0; y < h; y++) {
+        const r = [];
+        for (let x = 0; x < w; x++) r.push(br.read(1));
+        s2.push(r);
+      }
+      shapes.push(s2);
+    }
+    const cells = [];
+    for (let y = 0; y < rows; y++) {
+      const row = [];
+      for (let x = 0; x < cols; x++) {
+        const type = br.read(4);
+        const color = br.read(3);
+        const cell = { type, color };
+        if (type === 8 /* Triangle */) {
+          cell.count = br.read(2);
+        } else {
+          const hasShape = br.read(1);
+          if (hasShape) cell.shape = shapes[br.read(5)].map((r) => r.slice());
+        }
+        row.push(cell);
+      }
+      cells.push(row);
+    }
+    const vEdges = Array.from({ length: rows }, () => Array.from({ length: cols + 1 }, () => ({ type: br.read(3) })));
+    const hEdges = Array.from({ length: rows + 1 }, () => Array.from({ length: cols }, () => ({ type: br.read(3) })));
+    const nodes = Array.from({ length: rows + 1 }, () => Array.from({ length: cols + 1 }, () => ({ type: br.read(3) })));
+    const readRatio = () => {
+      const v = br.read(8);
+      return Math.round(v / 254 * 1e3) / 1e3;
+    };
+    const options = {};
+    const useHexagons = !!br.read(1);
+    const useSquares = !!br.read(1);
+    const useStars = !!br.read(1);
+    const useTetris = !!br.read(1);
+    const useTetrisNegative = !!br.read(1);
+    const useEraser = !!br.read(1);
+    const useTriangles = !!br.read(1);
+    const useBroken = !!br.read(1);
+    const optSymmetry = br.read(2);
+    if (useHexagons) options.useHexagons = true;
+    if (useSquares) options.useSquares = true;
+    if (useStars) options.useStars = true;
+    if (useTetris) options.useTetris = true;
+    if (useTetrisNegative) options.useTetrisNegative = true;
+    if (useEraser) options.useEraser = true;
+    if (useTriangles) options.useTriangles = true;
+    if (useBroken) options.useBrokenEdges = true;
+    options.symmetry = optSymmetry;
+    const complexity = readRatio();
+    const difficulty = readRatio();
+    const pathLength = readRatio();
+    if (complexity !== 0) options.complexity = complexity;
+    if (difficulty !== 0) options.difficulty = difficulty;
+    if (pathLength !== 0) options.pathLength = pathLength;
+    return { puzzle: { rows, cols, cells, vEdges, hEdges, nodes, symmetry }, options };
   }
 };
 
@@ -4767,6 +4946,82 @@ var WitnessCore = class {
     return this.validator.calculateDifficulty(grid);
   }
 };
+if (typeof self !== "undefined" && "postMessage" in self && !("document" in self)) {
+  const core = new WitnessCore();
+  let ui = null;
+  let currentPuzzle = null;
+  self.addEventListener("message", (e) => {
+    const { type, payload } = e.data;
+    switch (type) {
+      case "init": {
+        const { canvas, options } = payload;
+        ui = new WitnessUI(canvas, void 0, {
+          ...options,
+          onPathComplete: (path) => {
+            self.postMessage({ type: "drawingEnded" });
+            if (options.autoValidate && currentPuzzle) {
+              const result = core.validateSolution(currentPuzzle, { points: path });
+              ui.setValidationResult(result.isValid, result.invalidatedCells, result.invalidatedEdges, result.errorCells, result.errorEdges, result.invalidatedNodes, result.errorNodes);
+              self.postMessage({ type: "validationResult", payload: result });
+            } else {
+              self.postMessage({ type: "pathComplete", payload: path });
+            }
+          }
+        });
+        break;
+      }
+      case "createPuzzle": {
+        const { rows, cols, genOptions } = payload;
+        const puzzle = core.createPuzzle(rows, cols, genOptions);
+        self.postMessage({ type: "puzzleCreated", payload: { puzzle, genOptions } });
+        break;
+      }
+      case "setPuzzle": {
+        currentPuzzle = payload.puzzle;
+        if (ui && currentPuzzle) {
+          ui.setPuzzle(currentPuzzle);
+          if (payload.options) {
+            ui.setOptions(payload.options);
+          }
+        }
+        break;
+      }
+      case "setOptions": {
+        if (ui) ui.setOptions(payload);
+        break;
+      }
+      case "setCanvasRect": {
+        if (ui) ui.setCanvasRect(payload);
+        break;
+      }
+      case "validate": {
+        if (currentPuzzle) {
+          const result = core.validateSolution(currentPuzzle, { points: payload.path });
+          if (ui) {
+            ui.setValidationResult(result.isValid, result.invalidatedCells, result.invalidatedEdges, result.errorCells, result.errorEdges, result.invalidatedNodes, result.errorNodes);
+          }
+          self.postMessage({ type: "validationResult", payload: result });
+        }
+        break;
+      }
+      case "event": {
+        const { eventType, eventData } = payload;
+        if (ui) {
+          if (eventType === "mousedown" || eventType === "touchstart") {
+            const started = ui.handleStart(eventData);
+            self.postMessage({ type: "drawingStarted", payload: started });
+          } else if (eventType === "mousemove" || eventType === "touchmove") {
+            ui.handleMove(eventData);
+          } else if (eventType === "mouseup" || eventType === "touchend") {
+            ui.handleEnd(eventData);
+            self.postMessage({ type: "drawingEnded" });
+          }
+        }
+        break;
+      }
+    }
+  });
+}
 export {
   CellType,
   Color,
