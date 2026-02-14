@@ -1181,8 +1181,10 @@ export class PuzzleValidator {
 
 	/**
 	 * パズルの難易度スコア(0.0-1.0)を算出する
+	 * @param grid グリッド
+	 * @param starts 探索を開始するスタートノードのリスト（省略時は全スタートノード）
 	 */
-	public calculateDifficulty(grid: Grid): number {
+	public calculateDifficulty(grid: Grid, starts?: Point[]): number {
 		const rows = grid.rows;
 		const cols = grid.cols;
 		const nodeCols = cols + 1;
@@ -1254,7 +1256,9 @@ export class PuzzleValidator {
 
 		this.tetrisCache.clear();
 
-		for (const startIdx of startNodes) {
+		const targetStartIndices = starts ? starts.map((p) => p.y * nodeCols + p.x) : startNodes;
+
+		for (const startIdx of targetStartIndices) {
 			const nodeCols = grid.cols + 1;
 			const r = Math.floor(startIdx / nodeCols);
 			const c = startIdx % nodeCols;
@@ -1550,8 +1554,11 @@ export class PuzzleValidator {
 
 	/**
 	 * 正解数をカウントする
+	 * @param grid グリッド
+	 * @param limit カウントリミット
+	 * @param starts 探索を開始するスタートノードのリスト（省略時は全スタートノード）
 	 */
-	public countSolutions(grid: Grid, limit: number = 100): number {
+	public countSolutions(grid: Grid, limit: number = 100, starts?: Point[]): number {
 		const rows = grid.rows;
 		const cols = grid.cols;
 		const nodeCols = cols + 1;
@@ -1610,7 +1617,9 @@ export class PuzzleValidator {
 
 		this.tetrisCache.clear();
 
-		for (const startIdx of startNodes) {
+		const targetStartIndices = starts ? starts.map((p) => p.y * nodeCols + p.x) : startNodes;
+
+		for (const startIdx of targetStartIndices) {
 			const nodeCols = grid.cols + 1;
 			const r = Math.floor(startIdx / nodeCols);
 			const c = startIdx % nodeCols;

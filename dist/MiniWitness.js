@@ -1,5 +1,5 @@
 /*!
- * MiniWitness 1.3.2
+ * MiniWitness 1.3.3
  * Copyright 2026 hi2ma-bu4
  * Licensed under the Apache License, Version 2.0
  * http://www.apache.org/licenses/LICENSE-2.0
@@ -1184,8 +1184,10 @@ var PuzzleValidator = class {
   }
   /**
    * パズルの難易度スコア(0.0-1.0)を算出する
+   * @param grid グリッド
+   * @param starts 探索を開始するスタートノードのリスト（省略時は全スタートノード）
    */
-  calculateDifficulty(grid) {
+  calculateDifficulty(grid, starts) {
     const rows = grid.rows;
     const cols = grid.cols;
     const nodeCols = cols + 1;
@@ -1248,7 +1250,8 @@ var PuzzleValidator = class {
       if (hasCellMarks) break;
     }
     this.tetrisCache.clear();
-    for (const startIdx of startNodes) {
+    const targetStartIndices = starts ? starts.map((p) => p.y * nodeCols + p.x) : startNodes;
+    for (const startIdx of targetStartIndices) {
       const nodeCols2 = grid.cols + 1;
       const r = Math.floor(startIdx / nodeCols2);
       const c = startIdx % nodeCols2;
@@ -1492,8 +1495,11 @@ var PuzzleValidator = class {
   }
   /**
    * 正解数をカウントする
+   * @param grid グリッド
+   * @param limit カウントリミット
+   * @param starts 探索を開始するスタートノードのリスト（省略時は全スタートノード）
    */
-  countSolutions(grid, limit = 100) {
+  countSolutions(grid, limit = 100, starts) {
     const rows = grid.rows;
     const cols = grid.cols;
     const nodeCols = cols + 1;
@@ -1545,7 +1551,8 @@ var PuzzleValidator = class {
       if (hasCellMarks) break;
     }
     this.tetrisCache.clear();
-    for (const startIdx of startNodes) {
+    const targetStartIndices = starts ? starts.map((p) => p.y * nodeCols + p.x) : startNodes;
+    for (const startIdx of targetStartIndices) {
       const nodeCols2 = grid.cols + 1;
       const r = Math.floor(startIdx / nodeCols2);
       const c = startIdx % nodeCols2;
@@ -1791,14 +1798,34 @@ var PuzzleGenerator = class {
     const maxAttempts = this.isWorker ? rows * cols > 30 ? 120 : isSmall ? 250 : 150 : rows * cols > 30 ? 80 : isSmall ? 200 : 100;
     const markAttemptsPerPath = this.isWorker ? 8 : isSmall ? 12 : 6;
     const symmetry = options.symmetry || 0 /* None */;
-    let startPoint = { x: 0, y: rows };
-    let endPoint = { x: cols, y: 0 };
-    if (symmetry === 1 /* Horizontal */) {
-      endPoint = { x: 0, y: 0 };
-    } else if (symmetry === 2 /* Vertical */) {
-      endPoint = { x: cols, y: rows };
-    } else if (symmetry === 3 /* Rotational */) {
-      endPoint = { x: cols, y: rows };
+    let starts = options.starts ? [...options.starts] : [{ x: 0, y: rows }];
+    if (symmetry !== 0 /* None */) {
+      const symStarts = [];
+      for (const s of starts) {
+        const ss = this.getSymmetricalPoint({ rows, cols }, s, symmetry);
+        if (!starts.some((p) => p.x === ss.x && p.y === ss.y)) symStarts.push(ss);
+      }
+      starts.push(...symStarts);
+    }
+    let ends = options.ends ? [...options.ends] : [];
+    if (ends.length === 0) {
+      if (symmetry === 1 /* Horizontal */) {
+        ends = [{ x: 0, y: 0 }];
+      } else if (symmetry === 2 /* Vertical */) {
+        ends = [{ x: cols, y: rows }];
+      } else if (symmetry === 3 /* Rotational */) {
+        ends = [{ x: cols, y: rows }];
+      } else {
+        ends = [{ x: cols, y: 0 }];
+      }
+    }
+    if (symmetry !== 0 /* None */) {
+      const symEnds = [];
+      for (const e of ends) {
+        const se = this.getSymmetricalPoint({ rows, cols }, e, symmetry);
+        if (!ends.some((p) => p.x === se.x && p.y === se.y)) symEnds.push(se);
+      }
+      ends.push(...symEnds);
     }
     let currentPath = null;
     let precalculatedRegions = null;
@@ -1808,17 +1835,31 @@ var PuzzleGenerator = class {
       this.rng = createRng(rngType, currentSeed ^ 0x5deece66dn);
       validator.setRng(this.rng);
       if (attempt % markAttemptsPerPath === 0) {
-        currentPath = this.generateRandomPath(new Grid(rows, cols), startPoint, endPoint, options.pathLength, symmetry);
+        currentPath = this.generateRandomPath(new Grid(rows, cols), starts, ends, options.pathLength, symmetry);
         const tempGrid = new Grid(rows, cols);
         const symPath = symmetry !== 0 /* None */ ? currentPath.map((p) => this.getSymmetricalPoint(tempGrid, p, symmetry)) : [];
         precalculatedRegions = this.calculateRegions(tempGrid, currentPath, symPath);
         precalculatedBoundaryEdges = precalculatedRegions.map((region) => this.getRegionBoundaryEdges(tempGrid, region, currentPath, symPath));
       }
-      const grid = this.generateFromPath(rows, cols, currentPath, options, precalculatedRegions, precalculatedBoundaryEdges);
+      const grid = this.generateFromPath(rows, cols, currentPath, options, starts, ends, precalculatedRegions, precalculatedBoundaryEdges);
       const validation = validator.validate(grid, { points: currentPath });
       if (!validation.isValid) {
         currentSeed = nextSeed;
         continue;
+      }
+      const chosenStart = currentPath[0];
+      const validStarts = [chosenStart];
+      if (symmetry !== 0 /* None */) {
+        const ss = this.getSymmetricalPoint(grid, chosenStart, symmetry);
+        if (ss.x !== chosenStart.x || ss.y !== chosenStart.y) validStarts.push(ss);
+      }
+      const otherStarts = starts.filter((s) => !validStarts.some((v) => v.x === s.x && v.y === s.y));
+      if (otherStarts.length > 0) {
+        const otherSolutions = validator.countSolutions(grid, 10, otherStarts);
+        if (otherSolutions > 2) {
+          currentSeed = nextSeed;
+          continue;
+        }
       }
       if (!this.checkAllRequestedConstraintsPresent(grid, options)) {
         currentSeed = nextSeed;
@@ -1849,8 +1890,8 @@ var PuzzleGenerator = class {
       for (let i = 0; i < 50; i++) {
         this.rng = createRng(rngType, currentSeed);
         validator.setRng(this.rng);
-        const path2 = this.generateRandomPath(new Grid(rows, cols), startPoint, endPoint, options.pathLength, symmetry);
-        const grid2 = this.generateFromPath(rows, cols, path2, options);
+        const path2 = this.generateRandomPath(new Grid(rows, cols), starts, ends, options.pathLength, symmetry);
+        const grid2 = this.generateFromPath(rows, cols, path2, options, starts, ends);
         if (validator.validate(grid2, { points: path2 }).isValid) {
           grid2.seed = initialSeedStr;
           return grid2;
@@ -1859,8 +1900,8 @@ var PuzzleGenerator = class {
       }
       this.rng = createRng(rngType, currentSeed);
       validator.setRng(this.rng);
-      const path = this.generateRandomPath(new Grid(rows, cols), startPoint, endPoint, options.pathLength, symmetry);
-      const grid = this.generateFromPath(rows, cols, path, options);
+      const path = this.generateRandomPath(new Grid(rows, cols), starts, ends, options.pathLength, symmetry);
+      const grid = this.generateFromPath(rows, cols, path, options, starts, ends);
       grid.seed = initialSeedStr;
       return grid;
     }
@@ -1872,30 +1913,21 @@ var PuzzleGenerator = class {
    * @param cols 列数
    * @param solutionPath 解答パス
    * @param options 生成オプション
+   * @param starts 全てのスタート地点
+   * @param ends 全てのゴール地点
    * @param precalculatedRegions 事前計算された区画
    * @param precalculatedBoundaryEdges 事前計算された境界エッジ
    * @returns 構築されたグリッド
    */
-  generateFromPath(rows, cols, solutionPath, options, precalculatedRegions, precalculatedBoundaryEdges) {
+  generateFromPath(rows, cols, solutionPath, options, starts, ends, precalculatedRegions, precalculatedBoundaryEdges) {
     const grid = new Grid(rows, cols);
     const symmetry = options.symmetry || 0 /* None */;
     grid.symmetry = symmetry;
-    let startPoint = { x: 0, y: rows };
-    let endPoint = { x: cols, y: 0 };
-    if (symmetry === 1 /* Horizontal */) {
-      endPoint = { x: 0, y: 0 };
-    } else if (symmetry === 2 /* Vertical */) {
-      endPoint = { x: cols, y: rows };
-    } else if (symmetry === 3 /* Rotational */) {
-      endPoint = { x: cols, y: rows };
+    for (const s of starts) {
+      grid.nodes[s.y][s.x].type = 1 /* Start */;
     }
-    grid.nodes[startPoint.y][startPoint.x].type = 1 /* Start */;
-    grid.nodes[endPoint.y][endPoint.x].type = 2 /* End */;
-    if (symmetry !== 0 /* None */) {
-      const symStart = this.getSymmetricalPoint(grid, startPoint, symmetry);
-      const symEnd = this.getSymmetricalPoint(grid, endPoint, symmetry);
-      grid.nodes[symStart.y][symStart.x].type = 1 /* Start */;
-      grid.nodes[symEnd.y][symEnd.x].type = 2 /* End */;
+    for (const e of ends) {
+      grid.nodes[e.y][e.x].type = 2 /* End */;
     }
     const symPath = symmetry !== 0 /* None */ ? solutionPath.map((p) => this.getSymmetricalPoint(grid, p, symmetry)) : [];
     this.applyConstraintsBasedOnPath(grid, solutionPath, options, symPath, precalculatedRegions, precalculatedBoundaryEdges);
@@ -1909,9 +1941,9 @@ var PuzzleGenerator = class {
    * ランダムな正解パスを生成する
    * @param targetLengthFactor 0.0 (最短) - 1.0 (最長)
    */
-  generateRandomPath(grid, start, end, targetLengthFactor, symmetry = 0 /* None */) {
+  generateRandomPath(grid, starts, ends, targetLengthFactor, symmetry = 0 /* None */) {
     if (targetLengthFactor === void 0) {
-      return this.generateSingleRandomPath(grid, start, end, void 0, symmetry);
+      return this.generateSingleRandomPath(grid, starts, ends, void 0, symmetry);
     }
     const minLen = grid.rows + grid.cols;
     const maxLen = (grid.rows + 1) * (grid.cols + 1) - 1;
@@ -1920,7 +1952,7 @@ var PuzzleGenerator = class {
     let bestDiff = Infinity;
     const attempts = grid.rows * grid.cols > 30 ? 30 : 50;
     for (let i = 0; i < attempts; i++) {
-      const currentPath = this.generateSingleRandomPath(grid, start, end, targetLengthFactor, symmetry);
+      const currentPath = this.generateSingleRandomPath(grid, starts, ends, targetLengthFactor, symmetry);
       if (currentPath.length === 0) continue;
       const currentLen = currentPath.length - 1;
       const diff = Math.abs(currentLen - targetLen);
@@ -1935,17 +1967,19 @@ var PuzzleGenerator = class {
   /**
    * 1本のランダムパスを生成する
    * @param grid グリッド
-   * @param start 開始点
-   * @param end 終了点
+   * @param starts 開始候補点リスト
+   * @param ends 終了候補点リスト
    * @param biasFactor 長さのバイアス
    * @param symmetry 対称性
    * @returns 生成されたパス
    */
-  generateSingleRandomPath(grid, start, end, biasFactor, symmetry = 0 /* None */) {
+  generateSingleRandomPath(grid, starts, ends, biasFactor, symmetry = 0 /* None */) {
     const visited = /* @__PURE__ */ new Set();
     const path = [];
     let nodesVisited = 0;
     const limit = grid.rows * grid.cols * 200;
+    const start = starts[Math.floor(this.rng.next() * starts.length)];
+    const endSet = new Set(ends.map((p) => `${p.x},${p.y}`));
     const findPath = (current) => {
       nodesVisited++;
       if (nodesVisited > limit) return false;
@@ -1953,7 +1987,16 @@ var PuzzleGenerator = class {
       const snCurrent = this.getSymmetricalPoint(grid, current, symmetry);
       visited.add(`${snCurrent.x},${snCurrent.y}`);
       path.push(current);
-      if (current.x === end.x && current.y === end.y) return true;
+      if (endSet.has(`${current.x},${current.y}`)) {
+        if (symmetry !== 0 /* None */) {
+          const snLast = this.getSymmetricalPoint(grid, current, symmetry);
+          if (endSet.has(`${snLast.x},${snLast.y}`)) {
+            return true;
+          }
+        } else {
+          return true;
+        }
+      }
       let neighbors = this.getValidNeighbors(grid, current, visited);
       if (symmetry !== 0 /* None */) {
         neighbors = neighbors.filter((n) => {
@@ -1969,8 +2012,9 @@ var PuzzleGenerator = class {
       }
       if (biasFactor !== void 0) {
         neighbors.sort((a, b) => {
-          const da = Math.abs(a.x - end.x) + Math.abs(a.y - end.y);
-          const db = Math.abs(b.x - end.x) + Math.abs(b.y - end.y);
+          const getMinDist = (p) => Math.min(...ends.map((e) => Math.abs(p.x - e.x) + Math.abs(p.y - e.y)));
+          const da = getMinDist(a);
+          const db = getMinDist(b);
           const score = (da - db) * (1 - biasFactor * 2);
           return score + (this.rng.next() - 0.5) * 1.5;
         });
@@ -3721,11 +3765,25 @@ var WitnessUI = class {
   getExitDir(x, y) {
     if (!this.puzzle) return null;
     if (this.puzzle.nodes[y]?.[x]?.type !== 2 /* End */) return null;
-    if (x === this.puzzle.cols) return { x: 1, y: 0 };
-    if (x === 0) return { x: -1, y: 0 };
-    if (y === 0) return { x: 0, y: -1 };
-    if (y === this.puzzle.rows) return { x: 0, y: 1 };
-    return { x: 1, y: 0 };
+    const { cols, rows } = this.puzzle;
+    const isLeft = x === 0;
+    const isRight = x === cols;
+    const isTop = y === 0;
+    const isBottom = y === rows;
+    if (!isLeft && !isRight && !isTop && !isBottom) return null;
+    const isCorner = (isLeft || isRight) && (isTop || isBottom);
+    if (isCorner) {
+      if (cols >= rows) {
+        return isLeft ? { x: -1, y: 0 } : { x: 1, y: 0 };
+      } else {
+        return isTop ? { x: 0, y: -1 } : { x: 0, y: 1 };
+      }
+    }
+    if (isLeft) return { x: -1, y: 0 };
+    if (isRight) return { x: 1, y: 0 };
+    if (isTop) return { x: 0, y: -1 };
+    if (isBottom) return { x: 0, y: 1 };
+    return null;
   }
   // --- イベントハンドラ ---
   handleStart(e) {

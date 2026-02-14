@@ -151,6 +151,10 @@ export interface GenerationOptions {
 	seed?: string;
 	/** 使用する乱数アルゴリズム */
 	rngType?: RngType;
+	/** 固定したいスタート地点のリスト */
+	starts?: Point[];
+	/** 固定したいゴール地点のリスト */
+	ends?: Point[];
 }
 export declare enum RngType {
 	Mulberry32 = 0,
@@ -222,6 +226,8 @@ export declare class PuzzleGenerator {
 	 * @param cols 列数
 	 * @param solutionPath 解答パス
 	 * @param options 生成オプション
+	 * @param starts 全てのスタート地点
+	 * @param ends 全てのゴール地点
 	 * @param precalculatedRegions 事前計算された区画
 	 * @param precalculatedBoundaryEdges 事前計算された境界エッジ
 	 * @returns 構築されたグリッド
@@ -235,8 +241,8 @@ export declare class PuzzleGenerator {
 	/**
 	 * 1本のランダムパスを生成する
 	 * @param grid グリッド
-	 * @param start 開始点
-	 * @param end 終了点
+	 * @param starts 開始候補点リスト
+	 * @param ends 終了候補点リスト
 	 * @param biasFactor 長さのバイアス
 	 * @param symmetry 対称性
 	 * @returns 生成されたパス
@@ -953,16 +959,21 @@ export declare class PuzzleValidator {
 	private getEdgeKey;
 	/**
 	 * パズルの難易度スコア(0.0-1.0)を算出する
+	 * @param grid グリッド
+	 * @param starts 探索を開始するスタートノードのリスト（省略時は全スタートノード）
 	 */
-	calculateDifficulty(grid: Grid): number;
+	calculateDifficulty(grid: Grid, starts?: Point[]): number;
 	/**
 	 * 探索空間を走査して統計情報を収集する
 	 */
 	private exploreSearchSpace;
 	/**
 	 * 正解数をカウントする
+	 * @param grid グリッド
+	 * @param limit カウントリミット
+	 * @param starts 探索を開始するスタートノードのリスト（省略時は全スタートノード）
 	 */
-	countSolutions(grid: Grid, limit?: number): number;
+	countSolutions(grid: Grid, limit?: number, starts?: Point[]): number;
 	private findPathsOptimized;
 	/**
 	 * 終端まで到達可能かビットマスクBFSで高速に確認する

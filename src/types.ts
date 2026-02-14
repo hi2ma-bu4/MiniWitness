@@ -154,6 +154,10 @@ export interface GenerationOptions {
 	seed?: string;
 	/** 使用する乱数アルゴリズム */
 	rngType?: RngType;
+	/** 固定したいスタート地点のリスト */
+	starts?: Point[];
+	/** 固定したいゴール地点のリスト */
+	ends?: Point[];
 }
 
 export enum RngType {

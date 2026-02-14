@@ -612,11 +612,32 @@ export class WitnessUI {
 	private getExitDir(x: number, y: number): Point | null {
 		if (!this.puzzle) return null;
 		if (this.puzzle.nodes[y]?.[x]?.type !== NodeType.End) return null;
-		if (x === this.puzzle.cols) return { x: 1, y: 0 };
-		if (x === 0) return { x: -1, y: 0 };
-		if (y === 0) return { x: 0, y: -1 };
-		if (y === this.puzzle.rows) return { x: 0, y: 1 };
-		return { x: 1, y: 0 };
+
+		const { cols, rows } = this.puzzle;
+		const isLeft = x === 0;
+		const isRight = x === cols;
+		const isTop = y === 0;
+		const isBottom = y === rows;
+
+		// 外周チェック
+		if (!isLeft && !isRight && !isTop && !isBottom) return null;
+
+		// 角のチェック
+		const isCorner = (isLeft || isRight) && (isTop || isBottom);
+		if (isCorner) {
+			if (cols >= rows) {
+				return isLeft ? { x: -1, y: 0 } : { x: 1, y: 0 };
+			} else {
+				return isTop ? { x: 0, y: -1 } : { x: 0, y: 1 };
+			}
+		}
+
+		if (isLeft) return { x: -1, y: 0 };
+		if (isRight) return { x: 1, y: 0 };
+		if (isTop) return { x: 0, y: -1 };
+		if (isBottom) return { x: 0, y: 1 };
+
+		return null;
 	}
 
 	// --- イベントハンドラ ---
