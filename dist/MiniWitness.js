@@ -3512,8 +3512,6 @@ var WitnessUI = class {
         this.canvas.width = w;
         this.canvas.height = h;
       } catch (e) {
-        this.canvas.style.width = w + "px";
-        this.canvas.style.height = h + "px";
       }
     } else {
       this.canvas.width = w;

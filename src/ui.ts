@@ -337,8 +337,6 @@ export class WitnessUI {
 				this.canvas.height = h;
 			} catch (e) {
 				// InvalidStateError occurs after transferControlToOffscreen()
-				this.canvas.style.width = w + "px";
-				this.canvas.style.height = h + "px";
 			}
 		} else {
 			this.canvas.width = w;
