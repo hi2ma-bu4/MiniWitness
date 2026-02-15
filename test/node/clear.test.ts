@@ -15,6 +15,7 @@ describe("Generator solvability - ALL combinations", { concurrency: true, timeou
 		{ useStars: true },
 		{ useTetris: true },
 		{ useTetris: true, useTetrisNegative: true },
+		{ useTriangles: true },
 		{ useEraser: true },
 		{ useBrokenEdges: true },
 		{ useHexagons: true, useBrokenEdges: true },
@@ -29,7 +30,7 @@ describe("Generator solvability - ALL combinations", { concurrency: true, timeou
 		{ useSquares: true, useStars: true, useEraser: true },
 		{ useStars: true, useTetris: true, useEraser: true },
 		{ useStars: true, useTetris: true, useTetrisNegative: true, useEraser: true, useBrokenEdges: true },
-		{ useSquares: true, useStars: true, useTetris: true, useTetrisNegative: true, useEraser: true, useBrokenEdges: true },
+		{ useSquares: true, useStars: true, useTetris: true, useTetrisNegative: true, useTriangles: true, useEraser: true, useBrokenEdges: true },
 	];
 
 	for (const size of sizeOpts) {

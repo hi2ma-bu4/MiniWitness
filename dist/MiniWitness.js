@@ -1,5 +1,5 @@
 /*!
- * MiniWitness 1.3.4
+ * MiniWitness 1.3.5
  * Copyright 2026 hi2ma-bu4
  * Licensed under the Apache License, Version 2.0
  * http://www.apache.org/licenses/LICENSE-2.0
@@ -1992,23 +1992,26 @@ var PuzzleGenerator = class {
    * @returns 生成されたパス
    */
   generateSingleRandomPath(grid, starts, ends, biasFactor, symmetry = 0 /* None */) {
-    const visited = /* @__PURE__ */ new Set();
+    const pointCount = (grid.rows + 1) * (grid.cols + 1);
+    const visited = new Array(pointCount).fill(false);
     const path = [];
     let nodesVisited = 0;
     const limit = grid.rows * grid.cols * 200;
     const start = starts[Math.floor(this.rng.next() * starts.length)];
-    const endSet = new Set(ends.map((p) => `${p.x},${p.y}`));
+    const endLookup = new Array(pointCount).fill(false);
+    for (const end of ends) endLookup[this.toPointIndex(grid, end.x, end.y)] = true;
     const findPath = (current) => {
       nodesVisited++;
       if (nodesVisited > limit) return false;
-      visited.add(`${current.x},${current.y}`);
+      const currentIndex = this.toPointIndex(grid, current.x, current.y);
+      visited[currentIndex] = true;
       const snCurrent = this.getSymmetricalPoint(grid, current, symmetry);
-      visited.add(`${snCurrent.x},${snCurrent.y}`);
+      const snCurrentIndex = this.toPointIndex(grid, snCurrent.x, snCurrent.y);
+      visited[snCurrentIndex] = true;
       path.push(current);
-      if (endSet.has(`${current.x},${current.y}`)) {
+      if (endLookup[currentIndex]) {
         if (symmetry !== 0 /* None */) {
-          const snLast = this.getSymmetricalPoint(grid, current, symmetry);
-          if (endSet.has(`${snLast.x},${snLast.y}`)) {
+          if (endLookup[snCurrentIndex]) {
             return true;
           }
         } else {
@@ -2020,7 +2023,7 @@ var PuzzleGenerator = class {
         neighbors = neighbors.filter((n) => {
           const sn = this.getSymmetricalPoint(grid, n, symmetry);
           if (sn.x < 0 || sn.x > grid.cols || sn.y < 0 || sn.y > grid.rows) return false;
-          if (visited.has(`${sn.x},${sn.y}`)) return false;
+          if (visited[this.toPointIndex(grid, sn.x, sn.y)]) return false;
           if (n.x === sn.x && n.y === sn.y) return false;
           const edgeKey = this.getEdgeKey(current, n);
           const symEdgeKey = this.getEdgeKey(snCurrent, sn);
@@ -2043,12 +2046,15 @@ var PuzzleGenerator = class {
         if (findPath(next)) return true;
       }
       path.pop();
-      visited.delete(`${current.x},${current.y}`);
-      visited.delete(`${snCurrent.x},${snCurrent.y}`);
+      visited[currentIndex] = false;
+      visited[snCurrentIndex] = false;
       return false;
     };
     findPath(start);
     return path;
+  }
+  toPointIndex(grid, x, y) {
+    return y * (grid.cols + 1) + x;
   }
   getValidNeighbors(grid, p, visited) {
     const candidates = [];
@@ -2062,7 +2068,7 @@ var PuzzleGenerator = class {
       const nx = p.x + d.x;
       const ny = p.y + d.y;
       if (nx >= 0 && nx <= grid.cols && ny >= 0 && ny <= grid.rows) {
-        if (!visited.has(`${nx},${ny}`)) candidates.push({ x: nx, y: ny });
+        if (!visited || !visited[this.toPointIndex(grid, nx, ny)]) candidates.push({ x: nx, y: ny });
       }
     }
     return candidates;
@@ -2415,7 +2421,7 @@ var PuzzleGenerator = class {
       const targetDifficulty = options.difficulty ?? 0.5;
       const symmetry = options.symmetry || 0 /* None */;
       for (let i = 0; i < path.length - 1; i++) {
-        const neighbors = this.getValidNeighbors(grid, path[i], /* @__PURE__ */ new Set());
+        const neighbors = this.getValidNeighbors(grid, path[i]);
         const isBranching = neighbors.length > 2;
         let prob = complexity * (targetDifficulty < 0.4 ? 0.6 : 0.3);
         if (isBranching) prob = targetDifficulty < 0.4 ? prob * 1 : prob * 0.5;
@@ -3355,6 +3361,7 @@ var WitnessUI = class {
   currentMousePos = { x: 0, y: 0 };
   exitTipPos = null;
   isInvalidPath = false;
+  isValidPath = false;
   // アニメーション・状態表示用
   invalidatedCells = [];
   invalidatedEdges = [];
@@ -3518,6 +3525,8 @@ var WitnessUI = class {
     this.path = [];
     this.isDrawing = false;
     this.exitTipPos = null;
+    this.isInvalidPath = false;
+    this.isValidPath = false;
     this.invalidatedCells = [];
     this.invalidatedEdges = [];
     this.invalidatedNodes = [];
@@ -3542,6 +3551,7 @@ var WitnessUI = class {
     }
     this.cancelFade();
     this.isInvalidPath = false;
+    this.isValidPath = false;
     this.isSuccessFading = false;
     if (path.length > 0) {
       this.path = [...path];
@@ -3655,6 +3665,7 @@ var WitnessUI = class {
     this.errorNodes = errorNodes;
     this.eraserAnimationStartTime = Date.now();
     if (isValid) {
+      this.isValidPath = true;
       this.isSuccessFading = true;
       this.successFadeStartTime = Date.now();
     } else {
@@ -3860,6 +3871,7 @@ var WitnessUI = class {
             this.cancelFade();
             this.isSuccessFading = false;
             this.isInvalidPath = false;
+            this.isValidPath = false;
             this.invalidatedCells = [];
             this.invalidatedEdges = [];
             this.invalidatedNodes = [];
@@ -4161,7 +4173,7 @@ var WitnessUI = class {
       const originalPathAlpha = this.colorToRgba(originalPathColor).a;
       const errorColor = this.options.colors.error;
       let color = this.isInvalidPath ? this.setAlpha(errorColor, originalPathAlpha) : originalPathColor;
-      if (this.isSuccessFading && !this.puzzle.symmetry) {
+      if ((this.isSuccessFading || this.isValidPath) && !this.puzzle.symmetry) {
         color = this.setAlpha(this.options.colors.success, originalPathAlpha);
       }
       let pathOpacity = 1;
@@ -4198,7 +4210,7 @@ var WitnessUI = class {
         this.lastGoalReachable = isAtExit;
         this.emit("goal:reachable", { reachable: isAtExit });
       }
-      if (isAtExit && !this.isInvalidPath && !this.isSuccessFading) {
+      if (isAtExit && !this.isInvalidPath && !this.isSuccessFading && !this.isValidPath) {
         const originalAlpha = this.colorToRgba(color).a;
         const pulseFactor = (Math.sin(now * Math.PI * 2 / 600) + 1) / 2;
         color = this.lerpColor(color, "#ffffff", pulseFactor * 0.6);
@@ -4226,7 +4238,7 @@ var WitnessUI = class {
             }
           }
         }
-        if (isAtExit && !this.isInvalidPath && !this.isSuccessFading) {
+        if (isAtExit && !this.isInvalidPath && !this.isSuccessFading && !this.isValidPath) {
           const pulseFactor = (Math.sin(now * Math.PI * 2 / 400) + 1) / 2;
           symColor = this.lerpColor(symColor, "#ffffff", pulseFactor * 0.6);
           symColor = this.setAlpha(symColor, originalSymAlpha);

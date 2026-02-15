@@ -297,29 +297,32 @@ export class PuzzleGenerator {
 	 * @returns 生成されたパス
 	 */
 	private generateSingleRandomPath(grid: Grid, starts: Point[], ends: Point[], biasFactor?: number, symmetry: SymmetryType = SymmetryType.None): Point[] {
-		const visited = new Set<string>();
+		const pointCount = (grid.rows + 1) * (grid.cols + 1);
+		const visited = new Array<boolean>(pointCount).fill(false);
 		const path: Point[] = [];
 		let nodesVisited = 0;
 		// 探索リミットを大幅に引き上げ、特に対称パズルでの到達可能性を高める
 		const limit = grid.rows * grid.cols * 200;
 
 		const start = starts[Math.floor(this.rng!.next() * starts.length)];
-		const endSet = new Set(ends.map((p) => `${p.x},${p.y}`));
+		const endLookup = new Array<boolean>(pointCount).fill(false);
+		for (const end of ends) endLookup[this.toPointIndex(grid, end.x, end.y)] = true;
 
 		const findPath = (current: Point): boolean => {
 			nodesVisited++;
 			if (nodesVisited > limit) return false;
 
-			visited.add(`${current.x},${current.y}`);
+			const currentIndex = this.toPointIndex(grid, current.x, current.y);
+			visited[currentIndex] = true;
 			const snCurrent = this.getSymmetricalPoint(grid, current, symmetry);
-			visited.add(`${snCurrent.x},${snCurrent.y}`);
+			const snCurrentIndex = this.toPointIndex(grid, snCurrent.x, snCurrent.y);
+			visited[snCurrentIndex] = true;
 
 			path.push(current);
 
-			if (endSet.has(`${current.x},${current.y}`)) {
+			if (endLookup[currentIndex]) {
 				if (symmetry !== SymmetryType.None) {
-					const snLast = this.getSymmetricalPoint(grid, current, symmetry);
-					if (endSet.has(`${snLast.x},${snLast.y}`)) {
+					if (endLookup[snCurrentIndex]) {
 						return true;
 					}
 				} else {
@@ -333,7 +336,7 @@ export class PuzzleGenerator {
 				neighbors = neighbors.filter((n) => {
 					const sn = this.getSymmetricalPoint(grid, n, symmetry);
 					if (sn.x < 0 || sn.x > grid.cols || sn.y < 0 || sn.y > grid.rows) return false;
-					if (visited.has(`${sn.x},${sn.y}`)) return false;
+					if (visited[this.toPointIndex(grid, sn.x, sn.y)]) return false;
 					// ノード衝突（現在の移動先が自分自身の対称点である場合もNG）
 					if (n.x === sn.x && n.y === sn.y) return false;
 					// エッジ衝突
@@ -360,15 +363,19 @@ export class PuzzleGenerator {
 			}
 
 			path.pop();
-			visited.delete(`${current.x},${current.y}`);
-			visited.delete(`${snCurrent.x},${snCurrent.y}`);
+			visited[currentIndex] = false;
+			visited[snCurrentIndex] = false;
 			return false;
 		};
 		findPath(start);
 		return path;
 	}
 
-	private getValidNeighbors(grid: Grid, p: Point, visited: Set<string>): Point[] {
+	private toPointIndex(grid: Grid, x: number, y: number): number {
+		return y * (grid.cols + 1) + x;
+	}
+
+	private getValidNeighbors(grid: Grid, p: Point, visited?: boolean[]): Point[] {
 		const candidates: Point[] = [];
 		const directions = [
 			{ x: 0, y: -1 },
@@ -380,7 +387,7 @@ export class PuzzleGenerator {
 			const nx = p.x + d.x;
 			const ny = p.y + d.y;
 			if (nx >= 0 && nx <= grid.cols && ny >= 0 && ny <= grid.rows) {
-				if (!visited.has(`${nx},${ny}`)) candidates.push({ x: nx, y: ny });
+				if (!visited || !visited[this.toPointIndex(grid, nx, ny)]) candidates.push({ x: nx, y: ny });
 			}
 		}
 		return candidates;
@@ -775,7 +782,7 @@ export class PuzzleGenerator {
 
 			// エッジ六角形 (線上・中心)
 			for (let i = 0; i < path.length - 1; i++) {
-				const neighbors = this.getValidNeighbors(grid, path[i], new Set());
+				const neighbors = this.getValidNeighbors(grid, path[i]);
 				const isBranching = neighbors.length > 2;
 				// 難易度が低いときはエッジ六角形を多くしてガイドにする
 				let prob = complexity * (targetDifficulty < 0.4 ? 0.6 : 0.3);

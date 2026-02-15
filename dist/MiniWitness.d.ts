@@ -280,6 +280,7 @@ export declare class PuzzleGenerator {
 	 * @returns 生成されたパス
 	 */
 	private generateSingleRandomPath;
+	private toPointIndex;
 	private getValidNeighbors;
 	/**
 	 * 解パスが通っていない場所にランダムに断線（Broken/Absent）を配置する
@@ -547,6 +548,7 @@ export declare class WitnessUI {
 	private currentMousePos;
 	private exitTipPos;
 	private isInvalidPath;
+	private isValidPath;
 	private invalidatedCells;
 	private invalidatedEdges;
 	private invalidatedNodes;

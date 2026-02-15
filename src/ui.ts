@@ -120,6 +120,7 @@ export class WitnessUI {
 	private currentMousePos: Point = { x: 0, y: 0 };
 	private exitTipPos: Point | null = null;
 	private isInvalidPath = false;
+	private isValidPath = false;
 
 	// アニメーション・状態表示用
 	private invalidatedCells: Point[] = [];
@@ -302,6 +303,8 @@ export class WitnessUI {
 		this.path = [];
 		this.isDrawing = false;
 		this.exitTipPos = null;
+		this.isInvalidPath = false;
+		this.isValidPath = false;
 		this.invalidatedCells = [];
 		this.invalidatedEdges = [];
 		this.invalidatedNodes = [];
@@ -329,6 +332,7 @@ export class WitnessUI {
 
 		this.cancelFade();
 		this.isInvalidPath = false;
+		this.isValidPath = false;
 		this.isSuccessFading = false;
 
 		if (path.length > 0) {
@@ -461,6 +465,7 @@ export class WitnessUI {
 		this.eraserAnimationStartTime = Date.now();
 
 		if (isValid) {
+			this.isValidPath = true;
 			this.isSuccessFading = true;
 			this.successFadeStartTime = Date.now();
 		} else {
@@ -705,6 +710,7 @@ export class WitnessUI {
 						this.cancelFade();
 						this.isSuccessFading = false;
 						this.isInvalidPath = false;
+						this.isValidPath = false;
 						this.invalidatedCells = [];
 						this.invalidatedEdges = [];
 						this.invalidatedNodes = [];
@@ -1070,7 +1076,7 @@ export class WitnessUI {
 			let color = this.isInvalidPath ? this.setAlpha(errorColor, originalPathAlpha) : originalPathColor;
 
 			// 成功時は成功時の色をデフォルトとする（対称モード時は元の色を維持）
-			if (this.isSuccessFading && !this.puzzle.symmetry) {
+			if ((this.isSuccessFading || this.isValidPath) && !this.puzzle.symmetry) {
 				color = this.setAlpha(this.options.colors.success as string, originalPathAlpha);
 			}
 
@@ -1115,7 +1121,7 @@ export class WitnessUI {
 				this.emit("goal:reachable", { reachable: isAtExit });
 			}
 
-			if (isAtExit && !this.isInvalidPath && !this.isSuccessFading) {
+			if (isAtExit && !this.isInvalidPath && !this.isSuccessFading && !this.isValidPath) {
 				const originalAlpha = this.colorToRgba(color).a;
 				const pulseFactor = (Math.sin((now * Math.PI * 2) / 600) + 1) / 2;
 				color = this.lerpColor(color, "#ffffff", pulseFactor * 0.6);
@@ -1150,7 +1156,7 @@ export class WitnessUI {
 				}
 
 				// 対称パスの発光処理
-				if (isAtExit && !this.isInvalidPath && !this.isSuccessFading) {
+				if (isAtExit && !this.isInvalidPath && !this.isSuccessFading && !this.isValidPath) {
 					const pulseFactor = (Math.sin((now * Math.PI * 2) / 400) + 1) / 2;
 					symColor = this.lerpColor(symColor, "#ffffff", pulseFactor * 0.6);
 					symColor = this.setAlpha(symColor, originalSymAlpha);
