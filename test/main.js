@@ -16,6 +16,7 @@ class WitnessGame {
 		this.puzzle = null;
 		this.currentOptions = null;
 		this.isDrawing = false;
+		this.lastPath = null;
 
 		this.init();
 	}
@@ -102,10 +103,37 @@ class WitnessGame {
 		const puzzleData = params.get("puzzle");
 		if (puzzleData) {
 			try {
-				const { puzzle, options } = await PuzzleSerializer.deserialize(puzzleData);
-				options.availableColors = options.availableColors || true;
-				this.loadPuzzle(puzzle, options);
-				this.updateStatus("Puzzle loaded from URL!");
+				const data = await PuzzleSerializer.deserialize(puzzleData);
+				// Seedの反映
+				if (data.seed) {
+					document.getElementById("seed-input").value = data.seed.value;
+					document.getElementById("rng-select").value = data.seed.type;
+				}
+				// Optionsの反映（読み込まれた設定をUIに反映）
+				if (data.options) {
+					this.currentOptions = { ...this.currentOptions, ...data.options };
+					this.syncOptionsToUI(this.currentOptions);
+				}
+
+				if (data.puzzle) {
+					const options = data.options || this.currentOptions || {};
+					if (data.options?.availableColors) {
+						options.availableColors = data.options.availableColors;
+					}
+					this.loadPuzzle(data.puzzle, options);
+					if (data.path) {
+						this.lastPath = data.path;
+						if (this.ui) {
+							this.ui.setPath(data.path.points);
+							this.validate(data.path.points);
+						}
+					} else {
+						this.updateStatus("Puzzle loaded from URL!");
+					}
+				} else {
+					// パズルデータがない場合は、シードや設定を使用して新しく生成する
+					this.startNewGame();
+				}
 			} catch (e) {
 				console.error("Failed to load puzzle from URL:", e);
 				this.startNewGame();
@@ -115,11 +143,12 @@ class WitnessGame {
 		}
 	}
 
-	startNewGame() {
+	getOptionsFromUI() {
 		const size = parseInt(this.sizeSelect.value);
 		const useCustomTheme = document.getElementById("custom-theme").checked;
-
 		const options = {
+			rows: size,
+			cols: size,
 			useHexagons: document.getElementById("use-hexagons").checked,
 			useSquares: document.getElementById("use-squares").checked,
 			useStars: document.getElementById("use-stars").checked,
@@ -132,36 +161,39 @@ class WitnessGame {
 			complexity: parseFloat(document.getElementById("complexity-slider").value),
 			difficulty: parseFloat(document.getElementById("difficulty-slider").value),
 			pathLength: parseFloat(document.getElementById("path-length-slider").value),
-			availableColors: useCustomTheme ? [1, 2, 3, 4] : undefined,
-			defaultColors: useCustomTheme ? { Tetris: 5, TetrisNegative: 5, Triangle: 5 } : undefined,
+			availableColors: useCustomTheme ? this.currentOptions?.availableColors || [1, 2, 3, 4] : undefined,
+			defaultColors: useCustomTheme ? this.currentOptions?.defaultColors || { Tetris: 5, TetrisNegative: 5, Triangle: 5 } : undefined,
 			seed: document.getElementById("seed-input").value || undefined,
 			rngType: parseInt(document.getElementById("rng-select").value),
 		};
+		return options;
+	}
+
+	startNewGame() {
+		const options = this.getOptionsFromUI();
+		this.lastPath = null;
 
 		this.updateStatus("Generating puzzle... (Searching for optimal difficulty)");
 		setTimeout(() => {
 			if (this.ui && this.workerType === 2) {
 				// Use the library's built-in worker interface
-				this.ui.createPuzzle(size, size, options);
+				this.ui.createPuzzle(options.rows, options.cols, options);
 			} else if (this.isWorkerMode) {
-				this.worker.postMessage({ type: "createPuzzle", payload: { rows: size, cols: size, genOptions: options } });
+				this.worker.postMessage({ type: "createPuzzle", payload: { rows: options.rows, cols: options.cols, genOptions: options } });
 			} else {
-				const puzzle = this.core.createPuzzle(size, size, options);
+				const puzzle = this.core.createPuzzle(options.rows, options.cols, options);
 				this.loadPuzzle(puzzle, options);
 			}
 		}, 10);
 	}
 
-	loadPuzzle(puzzle, options) {
-		this.puzzle = puzzle;
-		this.currentOptions = options;
-
-		// UIのコントロールを更新
-		this.sizeSelect.value = puzzle.rows;
+	syncOptionsToUI(options) {
+		if (options.rows) {
+			this.sizeSelect.value = options.rows;
+		}
 		if (options.rngType != null && options.rngType !== RngType.MathRandom) {
 			document.getElementById("rng-select").value = options.rngType;
 		}
-
 		document.getElementById("use-hexagons").checked = !!options.useHexagons;
 		document.getElementById("use-squares").checked = !!options.useSquares;
 		document.getElementById("use-stars").checked = !!options.useStars;
@@ -174,10 +206,19 @@ class WitnessGame {
 		document.getElementById("complexity-slider").value = options.complexity ?? 1;
 		document.getElementById("difficulty-slider").value = options.difficulty ?? 1;
 		document.getElementById("path-length-slider").value = options.pathLength ?? 0.5;
-
-		const useCustomTheme = !!options.availableColors;
+		const useCustomTheme = !!(options.availableColors && options.availableColors.length > 0);
 		document.getElementById("custom-theme").checked = useCustomTheme;
+	}
 
+	loadPuzzle(puzzle, options) {
+		this.puzzle = puzzle;
+		this.currentOptions = options;
+
+		// UIのコントロールを更新
+		this.sizeSelect.value = puzzle.rows;
+		this.syncOptionsToUI(options);
+
+		const useCustomTheme = !!(options.availableColors && (options.availableColors === true || options.availableColors.length > 0));
 		const colorList = useCustomTheme ? ["#444444", "#00ff00", "#ff00ff", "#00ffff", "#ffffff", "#ffff00"] : undefined;
 
 		const diff = this.core.calculateDifficulty(this.puzzle);
@@ -208,14 +249,32 @@ class WitnessGame {
 	async sharePuzzle() {
 		if (!this.puzzle) return;
 
+		console.log("Sharing puzzle. lastPath:", this.lastPath);
+
+		const shareOptions = {
+			puzzle: document.getElementById("share-puzzle").checked ? this.puzzle : undefined,
+			seed: document.getElementById("share-seed").checked
+				? {
+						type: parseInt(document.getElementById("rng-select").value),
+						value: this.puzzle.seed || document.getElementById("seed-input").value,
+					}
+				: undefined,
+			options: document.getElementById("share-options").checked ? this.getOptionsFromUI() : undefined,
+			path: document.getElementById("share-path").checked ? this.lastPath : undefined,
+			parityMode: document.getElementById("parity-mode").value,
+		};
+
 		try {
-			const serialized = await PuzzleSerializer.serialize(this.puzzle, this.currentOptions);
+			console.log("Serialization input:", shareOptions);
+			const serialized = await PuzzleSerializer.serialize(shareOptions);
 			const url = new URL(window.location.href);
 			url.searchParams.set("puzzle", serialized);
-			if (this.puzzle.seed && this.currentOptions?.rngType !== RngType.MathRandom) {
-				url.searchParams.set("seed", this.puzzle.seed);
-			}
-			url.searchParams.set("rng", document.getElementById("rng-select").value);
+
+			// 旧パラメータを削除
+			url.searchParams.delete("seed");
+			url.searchParams.delete("rng");
+
+			window.lastCopied = url.toString();
 
 			// クリップボードにコピー
 			await navigator.clipboard.writeText(url.toString());
@@ -418,6 +477,8 @@ class WitnessGame {
 	}
 
 	validate(path) {
+		this.lastPath = { points: path };
+
 		if (this.worker) {
 			this.worker.postMessage({ type: "validate", payload: { path } });
 		} else {

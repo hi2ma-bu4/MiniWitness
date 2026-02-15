@@ -321,4 +321,21 @@ describe("WitnessUI Full Test Suite", { concurrency: false }, async () => {
 		internalUI.currentMousePos = { x: lastPos.x + 23, y: lastPos.y };
 		assert.strictEqual(internalUI.isPathAtExit(internalUI.path, internalUI.currentMousePos), true);
 	});
+
+	await test("WitnessUI setPath updates internal state", () => {
+		const puzzle = createEmptyPuzzle(1, 1);
+		puzzle.nodes[0][1].type = NodeType.End;
+		const ui = new WitnessUI(createMockCanvas() as unknown as HTMLCanvasElement, puzzle as any);
+		const internalUI = ui as any;
+
+		const path = [
+			{ x: 0, y: 0 },
+			{ x: 1, y: 0 },
+		];
+		ui.setPath(path);
+
+		assert.deepStrictEqual(internalUI.path, path);
+		assert.ok(internalUI.exitTipPos !== null, "exitTipPos should be set if path ends at goal");
+		assert.strictEqual(internalUI.isInvalidPath, false);
+	});
 });

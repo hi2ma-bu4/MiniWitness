@@ -83,12 +83,13 @@ if (typeof self !== "undefined" && "postMessage" in self && !("document" in self
 					...options,
 					onPathComplete: (path: Point[]) => {
 						(self as any).postMessage({ type: "drawingEnded" });
+						// Always send pathComplete to allow the main thread to track the current path
+						(self as any).postMessage({ type: "pathComplete", payload: path });
+
 						if (options.autoValidate && currentPuzzle) {
 							const result = core.validateSolution(currentPuzzle, { points: path });
 							ui!.setValidationResult(result.isValid, result.invalidatedCells, result.invalidatedEdges, result.errorCells, result.errorEdges, result.invalidatedNodes, result.errorNodes);
 							(self as any).postMessage({ type: "validationResult", payload: result });
-						} else {
-							(self as any).postMessage({ type: "pathComplete", payload: path });
 						}
 					},
 				});
@@ -115,6 +116,18 @@ if (typeof self !== "undefined" && "postMessage" in self && !("document" in self
 
 			case "setOptions": {
 				if (ui) ui.setOptions(payload);
+				break;
+			}
+
+			case "setPath": {
+				if (ui) ui.setPath(payload.path);
+				break;
+			}
+
+			case "setValidationResult": {
+				if (ui) {
+					ui.setValidationResult(payload.isValid, payload.invalidatedCells, payload.invalidatedEdges, payload.errorCells, payload.errorEdges, payload.invalidatedNodes, payload.errorNodes);
+				}
 				break;
 			}
 

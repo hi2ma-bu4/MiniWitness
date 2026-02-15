@@ -132,6 +132,8 @@ export interface ValidationResult {
  * パズル生成のオプション
  */
 export interface GenerationOptions {
+	rows?: number;
+	cols?: number;
 	useHexagons?: boolean;
 	useSquares?: boolean;
 	useStars?: boolean;
@@ -164,4 +166,30 @@ export enum RngType {
 	Mulberry32 = 0,
 	XorShift128Plus = 1,
 	MathRandom = 2,
+}
+
+/**
+ * シリアライズ時のオプション
+ */
+export interface SerializationOptions {
+	/** パズル構造データを含めるか */
+	puzzle?: PuzzleData;
+	/** シード情報を含めるか */
+	seed?: { type: RngType; value: string };
+	/** 生成設定を含めるか */
+	options?: GenerationOptions;
+	/** 解答パスを含めるか */
+	path?: SolutionPath;
+	/** パリティモード ('detection': 破損検知のみ, 'recovery': 部分復元可能) */
+	parityMode?: "detection" | "recovery";
+}
+
+/**
+ * デシリアライズされたデータ
+ */
+export interface DeserializedData {
+	puzzle?: PuzzleData;
+	seed?: { type: RngType; value: string };
+	options?: GenerationOptions;
+	path?: SolutionPath;
 }

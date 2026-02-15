@@ -129,6 +129,8 @@ export interface ValidationResult {
  * パズル生成のオプション
  */
 export interface GenerationOptions {
+	rows?: number;
+	cols?: number;
 	useHexagons?: boolean;
 	useSquares?: boolean;
 	useStars?: boolean;
@@ -160,6 +162,36 @@ export declare enum RngType {
 	Mulberry32 = 0,
 	XorShift128Plus = 1,
 	MathRandom = 2
+}
+/**
+ * シリアライズ時のオプション
+ */
+export interface SerializationOptions {
+	/** パズル構造データを含めるか */
+	puzzle?: PuzzleData;
+	/** シード情報を含めるか */
+	seed?: {
+		type: RngType;
+		value: string;
+	};
+	/** 生成設定を含めるか */
+	options?: GenerationOptions;
+	/** 解答パスを含めるか */
+	path?: SolutionPath;
+	/** パリティモード ('detection': 破損検知のみ, 'recovery': 部分復元可能) */
+	parityMode?: "detection" | "recovery";
+}
+/**
+ * デシリアライズされたデータ
+ */
+export interface DeserializedData {
+	puzzle?: PuzzleData;
+	seed?: {
+		type: RngType;
+		value: string;
+	};
+	options?: GenerationOptions;
+	path?: SolutionPath;
 }
 /**
  * パズルのグリッド構造と状態を管理するクラス
@@ -350,26 +382,26 @@ export declare class PuzzleGenerator {
 	private shuffleArray;
 }
 /**
- * パズルデータと生成オプションをシリアライズ/デシリアライズするクラス
- * URL共有などのためにデータを短縮して文字列化する
+ * パズルデータ、設定、シード、経路などをシリアライズ/デシリアライズするクラス
  */
 export declare class PuzzleSerializer {
 	/**
-	 * パズルデータとオプションを圧縮されたBase64文字列に変換する
-	 * @param puzzle パズルデータ
-	 * @param options 生成オプション
-	 * @returns シリアライズされた文字列
+	 * データを圧縮されたBase64文字列に変換する
 	 */
-	static serialize(puzzle: PuzzleData, options: GenerationOptions): Promise<string>;
+	static serialize(data: SerializationOptions | PuzzleData, legacyOptions?: GenerationOptions): Promise<string>;
 	/**
-	 * シリアライズされた文字列からパズルデータとオプションを復元する
-	 * @param str シリアライズされた文字列
-	 * @returns 復元されたパズルデータとオプション
+	 * シリアライズされた文字列からデータを復元する
 	 */
-	static deserialize(str: string): Promise<{
-		puzzle: PuzzleData;
-		options: GenerationOptions;
-	}>;
+	static deserialize(str: string): Promise<DeserializedData>;
+	private static finalizeDeserialize;
+	private static writePuzzle;
+	private static readPuzzle;
+	private static writeSeed;
+	private static readSeed;
+	private static writeOptions;
+	private static readOptions;
+	private static writePath;
+	private static readPath;
 }
 /**
  * UI表示設定
@@ -554,6 +586,11 @@ export declare class WitnessUI {
 	 * パズルデータを設定し、再描画する
 	 */
 	setPuzzle(puzzle: PuzzleData): void;
+	/**
+	 * 外部からパス（解答経路）を強制的に設定する
+	 * @param path 経路の点配列
+	 */
+	setPath(path: Point[]): void;
 	/**
 	 * 表示オプションを更新する
 	 */
@@ -796,6 +833,7 @@ export interface IRng {
  */
 export declare class PuzzleValidator {
 	private tetrisCache;
+	private reachabilityCache;
 	private rng;
 	setRng(rng: IRng | null): void;
 	/**

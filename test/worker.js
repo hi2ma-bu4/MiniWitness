@@ -13,7 +13,15 @@ self.onmessage = async (e) => {
 			ui = new WitnessUI(canvas, null, {
 				...options,
 				onPathComplete: (path) => {
+					self.postMessage({ type: "drawingEnded" });
+					// Always send pathComplete to allow the main thread to track the current path
 					self.postMessage({ type: "pathComplete", payload: path });
+
+					if (options.autoValidate && currentPuzzle) {
+						const result = core.validateSolution(currentPuzzle, { points: path });
+						ui.setValidationResult(result.isValid, result.invalidatedCells, result.invalidatedEdges, result.errorCells, result.errorEdges, result.invalidatedNodes, result.errorNodes);
+						self.postMessage({ type: "validationResult", payload: result });
+					}
 				},
 			});
 			break;
@@ -36,28 +44,40 @@ self.onmessage = async (e) => {
 			ui.setOptions(payload);
 			break;
 
+		case "setPath":
+			ui.setPath(payload.path);
+			break;
+
+		case "setValidationResult":
+			if (ui) {
+				ui.setValidationResult(payload.isValid, payload.invalidatedCells, payload.invalidatedEdges, payload.errorCells, payload.errorEdges, payload.invalidatedNodes, payload.errorNodes);
+			}
+			break;
+
 		case "setCanvasRect":
 			ui.setCanvasRect(payload);
 			break;
 
 		case "validate":
-			const result = core.validateSolution(currentPuzzle, { points: payload.path });
-			ui.setValidationResult(result.isValid, result.invalidatedCells, result.invalidatedEdges, result.errorCells, result.errorEdges, result.invalidatedNodes, result.errorNodes);
-			self.postMessage({ type: "validationResult", payload: result });
+			if (currentPuzzle) {
+				const result = core.validateSolution(currentPuzzle, { points: payload.path });
+				ui.setValidationResult(result.isValid, result.invalidatedCells, result.invalidatedEdges, result.errorCells, result.errorEdges, result.invalidatedNodes, result.errorNodes);
+				self.postMessage({ type: "validationResult", payload: result });
+			}
 			break;
 
 		case "event":
 			const { eventType, eventData } = payload;
-			if (eventType === "mousedown" || eventType === "touchstart") {
-				const started = ui.handleStart(eventData);
-				if (started) {
-					self.postMessage({ type: "drawingStarted" });
+			if (ui) {
+				if (eventType === "mousedown" || eventType === "touchstart") {
+					const started = ui.handleStart(eventData);
+					self.postMessage({ type: "drawingStarted", payload: started });
+				} else if (eventType === "mousemove" || eventType === "touchmove") {
+					ui.handleMove(eventData);
+				} else if (eventType === "mouseup" || eventType === "touchend") {
+					ui.handleEnd(eventData);
+					self.postMessage({ type: "drawingEnded" });
 				}
-			} else if (eventType === "mousemove" || eventType === "touchmove") {
-				ui.handleMove(eventData);
-			} else if (eventType === "mouseup" || eventType === "touchend") {
-				ui.handleEnd(eventData);
-				self.postMessage({ type: "drawingEnded" });
 			}
 			break;
 	}

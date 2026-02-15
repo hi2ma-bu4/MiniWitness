@@ -318,6 +318,43 @@ export class WitnessUI {
 	}
 
 	/**
+	 * 外部からパス（解答経路）を強制的に設定する
+	 * @param path 経路の点配列
+	 */
+	public setPath(path: Point[]) {
+		if (this.worker) {
+			this.worker.postMessage({ type: "setPath", payload: { path } });
+			return;
+		}
+
+		this.cancelFade();
+		this.isInvalidPath = false;
+		this.isSuccessFading = false;
+
+		if (path.length > 0) {
+			this.path = [...path];
+			const lastPoint = this.path[this.path.length - 1];
+			const lastPos = this.getCanvasCoords(lastPoint.x, lastPoint.y);
+			const exitDir = this.getExitDir(lastPoint.x, lastPoint.y);
+
+			if (exitDir) {
+				this.exitTipPos = {
+					x: lastPos.x + exitDir.x * this.options.exitLength,
+					y: lastPos.y + exitDir.y * this.options.exitLength,
+				};
+			} else {
+				this.exitTipPos = null;
+			}
+			this.currentMousePos = lastPos;
+		} else {
+			this.path = [];
+			this.exitTipPos = null;
+		}
+
+		this.draw();
+	}
+
+	/**
 	 * 表示オプションを更新する
 	 */
 	public setOptions(options: WitnessUIOptions) {
@@ -408,7 +445,10 @@ export class WitnessUI {
 	 */
 	public setValidationResult(isValid: boolean, invalidatedCells: Point[] = [], invalidatedEdges: { type: "h" | "v"; r: number; c: number }[] = [], errorCells: Point[] = [], errorEdges: { type: "h" | "v"; r: number; c: number }[] = [], invalidatedNodes: Point[] = [], errorNodes: Point[] = []) {
 		if (this.worker) {
-			// Proxy側では直接何もしない (Worker側のUIが更新されるはず)
+			this.worker.postMessage({
+				type: "setValidationResult",
+				payload: { isValid, invalidatedCells, invalidatedEdges, errorCells, errorEdges, invalidatedNodes, errorNodes },
+			});
 			return;
 		}
 

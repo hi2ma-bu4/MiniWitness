@@ -7,6 +7,7 @@ import { CellType, Color, EdgeType, NodeType, SymmetryType, type Point, type Sol
  */
 export class PuzzleValidator {
 	private tetrisCache: Map<string, boolean> = new Map();
+	private reachabilityCache: Map<string, boolean> = new Map();
 	private rng: IRng | null = null;
 
 	public setRng(rng: IRng | null) {
@@ -1192,6 +1193,7 @@ export class PuzzleValidator {
 		const adj = Array.from({ length: nodeCount }, () => [] as { next: number; hexType: EdgeType; isBroken: boolean }[]);
 		const startNodes: number[] = [];
 		const endNodes: number[] = [];
+		const isEndNode = Array(nodeCount).fill(false);
 		const hexIdMap = new Map<string, number>();
 		let nextHexId = 0;
 		const hexagonEdges = new Set<string>();
@@ -1201,7 +1203,10 @@ export class PuzzleValidator {
 			for (let c = 0; c <= cols; c++) {
 				const u = r * nodeCols + c;
 				if (grid.nodes[r][c].type === NodeType.Start) startNodes.push(u);
-				if (grid.nodes[r][c].type === NodeType.End) endNodes.push(u);
+				if (grid.nodes[r][c].type === NodeType.End) {
+					endNodes.push(u);
+					isEndNode[u] = true;
+				}
 				if (grid.nodes[r][c].type === NodeType.Hexagon || grid.nodes[r][c].type === NodeType.HexagonMain || grid.nodes[r][c].type === NodeType.HexagonSymmetry) {
 					hexIdMap.set(`n${c},${r}`, nextHexId++);
 					hexagonNodes.add(u);
@@ -1255,6 +1260,7 @@ export class PuzzleValidator {
 		}
 
 		this.tetrisCache.clear();
+		this.reachabilityCache.clear();
 
 		const targetStartIndices = starts ? starts.map((p) => p.y * nodeCols + p.x) : startNodes;
 
@@ -1286,7 +1292,7 @@ export class PuzzleValidator {
 				visitedMask |= 1n << BigInt(snStart);
 			}
 
-			this.exploreSearchSpace(grid, startIdx, visitedMask, [startIdx], startHexMask, totalHexagons, adj, endNodes, fingerprints, stats, searchLimit, externalCells, hasCellMarks, hexIdMap);
+			this.exploreSearchSpace(grid, startIdx, visitedMask, [startIdx], startHexMask, totalHexagons, adj, endNodes, isEndNode, fingerprints, stats, searchLimit, externalCells, hasCellMarks, hexIdMap);
 		}
 
 		if (stats.solutions === 0) return 0;
@@ -1370,14 +1376,30 @@ export class PuzzleValidator {
 	/**
 	 * 探索空間を走査して統計情報を収集する
 	 */
-	private exploreSearchSpace(grid: Grid, currIdx: number, visitedMask: bigint, path: number[], hexMask: bigint, totalHexagons: number, adj: { next: number; hexType: EdgeType; isBroken: boolean }[][], endNodes: number[], fingerprints: Set<string>, stats: { totalNodesVisited: number; branchingPoints: number; solutions: number; maxDepth: number; backtracks: number }, limit: number, externalCells?: Set<string>, hasCellMarks: boolean = true, hexIdMap?: Map<string, number>): void {
+	private exploreSearchSpace(
+		grid: Grid,
+		currIdx: number,
+		visitedMask: bigint,
+		path: number[],
+		hexMask: bigint,
+		totalHexagons: number,
+		adj: { next: number; hexType: EdgeType; isBroken: boolean }[][],
+		endNodes: number[],
+		isEndNode: boolean[],
+		fingerprints: Set<string>,
+		stats: { totalNodesVisited: number; branchingPoints: number; solutions: number; maxDepth: number; backtracks: number },
+		limit: number,
+		externalCells?: Set<string>,
+		hasCellMarks: boolean = true,
+		hexIdMap?: Map<string, number>,
+	): void {
 		stats.totalNodesVisited++;
 		stats.maxDepth = Math.max(stats.maxDepth, path.length);
 		if (stats.totalNodesVisited > limit) return;
 
 		const symmetry = grid.symmetry || SymmetryType.None;
 
-		if (endNodes.includes(currIdx)) {
+		if (isEndNode[currIdx]) {
 			let setBits = 0;
 			let temp = hexMask;
 			while (temp > 0n) {
@@ -1418,7 +1440,7 @@ export class PuzzleValidator {
 			return;
 		}
 
-		if (!this.canReachEndOptimized(currIdx, visitedMask, adj, endNodes)) {
+		if (!this.canReachEndOptimized(currIdx, visitedMask, adj, isEndNode)) {
 			stats.backtracks++;
 			return;
 		}
@@ -1546,7 +1568,7 @@ export class PuzzleValidator {
 				nextVisitedMask |= 1n << BigInt(snNext);
 			}
 
-			this.exploreSearchSpace(grid, move.next, nextVisitedMask, path, nextHexMask, totalHexagons, adj, endNodes, fingerprints, stats, limit, externalCells, hasCellMarks, hexIdMap);
+			this.exploreSearchSpace(grid, move.next, nextVisitedMask, path, nextHexMask, totalHexagons, adj, endNodes, isEndNode, fingerprints, stats, limit, externalCells, hasCellMarks, hexIdMap);
 			path.pop();
 			if (stats.totalNodesVisited > limit) return;
 		}
@@ -1566,6 +1588,7 @@ export class PuzzleValidator {
 		const adj = Array.from({ length: nodeCount }, () => [] as { next: number; hexType: EdgeType; isBroken: boolean }[]);
 		const startNodes: number[] = [];
 		const endNodes: number[] = [];
+		const isEndNode = Array(nodeCount).fill(false);
 		const hexIdMap = new Map<string, number>();
 		let nextHexId = 0;
 
@@ -1573,7 +1596,10 @@ export class PuzzleValidator {
 			for (let c = 0; c <= cols; c++) {
 				const u = r * nodeCols + c;
 				if (grid.nodes[r][c].type === NodeType.Start) startNodes.push(u);
-				if (grid.nodes[r][c].type === NodeType.End) endNodes.push(u);
+				if (grid.nodes[r][c].type === NodeType.End) {
+					endNodes.push(u);
+					isEndNode[u] = true;
+				}
 				if (grid.nodes[r][c].type === NodeType.Hexagon || grid.nodes[r][c].type === NodeType.HexagonMain || grid.nodes[r][c].type === NodeType.HexagonSymmetry) {
 					hexIdMap.set(`n${c},${r}`, nextHexId++);
 				}
@@ -1616,6 +1642,7 @@ export class PuzzleValidator {
 		}
 
 		this.tetrisCache.clear();
+		this.reachabilityCache.clear();
 
 		const targetStartIndices = starts ? starts.map((p) => p.y * nodeCols + p.x) : startNodes;
 
@@ -1645,16 +1672,16 @@ export class PuzzleValidator {
 				if (snStart === startIdx) continue;
 				visitedMask |= 1n << BigInt(snStart);
 			}
-			this.findPathsOptimized(grid, startIdx, visitedMask, [startIdx], startHexMask, totalHexagons, adj, endNodes, fingerprints, limit, externalCells, hasCellMarks, hexIdMap);
+			this.findPathsOptimized(grid, startIdx, visitedMask, [startIdx], startHexMask, totalHexagons, adj, endNodes, isEndNode, fingerprints, limit, externalCells, hasCellMarks, hexIdMap);
 		}
 		return fingerprints.size;
 	}
 
-	private findPathsOptimized(grid: Grid, currIdx: number, visitedMask: bigint, path: number[], hexMask: bigint, totalHexagons: number, adj: { next: number; hexType: EdgeType; isBroken: boolean }[][], endNodes: number[], fingerprints: Set<string>, limit: number, externalCells?: Set<string>, hasCellMarks: boolean = true, hexIdMap?: Map<string, number>): void {
+	private findPathsOptimized(grid: Grid, currIdx: number, visitedMask: bigint, path: number[], hexMask: bigint, totalHexagons: number, adj: { next: number; hexType: EdgeType; isBroken: boolean }[][], endNodes: number[], isEndNode: boolean[], fingerprints: Set<string>, limit: number, externalCells?: Set<string>, hasCellMarks: boolean = true, hexIdMap?: Map<string, number>): void {
 		if (fingerprints.size >= limit) return;
 		const symmetry = grid.symmetry || SymmetryType.None;
 
-		if (endNodes.includes(currIdx)) {
+		if (isEndNode[currIdx]) {
 			let setBits = 0;
 			let temp = hexMask;
 			while (temp > 0n) {
@@ -1681,7 +1708,7 @@ export class PuzzleValidator {
 			}
 			return;
 		}
-		if (!this.canReachEndOptimized(currIdx, visitedMask, adj, endNodes)) return;
+		if (!this.canReachEndOptimized(currIdx, visitedMask, adj, isEndNode)) return;
 		for (const edge of adj[currIdx]) {
 			if (edge.isBroken) continue;
 			if (visitedMask & (1n << BigInt(edge.next))) continue;
@@ -1785,7 +1812,7 @@ export class PuzzleValidator {
 				nextVisitedMask |= 1n << BigInt(snNext);
 			}
 
-			this.findPathsOptimized(grid, edge.next, nextVisitedMask, path, nextHexMask, totalHexagons, adj, endNodes, fingerprints, limit, externalCells, hasCellMarks, hexIdMap);
+			this.findPathsOptimized(grid, edge.next, nextVisitedMask, path, nextHexMask, totalHexagons, adj, endNodes, isEndNode, fingerprints, limit, externalCells, hasCellMarks, hexIdMap);
 			path.pop();
 			if (fingerprints.size >= limit) return;
 		}
@@ -1794,19 +1821,26 @@ export class PuzzleValidator {
 	/**
 	 * 終端まで到達可能かビットマスクBFSで高速に確認する
 	 */
-	private canReachEndOptimized(curr: number, visitedMask: bigint, adj: { next: number; isBroken: boolean }[][], endNodes: number[]): boolean {
+	private canReachEndOptimized(curr: number, visitedMask: bigint, adj: { next: number; isBroken: boolean }[][], isEndNode: boolean[]): boolean {
+		const cacheKey = `${curr}:${visitedMask.toString()}`;
+		const cached = this.reachabilityCache.get(cacheKey);
+		if (cached !== undefined) return cached;
 		let queue = [curr];
 		let localVisited = visitedMask;
 		let head = 0;
 		while (head < queue.length) {
 			const u = queue[head++];
-			if (endNodes.includes(u)) return true;
+			if (isEndNode[u]) {
+				this.reachabilityCache.set(cacheKey, true);
+				return true;
+			}
 			for (const edge of adj[u])
 				if (!edge.isBroken && !(localVisited & (1n << BigInt(edge.next)))) {
 					localVisited |= 1n << BigInt(edge.next);
 					queue.push(edge.next);
 				}
 		}
+		this.reachabilityCache.set(cacheKey, false);
 		return false;
 	}
 

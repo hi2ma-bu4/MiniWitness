@@ -88,6 +88,22 @@
 					</select>
 				</div>
 			</details>
+			<details class="advanced-settings">
+				<summary>Share Settings</summary>
+				<div class="control-group">
+					<label><input type="checkbox" id="share-puzzle" checked> Puzzle</label>
+					<label><input type="checkbox" id="share-seed" checked> Seed</label>
+					<label><input type="checkbox" id="share-options" checked> Options</label>
+					<label><input type="checkbox" id="share-path"> Path</label>
+				</div>
+				<div class="control-group">
+					<label for="parity-mode">Parity:</label>
+					<select id="parity-mode">
+						<option value="detection" selected>Detection (Fast)</option>
+						<option value="recovery">Recovery (Robust)</option>
+					</select>
+				</div>
+			</details>
 			<div class="control-group">
 				<button id="new-puzzle-btn">New Puzzle</button>
 				<button id="share-puzzle-btn">Share Puzzle</button>

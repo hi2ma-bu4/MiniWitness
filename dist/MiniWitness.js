@@ -1,5 +1,5 @@
 /*!
- * MiniWitness 1.3.3
+ * MiniWitness 1.3.4
  * Copyright 2026 hi2ma-bu4
  * Licensed under the Apache License, Version 2.0
  * http://www.apache.org/licenses/LICENSE-2.0
@@ -57,11 +57,11 @@ var Color = {
   Red: 3,
   Blue: 4
 };
-var RngType = /* @__PURE__ */ ((RngType2) => {
-  RngType2[RngType2["Mulberry32"] = 0] = "Mulberry32";
-  RngType2[RngType2["XorShift128Plus"] = 1] = "XorShift128Plus";
-  RngType2[RngType2["MathRandom"] = 2] = "MathRandom";
-  return RngType2;
+var RngType = /* @__PURE__ */ ((RngType3) => {
+  RngType3[RngType3["Mulberry32"] = 0] = "Mulberry32";
+  RngType3[RngType3["XorShift128Plus"] = 1] = "XorShift128Plus";
+  RngType3[RngType3["MathRandom"] = 2] = "MathRandom";
+  return RngType3;
 })(RngType || {});
 
 // src/grid.ts
@@ -189,6 +189,7 @@ function createRng(type, seed) {
 // src/validator.ts
 var PuzzleValidator = class {
   tetrisCache = /* @__PURE__ */ new Map();
+  reachabilityCache = /* @__PURE__ */ new Map();
   rng = null;
   setRng(rng) {
     this.rng = rng;
@@ -1195,6 +1196,7 @@ var PuzzleValidator = class {
     const adj = Array.from({ length: nodeCount }, () => []);
     const startNodes = [];
     const endNodes = [];
+    const isEndNode = Array(nodeCount).fill(false);
     const hexIdMap = /* @__PURE__ */ new Map();
     let nextHexId = 0;
     const hexagonEdges = /* @__PURE__ */ new Set();
@@ -1203,7 +1205,10 @@ var PuzzleValidator = class {
       for (let c = 0; c <= cols; c++) {
         const u = r * nodeCols + c;
         if (grid.nodes[r][c].type === 1 /* Start */) startNodes.push(u);
-        if (grid.nodes[r][c].type === 2 /* End */) endNodes.push(u);
+        if (grid.nodes[r][c].type === 2 /* End */) {
+          endNodes.push(u);
+          isEndNode[u] = true;
+        }
         if (grid.nodes[r][c].type === 3 /* Hexagon */ || grid.nodes[r][c].type === 4 /* HexagonMain */ || grid.nodes[r][c].type === 5 /* HexagonSymmetry */) {
           hexIdMap.set(`n${c},${r}`, nextHexId++);
           hexagonNodes.add(u);
@@ -1250,6 +1255,7 @@ var PuzzleValidator = class {
       if (hasCellMarks) break;
     }
     this.tetrisCache.clear();
+    this.reachabilityCache.clear();
     const targetStartIndices = starts ? starts.map((p) => p.y * nodeCols + p.x) : startNodes;
     for (const startIdx of targetStartIndices) {
       const nodeCols2 = grid.cols + 1;
@@ -1276,7 +1282,7 @@ var PuzzleValidator = class {
         if (snStart === startIdx) continue;
         visitedMask |= 1n << BigInt(snStart);
       }
-      this.exploreSearchSpace(grid, startIdx, visitedMask, [startIdx], startHexMask, totalHexagons, adj, endNodes, fingerprints, stats, searchLimit, externalCells, hasCellMarks, hexIdMap);
+      this.exploreSearchSpace(grid, startIdx, visitedMask, [startIdx], startHexMask, totalHexagons, adj, endNodes, isEndNode, fingerprints, stats, searchLimit, externalCells, hasCellMarks, hexIdMap);
     }
     if (stats.solutions === 0) return 0;
     let constraintCount = hexagonEdges.size + hexagonNodes.size;
@@ -1341,12 +1347,12 @@ var PuzzleValidator = class {
   /**
    * 探索空間を走査して統計情報を収集する
    */
-  exploreSearchSpace(grid, currIdx, visitedMask, path, hexMask, totalHexagons, adj, endNodes, fingerprints, stats, limit, externalCells, hasCellMarks = true, hexIdMap) {
+  exploreSearchSpace(grid, currIdx, visitedMask, path, hexMask, totalHexagons, adj, endNodes, isEndNode, fingerprints, stats, limit, externalCells, hasCellMarks = true, hexIdMap) {
     stats.totalNodesVisited++;
     stats.maxDepth = Math.max(stats.maxDepth, path.length);
     if (stats.totalNodesVisited > limit) return;
     const symmetry = grid.symmetry || 0 /* None */;
-    if (endNodes.includes(currIdx)) {
+    if (isEndNode[currIdx]) {
       let setBits = 0;
       let temp = hexMask;
       while (temp > 0n) {
@@ -1381,7 +1387,7 @@ var PuzzleValidator = class {
       }
       return;
     }
-    if (!this.canReachEndOptimized(currIdx, visitedMask, adj, endNodes)) {
+    if (!this.canReachEndOptimized(currIdx, visitedMask, adj, isEndNode)) {
       stats.backtracks++;
       return;
     }
@@ -1488,7 +1494,7 @@ var PuzzleValidator = class {
         const snNext = this.getSymmetricalPointIndex(grid, move.next);
         nextVisitedMask |= 1n << BigInt(snNext);
       }
-      this.exploreSearchSpace(grid, move.next, nextVisitedMask, path, nextHexMask, totalHexagons, adj, endNodes, fingerprints, stats, limit, externalCells, hasCellMarks, hexIdMap);
+      this.exploreSearchSpace(grid, move.next, nextVisitedMask, path, nextHexMask, totalHexagons, adj, endNodes, isEndNode, fingerprints, stats, limit, externalCells, hasCellMarks, hexIdMap);
       path.pop();
       if (stats.totalNodesVisited > limit) return;
     }
@@ -1507,13 +1513,17 @@ var PuzzleValidator = class {
     const adj = Array.from({ length: nodeCount }, () => []);
     const startNodes = [];
     const endNodes = [];
+    const isEndNode = Array(nodeCount).fill(false);
     const hexIdMap = /* @__PURE__ */ new Map();
     let nextHexId = 0;
     for (let r = 0; r <= rows; r++) {
       for (let c = 0; c <= cols; c++) {
         const u = r * nodeCols + c;
         if (grid.nodes[r][c].type === 1 /* Start */) startNodes.push(u);
-        if (grid.nodes[r][c].type === 2 /* End */) endNodes.push(u);
+        if (grid.nodes[r][c].type === 2 /* End */) {
+          endNodes.push(u);
+          isEndNode[u] = true;
+        }
         if (grid.nodes[r][c].type === 3 /* Hexagon */ || grid.nodes[r][c].type === 4 /* HexagonMain */ || grid.nodes[r][c].type === 5 /* HexagonSymmetry */) {
           hexIdMap.set(`n${c},${r}`, nextHexId++);
         }
@@ -1551,6 +1561,7 @@ var PuzzleValidator = class {
       if (hasCellMarks) break;
     }
     this.tetrisCache.clear();
+    this.reachabilityCache.clear();
     const targetStartIndices = starts ? starts.map((p) => p.y * nodeCols + p.x) : startNodes;
     for (const startIdx of targetStartIndices) {
       const nodeCols2 = grid.cols + 1;
@@ -1577,14 +1588,14 @@ var PuzzleValidator = class {
         if (snStart === startIdx) continue;
         visitedMask |= 1n << BigInt(snStart);
       }
-      this.findPathsOptimized(grid, startIdx, visitedMask, [startIdx], startHexMask, totalHexagons, adj, endNodes, fingerprints, limit, externalCells, hasCellMarks, hexIdMap);
+      this.findPathsOptimized(grid, startIdx, visitedMask, [startIdx], startHexMask, totalHexagons, adj, endNodes, isEndNode, fingerprints, limit, externalCells, hasCellMarks, hexIdMap);
     }
     return fingerprints.size;
   }
-  findPathsOptimized(grid, currIdx, visitedMask, path, hexMask, totalHexagons, adj, endNodes, fingerprints, limit, externalCells, hasCellMarks = true, hexIdMap) {
+  findPathsOptimized(grid, currIdx, visitedMask, path, hexMask, totalHexagons, adj, endNodes, isEndNode, fingerprints, limit, externalCells, hasCellMarks = true, hexIdMap) {
     if (fingerprints.size >= limit) return;
     const symmetry = grid.symmetry || 0 /* None */;
-    if (endNodes.includes(currIdx)) {
+    if (isEndNode[currIdx]) {
       let setBits = 0;
       let temp = hexMask;
       while (temp > 0n) {
@@ -1610,7 +1621,7 @@ var PuzzleValidator = class {
       }
       return;
     }
-    if (!this.canReachEndOptimized(currIdx, visitedMask, adj, endNodes)) return;
+    if (!this.canReachEndOptimized(currIdx, visitedMask, adj, isEndNode)) return;
     for (const edge of adj[currIdx]) {
       if (edge.isBroken) continue;
       if (visitedMask & 1n << BigInt(edge.next)) continue;
@@ -1702,7 +1713,7 @@ var PuzzleValidator = class {
         const snNext = this.getSymmetricalPointIndex(grid, edge.next);
         nextVisitedMask |= 1n << BigInt(snNext);
       }
-      this.findPathsOptimized(grid, edge.next, nextVisitedMask, path, nextHexMask, totalHexagons, adj, endNodes, fingerprints, limit, externalCells, hasCellMarks, hexIdMap);
+      this.findPathsOptimized(grid, edge.next, nextVisitedMask, path, nextHexMask, totalHexagons, adj, endNodes, isEndNode, fingerprints, limit, externalCells, hasCellMarks, hexIdMap);
       path.pop();
       if (fingerprints.size >= limit) return;
     }
@@ -1710,19 +1721,26 @@ var PuzzleValidator = class {
   /**
    * 終端まで到達可能かビットマスクBFSで高速に確認する
    */
-  canReachEndOptimized(curr, visitedMask, adj, endNodes) {
+  canReachEndOptimized(curr, visitedMask, adj, isEndNode) {
+    const cacheKey = `${curr}:${visitedMask.toString()}`;
+    const cached = this.reachabilityCache.get(cacheKey);
+    if (cached !== void 0) return cached;
     let queue = [curr];
     let localVisited = visitedMask;
     let head = 0;
     while (head < queue.length) {
       const u = queue[head++];
-      if (endNodes.includes(u)) return true;
+      if (isEndNode[u]) {
+        this.reachabilityCache.set(cacheKey, true);
+        return true;
+      }
       for (const edge of adj[u])
         if (!edge.isBroken && !(localVisited & 1n << BigInt(edge.next))) {
           localVisited |= 1n << BigInt(edge.next);
           queue.push(edge.next);
         }
     }
+    this.reachabilityCache.set(cacheKey, false);
     return false;
   }
   /**
@@ -3514,6 +3532,38 @@ var WitnessUI = class {
     this.emit("puzzle:created", { puzzle });
   }
   /**
+   * 外部からパス（解答経路）を強制的に設定する
+   * @param path 経路の点配列
+   */
+  setPath(path) {
+    if (this.worker) {
+      this.worker.postMessage({ type: "setPath", payload: { path } });
+      return;
+    }
+    this.cancelFade();
+    this.isInvalidPath = false;
+    this.isSuccessFading = false;
+    if (path.length > 0) {
+      this.path = [...path];
+      const lastPoint = this.path[this.path.length - 1];
+      const lastPos = this.getCanvasCoords(lastPoint.x, lastPoint.y);
+      const exitDir = this.getExitDir(lastPoint.x, lastPoint.y);
+      if (exitDir) {
+        this.exitTipPos = {
+          x: lastPos.x + exitDir.x * this.options.exitLength,
+          y: lastPos.y + exitDir.y * this.options.exitLength
+        };
+      } else {
+        this.exitTipPos = null;
+      }
+      this.currentMousePos = lastPos;
+    } else {
+      this.path = [];
+      this.exitTipPos = null;
+    }
+    this.draw();
+  }
+  /**
    * 表示オプションを更新する
    */
   setOptions(options) {
@@ -3591,6 +3641,10 @@ var WitnessUI = class {
    */
   setValidationResult(isValid, invalidatedCells = [], invalidatedEdges = [], errorCells = [], errorEdges = [], invalidatedNodes = [], errorNodes = []) {
     if (this.worker) {
+      this.worker.postMessage({
+        type: "setValidationResult",
+        payload: { isValid, invalidatedCells, invalidatedEdges, errorCells, errorEdges, invalidatedNodes, errorNodes }
+      });
       return;
     }
     this.invalidatedCells = invalidatedCells;
@@ -4905,7 +4959,58 @@ var BitReader = class {
     }
     return v;
   }
+  get hasMore() {
+    return this.i < this.buf.length;
+  }
 };
+var GF256_EXP = new Uint8Array(512);
+var GF256_LOG = new Uint8Array(256);
+{
+  let x = 1;
+  for (let i = 0; i < 255; i++) {
+    GF256_EXP[i] = x;
+    GF256_EXP[i + 255] = x;
+    GF256_LOG[x] = i;
+    x <<= 1;
+    if (x & 256) x ^= 285;
+  }
+}
+function gf_mul(a, b) {
+  if (a === 0 || b === 0) return 0;
+  return GF256_EXP[GF256_LOG[a] + GF256_LOG[b]];
+}
+function rs_encode(data, nsym) {
+  let gen = new Uint8Array([1]);
+  for (let i = 0; i < nsym; i++) {
+    const next = new Uint8Array(gen.length + 1);
+    const root = GF256_EXP[i];
+    for (let j = 0; j < gen.length; j++) {
+      next[j] ^= gf_mul(gen[j], root);
+      next[j + 1] ^= gen[j];
+    }
+    gen = next;
+  }
+  const poly = gen.slice(0, nsym + 1).reverse();
+  const res = new Uint8Array(nsym);
+  for (let i = 0; i < data.length; i++) {
+    const m = data[i] ^ res[0];
+    for (let j = 0; j < nsym - 1; j++) res[j] = res[j + 1] ^ gf_mul(m, poly[j + 1]);
+    res[nsym - 1] = gf_mul(m, poly[nsym]);
+  }
+  return res;
+}
+function rs_check(data, parity) {
+  const msg = new Uint8Array(data.length + parity.length);
+  msg.set(data);
+  msg.set(parity, data.length);
+  for (let i = 0; i < parity.length; i++) {
+    let s = 0;
+    const x = GF256_EXP[i];
+    for (let j = 0; j < msg.length; j++) s = gf_mul(s, x) ^ msg[j];
+    if (s !== 0) return false;
+  }
+  return true;
+}
 function collectShapes(cells) {
   const map = /* @__PURE__ */ new Map();
   for (const row of cells) {
@@ -4920,13 +5025,113 @@ function collectShapes(cells) {
 }
 var PuzzleSerializer = class {
   /**
-   * パズルデータとオプションを圧縮されたBase64文字列に変換する
-   * @param puzzle パズルデータ
-   * @param options 生成オプション
-   * @returns シリアライズされた文字列
+   * データを圧縮されたBase64文字列に変換する
    */
-  static async serialize(puzzle, options) {
+  static async serialize(data, legacyOptions) {
+    let input;
+    const d = data;
+    const isLegacy = typeof d === "object" && d !== null && "rows" in d && "cells" in d && !("puzzle" in d) && !("options" in d) && !("path" in d) && !("seed" in d);
+    if (isLegacy) {
+      input = { puzzle: data, options: legacyOptions };
+    } else {
+      input = data;
+    }
     const bw = new BitWriter();
+    let flags = 0;
+    if (input.puzzle) flags |= 1 << 0;
+    if (input.seed) flags |= 1 << 1;
+    if (input.options) flags |= 1 << 2;
+    if (input.path) flags |= 1 << 3;
+    const recovery = input.parityMode === "recovery";
+    if (recovery) flags |= 1 << 4;
+    bw.write(flags, 8);
+    if (input.puzzle) this.writePuzzle(bw, input.puzzle);
+    if (input.seed) this.writeSeed(bw, input.seed);
+    if (input.options) this.writeOptions(bw, input.options);
+    if (input.path) this.writePath(bw, input.path);
+    const raw = bw.finish();
+    const gz = new Uint8Array(await new Response(new Blob([raw.buffer]).stream().pipeThrough(new CompressionStream("gzip"))).arrayBuffer());
+    let final;
+    if (recovery) {
+      const parity = rs_encode(gz, 10);
+      final = new Uint8Array(gz.length + 10 + 2);
+      final.set(gz);
+      final.set(parity, gz.length);
+      final[final.length - 2] = gz.length & 255;
+      final[final.length - 1] = gz.length >> 8 & 255;
+    } else {
+      let p = 0;
+      for (const b of gz) p ^= b;
+      final = new Uint8Array(gz.length + 1);
+      final.set(gz);
+      final[gz.length] = p;
+    }
+    return btoa(String.fromCharCode(...final)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+  /**
+   * シリアライズされた文字列からデータを復元する
+   */
+  static async deserialize(str) {
+    const tryDecode = async (s) => {
+      try {
+        let b64 = s.replace(/-/g, "+").replace(/_/g, "/");
+        while (b64.length % 4) b64 += "=";
+        const bin = atob(b64);
+        return Uint8Array.from(bin, (c) => c.charCodeAt(0));
+      } catch {
+        return null;
+      }
+    };
+    const attemptRecovery = async (data) => {
+      if (data.length === 0) return null;
+      let p = 0;
+      for (let i = 0; i < data.length - 1; i++) p ^= data[i];
+      if (p === data[data.length - 1]) return data.slice(0, -1);
+      if (data.length > 12) {
+        const gzLen = data[data.length - 2] | data[data.length - 1] << 8;
+        if (gzLen + 12 === data.length) {
+          const gz2 = data.slice(0, gzLen);
+          const parity = data.slice(gzLen, gzLen + 10);
+          if (rs_check(gz2, parity)) return gz2;
+        }
+      }
+      return null;
+    };
+    let buf = await tryDecode(str);
+    let gz = buf ? await attemptRecovery(buf) : null;
+    if (!gz && str.length < 1e3) {
+      const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+      for (let i = 0; i <= str.length; i++) {
+        for (let j = 0; j < chars.length; j++) {
+          const s = str.slice(0, i) + chars[j] + str.slice(i);
+          const b = await tryDecode(s);
+          if (b) {
+            const g = await attemptRecovery(b);
+            if (g) {
+              try {
+                return await this.finalizeDeserialize(g);
+              } catch {
+              }
+            }
+          }
+        }
+      }
+    }
+    if (!gz) throw new Error("Invalid parity data or unrecoverable corruption");
+    return this.finalizeDeserialize(gz);
+  }
+  static async finalizeDeserialize(gz) {
+    const raw = new Uint8Array(await new Response(new Blob([gz.buffer]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer());
+    const br = new BitReader(raw);
+    const flags = br.read(8);
+    const result = {};
+    if (flags & 1 << 0) result.puzzle = this.readPuzzle(br);
+    if (flags & 1 << 1) result.seed = this.readSeed(br);
+    if (flags & 1 << 2) result.options = this.readOptions(br);
+    if (flags & 1 << 3) result.path = this.readPath(br);
+    return result;
+  }
+  static writePuzzle(bw, puzzle) {
     bw.write(puzzle.rows, 6);
     bw.write(puzzle.cols, 6);
     bw.write(puzzle.symmetry ?? 0, 2);
@@ -4956,6 +5161,64 @@ var PuzzleSerializer = class {
     for (let y = 0; y < puzzle.rows; y++) for (let x = 0; x < puzzle.cols + 1; x++) bw.write(puzzle.vEdges[y][x].type, 3);
     for (let y = 0; y < puzzle.rows + 1; y++) for (let x = 0; x < puzzle.cols; x++) bw.write(puzzle.hEdges[y][x].type, 3);
     for (let y = 0; y < puzzle.rows + 1; y++) for (let x = 0; x < puzzle.cols + 1; x++) bw.write(puzzle.nodes[y][x].type, 3);
+  }
+  static readPuzzle(br) {
+    const rows = br.read(6);
+    const cols = br.read(6);
+    const symmetry = br.read(2);
+    const shapeCount = br.read(5);
+    const shapes = [];
+    for (let i = 0; i < shapeCount; i++) {
+      const h = br.read(4);
+      const w = br.read(4);
+      const s = [];
+      for (let y = 0; y < h; y++) {
+        const r = [];
+        for (let x = 0; x < w; x++) r.push(br.read(1));
+        s.push(r);
+      }
+      shapes.push(s);
+    }
+    const cells = [];
+    for (let y = 0; y < rows; y++) {
+      const row = [];
+      for (let x = 0; x < cols; x++) {
+        const type = br.read(4);
+        const color = br.read(3);
+        const cell = { type, color };
+        if (type === 8 /* Triangle */) {
+          cell.count = br.read(2);
+        } else {
+          if (br.read(1)) cell.shape = shapes[br.read(5)].map((r) => r.slice());
+        }
+        row.push(cell);
+      }
+      cells.push(row);
+    }
+    const vEdges = Array.from({ length: rows }, () => Array.from({ length: cols + 1 }, () => ({ type: br.read(3) })));
+    const hEdges = Array.from({ length: rows + 1 }, () => Array.from({ length: cols }, () => ({ type: br.read(3) })));
+    const nodes = Array.from({ length: rows + 1 }, () => Array.from({ length: cols + 1 }, () => ({ type: br.read(3) })));
+    return { rows, cols, cells, vEdges, hEdges, nodes, symmetry };
+  }
+  static writeSeed(bw, seed) {
+    bw.write(seed.type, 2);
+    bw.write(seed.value.length, 8);
+    for (let i = 0; i < seed.value.length; i++) {
+      bw.write(parseInt(seed.value[i], 16), 4);
+    }
+  }
+  static readSeed(br) {
+    const type = br.read(2);
+    const len = br.read(8);
+    let value = "";
+    for (let i = 0; i < len; i++) {
+      value += br.read(4).toString(16);
+    }
+    return { type, value };
+  }
+  static writeOptions(bw, options) {
+    bw.write(options.rows ?? 0, 6);
+    bw.write(options.cols ?? 0, 6);
     bw.write(+!!options.useHexagons, 1);
     bw.write(+!!options.useSquares, 1);
     bw.write(+!!options.useStars, 1);
@@ -4968,96 +5231,94 @@ var PuzzleSerializer = class {
     bw.write(Math.round((options.complexity ?? 0) * 254), 8);
     bw.write(Math.round((options.difficulty ?? 0) * 254), 8);
     bw.write(Math.round((options.pathLength ?? 0) * 254), 8);
-    const raw = bw.finish();
-    const gz = new Uint8Array(await new Response(new Blob([raw.buffer]).stream().pipeThrough(new CompressionStream("gzip"))).arrayBuffer());
-    let parity = 0;
-    for (const b of gz) parity ^= b;
-    const final = new Uint8Array(gz.length + 1);
-    final.set(gz);
-    final[gz.length] = parity;
-    return btoa(String.fromCharCode(...final)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    if (options.availableColors && options.availableColors.length > 0) {
+      bw.write(1, 1);
+      bw.write(options.availableColors.length, 4);
+      for (const c of options.availableColors) bw.write(c, 3);
+    } else {
+      bw.write(0, 1);
+    }
+    if (options.defaultColors) {
+      const entries = Object.entries(options.defaultColors);
+      bw.write(entries.length, 4);
+      for (const [key, val] of entries) {
+        const type = isNaN(Number(key)) ? CellType[key] : Number(key);
+        bw.write(type, 4);
+        bw.write(val, 3);
+      }
+    } else {
+      bw.write(0, 4);
+    }
   }
-  /**
-   * シリアライズされた文字列からパズルデータとオプションを復元する
-   * @param str シリアライズされた文字列
-   * @returns 復元されたパズルデータとオプション
-   */
-  static async deserialize(str) {
-    let s = str.replace(/-/g, "+").replace(/_/g, "/");
-    while (s.length % 4) s += "=";
-    const bin = atob(s);
-    const buf = Uint8Array.from(bin, (c) => c.charCodeAt(0));
-    let parity = 0;
-    for (let i = 0; i < buf.length - 1; i++) parity ^= buf[i];
-    if (parity !== buf.at(-1)) throw new Error("Invalid parity data");
-    const raw = new Uint8Array(await new Response(new Blob([buf.slice(0, -1).buffer]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer());
-    const br = new BitReader(raw);
+  static readOptions(br) {
+    const options = {};
     const rows = br.read(6);
     const cols = br.read(6);
-    const symmetry = br.read(2);
-    const shapeCount = br.read(5);
-    const shapes = [];
-    for (let i = 0; i < shapeCount; i++) {
-      const h = br.read(4);
-      const w = br.read(4);
-      const s2 = [];
-      for (let y = 0; y < h; y++) {
-        const r = [];
-        for (let x = 0; x < w; x++) r.push(br.read(1));
-        s2.push(r);
-      }
-      shapes.push(s2);
+    if (rows > 0) options.rows = rows;
+    if (cols > 0) options.cols = cols;
+    if (br.read(1)) options.useHexagons = true;
+    if (br.read(1)) options.useSquares = true;
+    if (br.read(1)) options.useStars = true;
+    if (br.read(1)) options.useTetris = true;
+    if (br.read(1)) options.useTetrisNegative = true;
+    if (br.read(1)) options.useEraser = true;
+    if (br.read(1)) options.useTriangles = true;
+    if (br.read(1)) options.useBrokenEdges = true;
+    options.symmetry = br.read(2);
+    const readRatio = () => Math.round(br.read(8) / 254 * 1e3) / 1e3;
+    options.complexity = readRatio();
+    options.difficulty = readRatio();
+    options.pathLength = readRatio();
+    if (br.read(1)) {
+      const len = br.read(4);
+      options.availableColors = [];
+      for (let i = 0; i < len; i++) options.availableColors.push(br.read(3));
     }
-    const cells = [];
-    for (let y = 0; y < rows; y++) {
-      const row = [];
-      for (let x = 0; x < cols; x++) {
+    const defLen = br.read(4);
+    if (defLen > 0) {
+      options.defaultColors = {};
+      for (let i = 0; i < defLen; i++) {
         const type = br.read(4);
         const color = br.read(3);
-        const cell = { type, color };
-        if (type === 8 /* Triangle */) {
-          cell.count = br.read(2);
-        } else {
-          const hasShape = br.read(1);
-          if (hasShape) cell.shape = shapes[br.read(5)].map((r) => r.slice());
-        }
-        row.push(cell);
+        options.defaultColors[type] = color;
       }
-      cells.push(row);
     }
-    const vEdges = Array.from({ length: rows }, () => Array.from({ length: cols + 1 }, () => ({ type: br.read(3) })));
-    const hEdges = Array.from({ length: rows + 1 }, () => Array.from({ length: cols }, () => ({ type: br.read(3) })));
-    const nodes = Array.from({ length: rows + 1 }, () => Array.from({ length: cols + 1 }, () => ({ type: br.read(3) })));
-    const readRatio = () => {
-      const v = br.read(8);
-      return Math.round(v / 254 * 1e3) / 1e3;
-    };
-    const options = {};
-    const useHexagons = !!br.read(1);
-    const useSquares = !!br.read(1);
-    const useStars = !!br.read(1);
-    const useTetris = !!br.read(1);
-    const useTetrisNegative = !!br.read(1);
-    const useEraser = !!br.read(1);
-    const useTriangles = !!br.read(1);
-    const useBroken = !!br.read(1);
-    const optSymmetry = br.read(2);
-    if (useHexagons) options.useHexagons = true;
-    if (useSquares) options.useSquares = true;
-    if (useStars) options.useStars = true;
-    if (useTetris) options.useTetris = true;
-    if (useTetrisNegative) options.useTetrisNegative = true;
-    if (useEraser) options.useEraser = true;
-    if (useTriangles) options.useTriangles = true;
-    if (useBroken) options.useBrokenEdges = true;
-    options.symmetry = optSymmetry;
-    const complexity = readRatio();
-    const difficulty = readRatio();
-    const pathLength = readRatio();
-    if (complexity !== 0) options.complexity = complexity;
-    if (difficulty !== 0) options.difficulty = difficulty;
-    if (pathLength !== 0) options.pathLength = pathLength;
-    return { puzzle: { rows, cols, cells, vEdges, hEdges, nodes, symmetry }, options };
+    return options;
+  }
+  static writePath(bw, path) {
+    bw.write(path.points.length, 12);
+    if (path.points.length === 0) return;
+    bw.write(path.points[0].x, 6);
+    bw.write(path.points[0].y, 6);
+    for (let i = 1; i < path.points.length; i++) {
+      const p1 = path.points[i - 1];
+      const p2 = path.points[i];
+      const dx = p2.x - p1.x;
+      const dy = p2.y - p1.y;
+      let dir = 0;
+      if (dy === -1) dir = 0;
+      else if (dx === 1) dir = 1;
+      else if (dy === 1) dir = 2;
+      else if (dx === -1) dir = 3;
+      bw.write(dir, 2);
+    }
+  }
+  static readPath(br) {
+    const len = br.read(12);
+    if (len === 0) return { points: [] };
+    const points = [];
+    let x = br.read(6);
+    let y = br.read(6);
+    points.push({ x, y });
+    for (let i = 1; i < len; i++) {
+      const dir = br.read(2);
+      if (dir === 0) y--;
+      else if (dir === 1) x++;
+      else if (dir === 2) y++;
+      else if (dir === 3) x--;
+      points.push({ x, y });
+    }
+    return { points };
   }
 };
 
@@ -5116,12 +5377,11 @@ if (typeof self !== "undefined" && "postMessage" in self && !("document" in self
           ...options,
           onPathComplete: (path) => {
             self.postMessage({ type: "drawingEnded" });
+            self.postMessage({ type: "pathComplete", payload: path });
             if (options.autoValidate && currentPuzzle) {
               const result = core.validateSolution(currentPuzzle, { points: path });
               ui.setValidationResult(result.isValid, result.invalidatedCells, result.invalidatedEdges, result.errorCells, result.errorEdges, result.invalidatedNodes, result.errorNodes);
               self.postMessage({ type: "validationResult", payload: result });
-            } else {
-              self.postMessage({ type: "pathComplete", payload: path });
             }
           }
         });
@@ -5145,6 +5405,16 @@ if (typeof self !== "undefined" && "postMessage" in self && !("document" in self
       }
       case "setOptions": {
         if (ui) ui.setOptions(payload);
+        break;
+      }
+      case "setPath": {
+        if (ui) ui.setPath(payload.path);
+        break;
+      }
+      case "setValidationResult": {
+        if (ui) {
+          ui.setValidationResult(payload.isValid, payload.invalidatedCells, payload.invalidatedEdges, payload.errorCells, payload.errorEdges, payload.invalidatedNodes, payload.errorNodes);
+        }
         break;
       }
       case "setCanvasRect": {
