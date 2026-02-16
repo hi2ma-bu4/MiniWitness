@@ -4,25 +4,23 @@ let ui = null;
 let core = new WitnessCore();
 let currentPuzzle = null;
 
-self.onmessage = async (e) => {
+self.addEventListener("message", async (e) => {
 	const { type, payload } = e.data;
 
 	switch (type) {
 		case "init":
 			const { canvas, options } = payload;
-			ui = new WitnessUI(canvas, null, {
-				...options,
-				onPathComplete: (path) => {
-					self.postMessage({ type: "drawingEnded" });
-					// Always send pathComplete to allow the main thread to track the current path
-					self.postMessage({ type: "pathComplete", payload: path });
+			ui = new WitnessUI(canvas, null, options);
+			ui.on("path:complete", ({ path }) => {
+				self.postMessage({ type: "drawingEnded" });
+				// Always send pathComplete to allow the main thread to track the current path
+				self.postMessage({ type: "pathComplete", payload: path });
 
-					if (options.autoValidate && currentPuzzle) {
-						const result = core.validateSolution(currentPuzzle, { points: path });
-						ui.setValidationResult(result.isValid, result.invalidatedCells, result.invalidatedEdges, result.errorCells, result.errorEdges, result.invalidatedNodes, result.errorNodes);
-						self.postMessage({ type: "validationResult", payload: result });
-					}
-				},
+				if (options?.autoValidate && currentPuzzle) {
+					const result = core.validateSolution(currentPuzzle, { points: path });
+					ui.setValidationResult(result.isValid, result.invalidatedCells, result.invalidatedEdges, result.errorCells, result.errorEdges, result.invalidatedNodes, result.errorNodes);
+					self.postMessage({ type: "validationResult", payload: result });
+				}
 			});
 			break;
 
@@ -81,4 +79,4 @@ self.onmessage = async (e) => {
 			}
 			break;
 	}
-};
+});

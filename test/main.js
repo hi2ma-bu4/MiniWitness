@@ -44,7 +44,6 @@ class WitnessGame {
 			this.initWorker(this.workerType);
 		} else {
 			this.ui = new WitnessUI(this.canvas, null, {
-				onPathComplete: (path) => this.validate(path),
 				pixelRatio: document.getElementById("use-hidpi").checked ? window.devicePixelRatio : 1,
 			});
 			this.setupUIEvents();
@@ -301,15 +300,6 @@ class WitnessGame {
 				workerScript: "../dist/MiniWitness.js",
 				autoValidate: true,
 				pixelRatio: document.getElementById("use-hidpi").checked ? window.devicePixelRatio : 1,
-				onPathComplete: (path) => this.validate(path),
-				onPuzzleCreated: (payload) => this.loadPuzzle(payload.puzzle, payload.genOptions),
-				onValidationResult: (result) => {
-					if (result.isValid) {
-						this.updateStatus("Correct! Well done!", "#4f4");
-					} else {
-						this.updateStatus("Incorrect: " + (result.errorReason || "Try again"), "#f44");
-					}
-				},
 			});
 			// In worker mode, WitnessUI automatically forwards events and syncs state.
 			this.setupUIEvents();
@@ -327,9 +317,7 @@ class WitnessGame {
 					type: "init",
 					payload: {
 						canvas: offscreen,
-						options: {
-							onPathComplete: true,
-						},
+						options: {},
 					},
 				},
 				[offscreen],
@@ -435,14 +423,14 @@ class WitnessGame {
 			updateRect();
 		}
 
-		this.worker.onmessage = (e) => {
+		this.worker.addEventListener("message", (e) => {
 			const { type, payload } = e.data;
 			if (type === "pathComplete") {
 				this.validate(payload);
 			} else if (type === "puzzleCreated") {
 				this.loadPuzzle(payload.puzzle, payload.genOptions);
 			} else if (type === "drawingStarted") {
-				this.isDrawing = true;
+				this.isDrawing = payload !== false;
 			} else if (type === "drawingEnded") {
 				this.isDrawing = false;
 			} else if (type === "validationResult") {
@@ -453,7 +441,7 @@ class WitnessGame {
 					this.updateStatus("Incorrect: " + (result.errorReason || "Try again"), "#f44");
 				}
 			}
-		};
+		});
 	}
 
 	setupUIEvents() {
@@ -470,10 +458,25 @@ class WitnessGame {
 
 		this.ui.on("path:start", (data) => log(`Path Start: (${data.x}, ${data.y})`));
 		this.ui.on("path:end", (data) => log(`Path End: exit=${data.isExit}, len=${data.path.length}`));
+		this.ui.on("path:complete", (data) => this.validate(data.path));
 		this.ui.on("goal:reachable", (data) => log(`Goal Reachable: ${data.reachable}`));
 		this.ui.on("goal:reached", (data) => log(`Goal Reached: valid=${data.isValid}`));
-		this.ui.on("goal:validated", (data) => log(`Goal Validated: valid=${data.result.isValid}`));
-		this.ui.on("puzzle:created", () => log(`Puzzle Created`));
+		this.ui.on("goal:validated", (data) => {
+			log(`Goal Validated: valid=${data.result.isValid}`);
+			if (this.isWorkerMode && this.workerType === 2) {
+				if (data.result.isValid) {
+					this.updateStatus("Correct! Well done!", "#4f4");
+				} else {
+					this.updateStatus("Incorrect: " + (data.result.errorReason || "Try again"), "#f44");
+				}
+			}
+		});
+		this.ui.on("puzzle:created", (data) => {
+			log(`Puzzle Created`);
+			if (this.isWorkerMode && this.workerType === 2) {
+				this.loadPuzzle(data.puzzle, data.genOptions || this.currentOptions || {});
+			}
+		});
 	}
 
 	validate(path) {

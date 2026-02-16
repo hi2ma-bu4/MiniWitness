@@ -79,19 +79,17 @@ if (typeof self !== "undefined" && "postMessage" in self && !("document" in self
 		switch (type) {
 			case "init": {
 				const { canvas, options } = payload;
-				ui = new WitnessUI(canvas, undefined, {
-					...options,
-					onPathComplete: (path: Point[]) => {
-						(self as any).postMessage({ type: "drawingEnded" });
-						// Always send pathComplete to allow the main thread to track the current path
-						(self as any).postMessage({ type: "pathComplete", payload: path });
+				ui = new WitnessUI(canvas, undefined, options);
+				ui.on("path:complete", ({ path }: { path: Point[] }) => {
+					(self as any).postMessage({ type: "drawingEnded" });
+					// Always send pathComplete to allow the main thread to track the current path
+					(self as any).postMessage({ type: "pathComplete", payload: path });
 
-						if (options.autoValidate && currentPuzzle) {
-							const result = core.validateSolution(currentPuzzle, { points: path });
-							ui!.setValidationResult(result.isValid, result.invalidatedCells, result.invalidatedEdges, result.errorCells, result.errorEdges, result.invalidatedNodes, result.errorNodes);
-							(self as any).postMessage({ type: "validationResult", payload: result });
-						}
-					},
+					if (options.autoValidate && currentPuzzle) {
+						const result = core.validateSolution(currentPuzzle, { points: path });
+						ui!.setValidationResult(result.isValid, result.invalidatedCells, result.invalidatedEdges, result.errorCells, result.errorEdges, result.invalidatedNodes, result.errorNodes);
+						(self as any).postMessage({ type: "validationResult", payload: result });
+					}
 				});
 				break;
 			}

@@ -1,5 +1,5 @@
 /*!
- * MiniWitness 1.3.5
+ * MiniWitness 1.3.7
  * Copyright 2026 hi2ma-bu4
  * Licensed under the Apache License, Version 2.0
  * http://www.apache.org/licenses/LICENSE-2.0
@@ -3430,12 +3430,9 @@ var WitnessUI = class {
           } else if (type === "drawingEnded") {
             this.isDrawing = false;
           } else if (type === "pathComplete") {
-            if (this.options.onPathComplete) this.options.onPathComplete(payload);
             this.emit("path:complete", { path: payload });
           } else if (type === "puzzleCreated") {
-            if (this.options.onPuzzleCreated) this.options.onPuzzleCreated(payload);
           } else if (type === "validationResult") {
-            if (this.options.onValidationResult) this.options.onValidationResult(payload);
             this.emit("goal:validated", { result: payload });
           } else if (type === "uiEvent") {
             this.emit(payload.type, payload.data);
@@ -3501,10 +3498,6 @@ var WitnessUI = class {
       workerScript: options.workerScript ?? this.options?.workerScript,
       animations,
       colors,
-      onPathComplete: options.onPathComplete ?? this.options?.onPathComplete ?? (() => {
-      }),
-      onPuzzleCreated: options.onPuzzleCreated ?? this.options?.onPuzzleCreated,
-      onValidationResult: options.onValidationResult ?? this.options?.onValidationResult,
       pixelRatio: options.pixelRatio ?? this.options?.pixelRatio ?? (typeof window !== "undefined" ? window.devicePixelRatio : 1)
     };
   }
@@ -3852,44 +3845,51 @@ var WitnessUI = class {
   }
   // --- イベントハンドラ ---
   handleStart(e) {
+    const shouldStartDrawing = this.isStartNodeHit(e);
     if (this.worker) {
+      if (!shouldStartDrawing) {
+        this.isDrawing = false;
+        return false;
+      }
       this.isDrawing = true;
       this.worker.postMessage({ type: "event", payload: { eventType: "mousedown", eventData: { clientX: e.clientX, clientY: e.clientY } } });
       return true;
     }
-    if (!this.puzzle) return false;
+    if (!shouldStartDrawing) return false;
+    this.cancelFade();
+    this.isSuccessFading = false;
+    this.isInvalidPath = false;
+    this.isValidPath = false;
+    this.invalidatedCells = [];
+    this.invalidatedEdges = [];
+    this.invalidatedNodes = [];
+    this.errorCells = [];
+    this.errorEdges = [];
+    this.errorNodes = [];
+    this.isDrawing = true;
+    this.path = [{ x: shouldStartDrawing.x, y: shouldStartDrawing.y }];
+    this.currentMousePos = this.getCanvasCoords(shouldStartDrawing.x, shouldStartDrawing.y);
+    this.exitTipPos = null;
+    this.draw();
+    this.emit("path:start", { x: shouldStartDrawing.x, y: shouldStartDrawing.y });
+    return true;
+  }
+  isStartNodeHit(e) {
+    if (!this.puzzle) return null;
     const dpr = this.options.pixelRatio;
     const rect = this.canvasRect || (typeof HTMLCanvasElement !== "undefined" && this.canvas instanceof HTMLCanvasElement ? this.canvas.getBoundingClientRect() : { left: 0, top: 0, width: this.canvas.width / dpr, height: this.canvas.height / dpr });
     const mouseX = (e.clientX - rect.left) * (this.canvas.width / dpr / rect.width);
     const mouseY = (e.clientY - rect.top) * (this.canvas.height / dpr / rect.height);
     for (let r = 0; r <= this.puzzle.rows; r++) {
       for (let c = 0; c <= this.puzzle.cols; c++) {
-        if (this.puzzle.nodes[r][c].type === 1 /* Start */) {
-          const nodePos = this.getCanvasCoords(c, r);
-          const dist = Math.hypot(nodePos.x - mouseX, nodePos.y - mouseY);
-          if (dist < this.options.startNodeRadius) {
-            this.cancelFade();
-            this.isSuccessFading = false;
-            this.isInvalidPath = false;
-            this.isValidPath = false;
-            this.invalidatedCells = [];
-            this.invalidatedEdges = [];
-            this.invalidatedNodes = [];
-            this.errorCells = [];
-            this.errorEdges = [];
-            this.errorNodes = [];
-            this.isDrawing = true;
-            this.path = [{ x: c, y: r }];
-            this.currentMousePos = nodePos;
-            this.exitTipPos = null;
-            this.draw();
-            this.emit("path:start", { x: c, y: r });
-            return true;
-          }
+        if (this.puzzle.nodes[r][c].type !== 1 /* Start */) continue;
+        const nodePos = this.getCanvasCoords(c, r);
+        if (Math.hypot(nodePos.x - mouseX, nodePos.y - mouseY) < this.options.startNodeRadius) {
+          return { x: c, y: r };
         }
       }
     }
-    return false;
+    return null;
   }
   handleMove(e) {
     if (this.worker) {
@@ -4046,7 +4046,6 @@ var WitnessUI = class {
           y: lastPos.y + exitDir.y * this.options.exitLength
         };
         isExit = true;
-        this.options.onPathComplete(this.path);
         this.emit("path:complete", { path: this.path });
         this.emit("path:end", { path: this.path, isExit: true });
         return;
@@ -5390,16 +5389,14 @@ if (typeof self !== "undefined" && "postMessage" in self && !("document" in self
     switch (type) {
       case "init": {
         const { canvas, options } = payload;
-        ui = new WitnessUI(canvas, void 0, {
-          ...options,
-          onPathComplete: (path) => {
-            self.postMessage({ type: "drawingEnded" });
-            self.postMessage({ type: "pathComplete", payload: path });
-            if (options.autoValidate && currentPuzzle) {
-              const result = core.validateSolution(currentPuzzle, { points: path });
-              ui.setValidationResult(result.isValid, result.invalidatedCells, result.invalidatedEdges, result.errorCells, result.errorEdges, result.invalidatedNodes, result.errorNodes);
-              self.postMessage({ type: "validationResult", payload: result });
-            }
+        ui = new WitnessUI(canvas, void 0, options);
+        ui.on("path:complete", ({ path }) => {
+          self.postMessage({ type: "drawingEnded" });
+          self.postMessage({ type: "pathComplete", payload: path });
+          if (options.autoValidate && currentPuzzle) {
+            const result = core.validateSolution(currentPuzzle, { points: path });
+            ui.setValidationResult(result.isValid, result.invalidatedCells, result.invalidatedEdges, result.errorCells, result.errorEdges, result.invalidatedNodes, result.errorNodes);
+            self.postMessage({ type: "validationResult", payload: result });
           }
         });
         break;

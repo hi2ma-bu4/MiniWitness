@@ -64,12 +64,6 @@ export interface WitnessUIOptions {
 		/** 各色のカラーコードリスト（インデックスがColor値に対応） */
 		colorList?: string[];
 	};
-	/** パスが完了（出口に到達）した際のコールバック */
-	onPathComplete?: (path: Point[]) => void;
-	/** パズルが生成された際のコールバック (Workerモード時のみ有効) */
-	onPuzzleCreated?: (payload: { puzzle: PuzzleData; genOptions: any }) => void;
-	/** バリデーション結果が返ってきた際のコールバック (Workerモード時のみ有効) */
-	onValidationResult?: (result: ValidationResult) => void;
 	/** 高解像度ディスプレイ(Retina等)に対応させるためのピクセル比。省略時はwindow.devicePixelRatioが使用されます。 */
 	pixelRatio?: number;
 }
@@ -97,7 +91,7 @@ export interface WitnessEventMap {
 	/** 無効化アニメーション（消しゴム等）が終了し、完全にバリデーション表示が完了した時 */
 	"goal:validated": { result: ValidationResult };
 	/** 新しいパズルがセットされた時 */
-	"puzzle:created": { puzzle: PuzzleData };
+	"puzzle:created": { puzzle: PuzzleData; genOptions?: any };
 }
 
 export type WitnessEventName = keyof WitnessEventMap;
@@ -199,13 +193,9 @@ export class WitnessUI {
 					} else if (type === "drawingEnded") {
 						this.isDrawing = false;
 					} else if (type === "pathComplete") {
-						if (this.options.onPathComplete) this.options.onPathComplete(payload);
 						this.emit("path:complete", { path: payload });
 					} else if (type === "puzzleCreated") {
-						if (this.options.onPuzzleCreated) this.options.onPuzzleCreated(payload);
-						// puzzle:created は setPuzzle 内で発行されるためここでは行わない
 					} else if (type === "validationResult") {
-						if (this.options.onValidationResult) this.options.onValidationResult(payload);
 						this.emit("goal:validated", { result: payload });
 					} else if (type === "uiEvent") {
 						this.emit(payload.type, payload.data);
@@ -278,9 +268,6 @@ export class WitnessUI {
 			workerScript: options.workerScript ?? this.options?.workerScript,
 			animations,
 			colors,
-			onPathComplete: options.onPathComplete ?? this.options?.onPathComplete ?? (() => {}),
-			onPuzzleCreated: options.onPuzzleCreated ?? this.options?.onPuzzleCreated,
-			onValidationResult: options.onValidationResult ?? this.options?.onValidationResult,
 			pixelRatio: options.pixelRatio ?? this.options?.pixelRatio ?? (typeof window !== "undefined" ? window.devicePixelRatio : 1),
 		};
 	}
@@ -688,13 +675,43 @@ export class WitnessUI {
 	// --- イベントハンドラ ---
 
 	public handleStart(e: { clientX: number; clientY: number }): boolean {
+		const shouldStartDrawing = this.isStartNodeHit(e);
+
 		if (this.worker) {
+			if (!shouldStartDrawing) {
+				this.isDrawing = false;
+				return false;
+			}
+
 			this.isDrawing = true; // 先行してフラグを立てる
 			this.worker.postMessage({ type: "event", payload: { eventType: "mousedown", eventData: { clientX: e.clientX, clientY: e.clientY } } });
-			return true; // Proxy時は一律true (後のmoveで制限)
+			return true;
 		}
-		if (!this.puzzle) return false;
+		if (!shouldStartDrawing) return false;
 
+		// スタート地点がクリックされた場合のみ、前回の状態をリセットして開始する
+		this.cancelFade();
+		this.isSuccessFading = false;
+		this.isInvalidPath = false;
+		this.isValidPath = false;
+		this.invalidatedCells = [];
+		this.invalidatedEdges = [];
+		this.invalidatedNodes = [];
+		this.errorCells = [];
+		this.errorEdges = [];
+		this.errorNodes = [];
+
+		this.isDrawing = true;
+		this.path = [{ x: shouldStartDrawing.x, y: shouldStartDrawing.y }];
+		this.currentMousePos = this.getCanvasCoords(shouldStartDrawing.x, shouldStartDrawing.y);
+		this.exitTipPos = null;
+		this.draw();
+		this.emit("path:start", { x: shouldStartDrawing.x, y: shouldStartDrawing.y });
+		return true;
+	}
+
+	private isStartNodeHit(e: { clientX: number; clientY: number }): Point | null {
+		if (!this.puzzle) return null;
 		const dpr = this.options.pixelRatio;
 		const rect = this.canvasRect || (typeof HTMLCanvasElement !== "undefined" && this.canvas instanceof HTMLCanvasElement ? this.canvas.getBoundingClientRect() : { left: 0, top: 0, width: this.canvas.width / dpr, height: this.canvas.height / dpr });
 		const mouseX = (e.clientX - rect.left) * (this.canvas.width / dpr / rect.width);
@@ -702,34 +719,14 @@ export class WitnessUI {
 
 		for (let r = 0; r <= this.puzzle.rows; r++) {
 			for (let c = 0; c <= this.puzzle.cols; c++) {
-				if (this.puzzle.nodes[r][c].type === NodeType.Start) {
-					const nodePos = this.getCanvasCoords(c, r);
-					const dist = Math.hypot(nodePos.x - mouseX, nodePos.y - mouseY);
-					if (dist < this.options.startNodeRadius) {
-						// スタート地点がクリックされた場合のみ、前回の状態をリセットして開始する
-						this.cancelFade();
-						this.isSuccessFading = false;
-						this.isInvalidPath = false;
-						this.isValidPath = false;
-						this.invalidatedCells = [];
-						this.invalidatedEdges = [];
-						this.invalidatedNodes = [];
-						this.errorCells = [];
-						this.errorEdges = [];
-						this.errorNodes = [];
-
-						this.isDrawing = true;
-						this.path = [{ x: c, y: r }];
-						this.currentMousePos = nodePos;
-						this.exitTipPos = null;
-						this.draw();
-						this.emit("path:start", { x: c, y: r });
-						return true;
-					}
+				if (this.puzzle.nodes[r][c].type !== NodeType.Start) continue;
+				const nodePos = this.getCanvasCoords(c, r);
+				if (Math.hypot(nodePos.x - mouseX, nodePos.y - mouseY) < this.options.startNodeRadius) {
+					return { x: c, y: r };
 				}
 			}
 		}
-		return false;
+		return null;
 	}
 
 	public handleMove(e: { clientX: number; clientY: number }) {
@@ -923,7 +920,6 @@ export class WitnessUI {
 					y: lastPos.y + exitDir.y * this.options.exitLength,
 				};
 				isExit = true;
-				this.options.onPathComplete(this.path);
 				this.emit("path:complete", { path: this.path });
 				this.emit("path:end", { path: this.path, isExit: true });
 				return;

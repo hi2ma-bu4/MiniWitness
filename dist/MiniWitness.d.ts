@@ -468,15 +468,6 @@ export interface WitnessUIOptions {
 		/** 各色のカラーコードリスト（インデックスがColor値に対応） */
 		colorList?: string[];
 	};
-	/** パスが完了（出口に到達）した際のコールバック */
-	onPathComplete?: (path: Point[]) => void;
-	/** パズルが生成された際のコールバック (Workerモード時のみ有効) */
-	onPuzzleCreated?: (payload: {
-		puzzle: PuzzleData;
-		genOptions: any;
-	}) => void;
-	/** バリデーション結果が返ってきた際のコールバック (Workerモード時のみ有効) */
-	onValidationResult?: (result: ValidationResult) => void;
 	/** 高解像度ディスプレイ(Retina等)に対応させるためのピクセル比。省略時はwindow.devicePixelRatioが使用されます。 */
 	pixelRatio?: number;
 }
@@ -529,6 +520,7 @@ export interface WitnessEventMap {
 	/** 新しいパズルがセットされた時 */
 	"puzzle:created": {
 		puzzle: PuzzleData;
+		genOptions?: any;
 	};
 }
 export type WitnessEventName = keyof WitnessEventMap;
@@ -672,6 +664,7 @@ export declare class WitnessUI {
 		clientX: number;
 		clientY: number;
 	}): boolean;
+	private isStartNodeHit;
 	handleMove(e: {
 		clientX: number;
 		clientY: number;

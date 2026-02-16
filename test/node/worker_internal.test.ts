@@ -8,6 +8,38 @@ describe("Worker Internal Setup", () => {
 	const originalSelf = (global as any).self;
 
 	before(async () => {
+		if (typeof (global as any).OffscreenCanvas === "undefined") {
+			(global as any).OffscreenCanvas = class {
+				width: number;
+				height: number;
+				constructor(width: number, height: number) {
+					this.width = width;
+					this.height = height;
+				}
+				getContext() {
+					return {
+						imageSmoothingEnabled: true,
+						clearRect: () => {},
+						save: () => {},
+						restore: () => {},
+						beginPath: () => {},
+						moveTo: () => {},
+						lineTo: () => {},
+						stroke: () => {},
+						fill: () => {},
+						arc: () => {},
+						fillRect: () => {},
+						translate: () => {},
+						rotate: () => {},
+						setTransform: () => {},
+						closePath: () => {},
+						quadraticCurveTo: () => {},
+						drawImage: () => {},
+					};
+				}
+			};
+		}
+
 		// Mock global self for worker detection
 		(global as any).self = {
 			postMessage: (msg: any) => sentMessages.push(msg),
@@ -104,8 +136,8 @@ describe("Worker Internal Setup", () => {
 			},
 		});
 
-		// 3. Complete a path (trigger onPathComplete in Worker)
-		// We can't easily trigger the internal onPathComplete, but we can verify the logic in index.ts
+		// 3. Complete a path (trigger path:complete event in Worker)
+		// We can't easily trigger the internal event handler directly, but we can verify the logic in index.ts
 		// if we could access the 'ui' instance.
 		// For now, this is a smoke test to ensure no crashes.
 	});
@@ -177,6 +209,101 @@ describe("Worker Internal Setup", () => {
 		});
 
 		// No crash means success for this smoke test
+	});
+
+	test("should not start drawing when mousedown is outside start node", () => {
+		if (!capturedListener) return;
+
+		sentMessages.length = 0;
+		const mockCanvas = {
+			getContext: () => ({
+				imageSmoothingEnabled: true,
+				clearRect: () => {},
+				save: () => {},
+				restore: () => {},
+				beginPath: () => {},
+				moveTo: () => {},
+				lineTo: () => {},
+				stroke: () => {},
+				fill: () => {},
+				arc: () => {},
+				fillRect: () => {},
+				translate: () => {},
+				rotate: () => {},
+				setTransform: () => {},
+				closePath: () => {},
+				quadraticCurveTo: () => {},
+				drawImage: () => {},
+			}),
+			width: 100,
+			height: 100,
+		};
+
+		capturedListener({
+			data: {
+				type: "init",
+				payload: { canvas: mockCanvas, options: {} },
+			},
+		});
+
+		capturedListener({
+			data: {
+				type: "setCanvasRect",
+				payload: { left: 0, top: 0, width: 100, height: 100 },
+			},
+		});
+
+		capturedListener({
+			data: {
+				type: "setPuzzle",
+				payload: {
+					puzzle: {
+						rows: 1,
+						cols: 1,
+						cells: [[{ type: 0, color: 0 }]],
+						hEdges: [[{ type: 0 }], [{ type: 0 }]],
+						vEdges: [[{ type: 0 }, { type: 0 }]],
+						nodes: [
+							[{ type: 1 }, { type: 0 }],
+							[{ type: 0 }, { type: 2 }],
+						],
+					},
+				},
+			},
+		});
+
+		capturedListener({
+			data: {
+				type: "event",
+				payload: {
+					eventType: "mousedown",
+					eventData: { clientX: 0, clientY: 0 },
+				},
+			},
+		});
+
+		const startMsg = sentMessages.find((m) => m.type === "drawingStarted");
+		assert.ok(startMsg, "drawingStarted message should be sent");
+		assert.strictEqual(startMsg.payload, false);
+	});
+
+	test("should start drawing when mousedown hits start node", () => {
+		if (!capturedListener) return;
+
+		sentMessages.length = 0;
+		capturedListener({
+			data: {
+				type: "event",
+				payload: {
+					eventType: "mousedown",
+					eventData: { clientX: 30, clientY: 30 },
+				},
+			},
+		});
+
+		const startMsg = sentMessages.find((m) => m.type === "drawingStarted");
+		assert.ok(startMsg, "drawingStarted message should be sent");
+		assert.strictEqual(startMsg.payload, true);
 	});
 
 	test("should handle 'event' message and notify drawing state", () => {
