@@ -1264,14 +1264,21 @@ export class WitnessUI {
 		if (!this.puzzle) return;
 		const now = Date.now();
 		const blinkFactor = (Math.sin((now * Math.PI * 2) / this.options.animations.blinkPeriod!) + 1) / 2;
+		const invalidatedCellSet = new Set(this.invalidatedCells.map((p) => `${p.x},${p.y}`));
+		const errorCellSet = new Set(this.errorCells.map((p) => `${p.x},${p.y}`));
+		const invalidatedEdgeSet = new Set(this.invalidatedEdges.map((e) => `${e.type},${e.r},${e.c}`));
+		const errorEdgeSet = new Set(this.errorEdges.map((e) => `${e.type},${e.r},${e.c}`));
+		const invalidatedNodeSet = new Set(this.invalidatedNodes.map((p) => `${p.x},${p.y}`));
+		const errorNodeSet = new Set(this.errorNodes.map((p) => `${p.x},${p.y}`));
 
 		for (let r = 0; r < this.puzzle.rows; r++) {
 			for (let c = 0; c < this.puzzle.cols; c++) {
 				const cell = this.puzzle.cells[r][c];
 				const pos = this.getCanvasCoords(c + 0.5, r + 0.5);
+				const cellKey = `${c},${r}`;
 
-				const isInvalidated = this.invalidatedCells.some((p) => p.x === c && p.y === r);
-				const isError = this.errorCells.some((p) => p.x === c && p.y === r);
+				const isInvalidated = invalidatedCellSet.has(cellKey);
+				const isError = errorCellSet.has(cellKey);
 
 				let opacity = 1.0;
 				let overrideColor: string | undefined = undefined;
@@ -1299,17 +1306,12 @@ export class WitnessUI {
 					}
 				}
 
-				if (opacity < 1.0 || overrideColor) {
-					const { canvas: tempCanvas, ctx: tempCtx } = this.prepareOffscreen();
-					this.drawConstraintItem(tempCtx, cell, pos, overrideColor);
-					ctx.save();
-					ctx.setTransform(1, 0, 0, 1, 0, 0);
-					ctx.globalAlpha = opacity;
-					ctx.drawImage(tempCanvas, 0, 0);
-					ctx.restore();
-				} else {
-					this.drawConstraintItem(ctx, cell, pos);
+				ctx.save();
+				if (opacity < 1.0) {
+					ctx.globalAlpha *= opacity;
 				}
+				this.drawConstraintItem(ctx, cell, pos, overrideColor);
+				ctx.restore();
 			}
 		}
 
@@ -1328,8 +1330,9 @@ export class WitnessUI {
 				if (type === EdgeType.Hexagon || type === EdgeType.HexagonMain || type === EdgeType.HexagonSymmetry) {
 					const pos = this.getCanvasCoords(c + 0.5, r);
 					ctx.save();
-					const isInvalidated = this.invalidatedEdges.some((e) => e.type === "h" && e.r === r && e.c === c);
-					const isError = this.errorEdges.some((e) => e.type === "h" && e.r === r && e.c === c);
+					const edgeKey = `h,${r},${c}`;
+					const isInvalidated = invalidatedEdgeSet.has(edgeKey);
+					const isError = errorEdgeSet.has(edgeKey);
 					const baseColor = getHexColor(type);
 
 					if (isError && this.options.blinkMarksOnError) {
@@ -1365,8 +1368,9 @@ export class WitnessUI {
 				if (type === EdgeType.Hexagon || type === EdgeType.HexagonMain || type === EdgeType.HexagonSymmetry) {
 					const pos = this.getCanvasCoords(c, r + 0.5);
 					ctx.save();
-					const isInvalidated = this.invalidatedEdges.some((e) => e.type === "v" && e.r === r && e.c === c);
-					const isError = this.errorEdges.some((e) => e.type === "v" && e.r === r && e.c === c);
+					const edgeKey = `v,${r},${c}`;
+					const isInvalidated = invalidatedEdgeSet.has(edgeKey);
+					const isError = errorEdgeSet.has(edgeKey);
 					const baseColor = getHexColor(type);
 
 					if (isError && this.options.blinkMarksOnError) {
@@ -1403,8 +1407,9 @@ export class WitnessUI {
 				if (type === NodeType.Hexagon || type === NodeType.HexagonMain || type === NodeType.HexagonSymmetry) {
 					const pos = this.getCanvasCoords(c, r);
 					ctx.save();
-					const isInvalidated = this.invalidatedNodes.some((p) => p.x === c && p.y === r);
-					const isError = this.errorNodes.some((p) => p.x === c && p.y === r);
+					const nodeKey = `${c},${r}`;
+					const isInvalidated = invalidatedNodeSet.has(nodeKey);
+					const isError = errorNodeSet.has(nodeKey);
 					const baseColor = getHexColor(type);
 
 					if (isError && this.options.blinkMarksOnError) {
