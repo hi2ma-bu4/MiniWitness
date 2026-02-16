@@ -517,10 +517,14 @@ export interface WitnessEventMap {
 	"goal:validated": {
 		result: ValidationResult;
 	};
+	/** Workerで新しいパズルが生成された時 */
+	"puzzle:generated": {
+		puzzle: PuzzleData;
+		genOptions: any;
+	};
 	/** 新しいパズルがセットされた時 */
 	"puzzle:created": {
 		puzzle: PuzzleData;
-		genOptions?: any;
 	};
 }
 export type WitnessEventName = keyof WitnessEventMap;

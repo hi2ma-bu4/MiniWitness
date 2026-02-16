@@ -90,8 +90,10 @@ export interface WitnessEventMap {
 	"goal:reached": { path: Point[]; isValid: boolean };
 	/** 無効化アニメーション（消しゴム等）が終了し、完全にバリデーション表示が完了した時 */
 	"goal:validated": { result: ValidationResult };
+	/** Workerで新しいパズルが生成された時 */
+	"puzzle:generated": { puzzle: PuzzleData; genOptions: any };
 	/** 新しいパズルがセットされた時 */
-	"puzzle:created": { puzzle: PuzzleData; genOptions?: any };
+	"puzzle:created": { puzzle: PuzzleData };
 }
 
 export type WitnessEventName = keyof WitnessEventMap;
@@ -195,7 +197,11 @@ export class WitnessUI {
 					} else if (type === "pathComplete") {
 						this.emit("path:complete", { path: payload });
 					} else if (type === "puzzleCreated") {
-						this.emit("puzzle:created", payload);
+						// Workerで生成されたパズルは自動的にUIへ反映する
+						if (payload?.puzzle) {
+							this.setPuzzle(payload.puzzle);
+						}
+						this.emit("puzzle:generated", payload);
 					} else if (type === "validationResult") {
 						this.emit("goal:validated", { result: payload });
 					} else if (type === "uiEvent") {
@@ -713,6 +719,7 @@ export class WitnessUI {
 
 	private isStartNodeHit(e: { clientX: number; clientY: number }): Point | null {
 		if (!this.puzzle) return null;
+
 		const dpr = this.options.pixelRatio;
 		const rect = this.canvasRect || (typeof HTMLCanvasElement !== "undefined" && this.canvas instanceof HTMLCanvasElement ? this.canvas.getBoundingClientRect() : { left: 0, top: 0, width: this.canvas.width / dpr, height: this.canvas.height / dpr });
 		const mouseX = (e.clientX - rect.left) * (this.canvas.width / dpr / rect.width);

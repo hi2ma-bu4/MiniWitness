@@ -1,5 +1,5 @@
 /*!
- * MiniWitness 1.3.7
+ * MiniWitness 1.3.9
  * Copyright 2026 hi2ma-bu4
  * Licensed under the Apache License, Version 2.0
  * http://www.apache.org/licenses/LICENSE-2.0
@@ -3432,7 +3432,10 @@ var WitnessUI = class {
           } else if (type === "pathComplete") {
             this.emit("path:complete", { path: payload });
           } else if (type === "puzzleCreated") {
-            this.emit("puzzle:created", payload);
+            if (payload?.puzzle) {
+              this.setPuzzle(payload.puzzle);
+            }
+            this.emit("puzzle:generated", payload);
           } else if (type === "validationResult") {
             this.emit("goal:validated", { result: payload });
           } else if (type === "uiEvent") {

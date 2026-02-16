@@ -471,7 +471,7 @@ class WitnessGame {
 				}
 			}
 		});
-		this.ui.on("puzzle:created", (data) => {
+		this.ui.on("puzzle:generated", (data) => {
 			log(`Puzzle Created`);
 			if (this.isWorkerMode && this.workerType === 2) {
 				this.loadPuzzle(data.puzzle, data.genOptions || this.currentOptions || {});
