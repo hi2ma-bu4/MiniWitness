@@ -3432,6 +3432,7 @@ var WitnessUI = class {
           } else if (type === "pathComplete") {
             this.emit("path:complete", { path: payload });
           } else if (type === "puzzleCreated") {
+            this.emit("puzzle:created", payload);
           } else if (type === "validationResult") {
             this.emit("goal:validated", { result: payload });
           } else if (type === "uiEvent") {
