@@ -188,3 +188,25 @@ li {
         padding: 0;
     }
 }
+
+input[type="color"] {
+    width: 44px;
+    height: 36px;
+    border: 1px solid #555;
+    border-radius: 4px;
+    background: #333;
+    padding: 2px;
+}
+
+#filter-switcher {
+    margin-top: 10px;
+}
+
+.hidden {
+    display: none !important;
+}
+
+#filter-switcher button.active {
+    border-color: #4db8ff;
+    box-shadow: 0 0 0 1px #4db8ff inset;
+}

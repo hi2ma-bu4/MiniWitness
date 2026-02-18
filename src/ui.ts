@@ -64,6 +64,21 @@ export interface WitnessUIOptions {
 		/** 各色のカラーコードリスト（インデックスがColor値に対応） */
 		colorList?: string[];
 	};
+	/** パズル全体に掛けるカラーフィルター設定 */
+	filter?: {
+		/** フィルターを有効化するか */
+		enabled?: boolean;
+		/** カスタム単色か、RGB 3色プリセットか */
+		mode?: "custom" | "rgb";
+		/** customモード時に使用する色 */
+		customColor?: string;
+		/** rgbモード時の3色フィルター */
+		rgbColors?: [string, string, string];
+		/** rgbモード時に使用する色インデックス */
+		rgbIndex?: 0 | 1 | 2;
+		/** 白黒化のしきい値 (0-255) */
+		threshold?: number;
+	};
 	/** 高解像度ディスプレイ(Retina等)に対応させるためのピクセル比。省略時はwindow.devicePixelRatioが使用されます。 */
 	pixelRatio?: number;
 }
@@ -275,6 +290,14 @@ export class WitnessUI {
 			workerScript: options.workerScript ?? this.options?.workerScript,
 			animations,
 			colors,
+			filter: {
+				enabled: options.filter?.enabled ?? this.options?.filter?.enabled ?? false,
+				mode: options.filter?.mode ?? this.options?.filter?.mode ?? "custom",
+				customColor: options.filter?.customColor ?? this.options?.filter?.customColor ?? "#ffffff",
+				rgbColors: options.filter?.rgbColors ?? this.options?.filter?.rgbColors ?? ["#ff0000", "#00ff00", "#0000ff"],
+				rgbIndex: options.filter?.rgbIndex ?? this.options?.filter?.rgbIndex ?? 0,
+				threshold: options.filter?.threshold ?? this.options?.filter?.threshold ?? 128,
+			},
 			pixelRatio: options.pixelRatio ?? this.options?.pixelRatio ?? (typeof window !== "undefined" ? window.devicePixelRatio : 1),
 		};
 	}
@@ -1169,7 +1192,43 @@ export class WitnessUI {
 				this.drawPath(ctx, symPath, this.isDrawing, symColor, symPathOpacity, symTipPos);
 			}
 		}
+		this.applyFilter(ctx);
 		this.emit("render:after", { ctx });
+	}
+
+	private applyFilter(ctx: WitnessContext) {
+		if (!this.options.filter.enabled) return;
+
+		const filterColor = this.getActiveFilterColor();
+		const filterRgb = this.colorToRgba(filterColor);
+		const width = Math.max(1, Math.floor(this.canvas.width));
+		const height = Math.max(1, Math.floor(this.canvas.height));
+
+		try {
+			const image = ctx.getImageData(0, 0, width, height);
+			const data = image.data;
+
+			for (let i = 0; i < data.length; i += 4) {
+				if (data[i + 3] === 0) continue;
+
+				data[i] = Math.round((data[i] * filterRgb.r) / 255);
+				data[i + 1] = Math.round((data[i + 1] * filterRgb.g) / 255);
+				data[i + 2] = Math.round((data[i + 2] * filterRgb.b) / 255);
+			}
+
+			ctx.putImageData(image, 0, 0);
+		} catch (e) {
+			// getImageData が使えない環境（特殊なCanvas実装など）では何もしない
+		}
+	}
+
+	private getActiveFilterColor(): string {
+		if (this.options.filter.mode === "rgb") {
+			const colors = this.options.filter.rgbColors ?? ["#ff0000", "#00ff00", "#0000ff"];
+			const index = Math.max(0, Math.min(2, this.options.filter.rgbIndex ?? 0));
+			return colors[index] ?? "#ffffff";
+		}
+		return this.options.filter.customColor || "#ffffff";
 	}
 
 	/**

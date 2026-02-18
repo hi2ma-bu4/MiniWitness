@@ -18,6 +18,13 @@ class WitnessGame {
 		this.isDrawing = false;
 		this.lastPath = null;
 
+		this.filterState = {
+			enabled: false,
+			mode: "rgb",
+			rgbIndex: 0,
+			customView: "custom",
+		};
+
 		this.init();
 	}
 
@@ -91,6 +98,36 @@ class WitnessGame {
 				this.worker.postMessage({ type: "setOptions", payload: options });
 			}
 		});
+
+		document.getElementById("filter-enabled").addEventListener("change", () => {
+			this.filterState.enabled = document.getElementById("filter-enabled").checked;
+			this.applyCurrentUIOptions();
+		});
+
+		document.getElementById("filter-mode").addEventListener("change", () => {
+			this.filterState.mode = document.getElementById("filter-mode").value;
+			this.applyCurrentUIOptions();
+		});
+
+		document.getElementById("filter-custom-color").addEventListener("input", () => {
+			this.applyCurrentUIOptions();
+		});
+
+		document.getElementById("filter-r-btn").addEventListener("click", () => this.setRgbFilterIndex(0));
+		document.getElementById("filter-g-btn").addEventListener("click", () => this.setRgbFilterIndex(1));
+		document.getElementById("filter-b-btn").addEventListener("click", () => this.setRgbFilterIndex(2));
+
+		document.getElementById("filter-primary-btn").addEventListener("click", () => {
+			this.filterState.customView = "primary";
+			this.applyCurrentUIOptions();
+		});
+
+		document.getElementById("filter-custom-btn").addEventListener("click", () => {
+			this.filterState.customView = "custom";
+			this.applyCurrentUIOptions();
+		});
+
+		this.updateFilterSwitcherUI();
 
 		// URLパラメータからシードとRNGを読み込む
 		const seed = params.get("seed");
@@ -218,21 +255,14 @@ class WitnessGame {
 		this.syncOptionsToUI(options);
 
 		const useCustomTheme = !!(options.availableColors && (options.availableColors === true || options.availableColors.length > 0));
-		const colorList = useCustomTheme ? ["#444444", "#00ff00", "#ff00ff", "#00ffff", "#ffffff", "#ffff00"] : undefined;
+		const colorList = this.resolveColorList(useCustomTheme);
 
 		const diff = this.core.calculateDifficulty(this.puzzle);
 		const symColor = document.getElementById("sym-color-select").value;
 		const blinkMarks = document.getElementById("blink-marks").checked;
 		const stayPath = document.getElementById("stay-path").checked;
 
-		const uiOptions = {
-			blinkMarksOnError: blinkMarks,
-			stayPathOnError: stayPath,
-			colors: {
-				colorList: colorList,
-				symmetry: symColor,
-			},
-		};
+		const uiOptions = this.buildRenderOptions({ blinkMarks, stayPath, symColor, colorList });
 
 		if (this.ui) {
 			this.ui.setOptions(uiOptions);
@@ -240,6 +270,7 @@ class WitnessGame {
 		} else if (this.worker) {
 			this.worker.postMessage({ type: "setPuzzle", payload: { puzzle: this.puzzle, options: uiOptions } });
 		}
+		this.updateFilterSwitcherUI();
 		let status = `Puzzle loaded! (Difficulty: ${diff.toFixed(2)})`;
 		if (this.puzzle.seed && options.rngType !== RngType.MathRandom) status += ` [Seed: ${this.puzzle.seed}]`;
 		this.updateStatus(status);
@@ -477,6 +508,81 @@ class WitnessGame {
 				this.loadPuzzle(data.puzzle, data.genOptions || this.currentOptions || {});
 			}
 		});
+	}
+
+	setRgbFilterIndex(index) {
+		this.filterState.rgbIndex = index;
+		this.applyCurrentUIOptions();
+	}
+
+	resolveColorList(useCustomTheme) {
+		if (!useCustomTheme) return undefined;
+		if (!this.filterState.enabled) {
+			return ["#444444", "#00ff00", "#ff00ff", "#00ffff", "#ffffff", "#ffff00"];
+		}
+		// RGBフィルターで白黒判別しやすい原色寄り配色
+		return ["#ff0000", "#0000ff", "#00ff00", "#000000", "#ffffff", "#ff00ff", "#00ffff", "#ffff00"];
+	}
+
+	buildFilterOptions() {
+		const customColorInput = document.getElementById("filter-custom-color").value;
+		const customColor = this.filterState.customView === "primary" ? "#ffffff" : customColorInput;
+		return {
+			enabled: this.filterState.enabled,
+			mode: this.filterState.mode,
+			customColor,
+			rgbColors: ["#ff0000", "#00ff00", "#0000ff"],
+			rgbIndex: this.filterState.rgbIndex,
+			threshold: 128,
+		};
+	}
+
+	buildRenderOptions({ blinkMarks, stayPath, symColor, colorList }) {
+		return {
+			blinkMarksOnError: blinkMarks,
+			stayPathOnError: stayPath,
+			colors: {
+				colorList,
+				symmetry: symColor,
+			},
+			filter: this.buildFilterOptions(),
+		};
+	}
+
+	updateFilterSwitcherUI() {
+		const enabled = this.filterState.enabled;
+		const mode = this.filterState.mode;
+		const switcher = document.getElementById("filter-switcher");
+		const rgb = document.getElementById("filter-switcher-rgb");
+		const custom = document.getElementById("filter-switcher-custom");
+		switcher.classList.toggle("hidden", !enabled);
+		rgb.classList.toggle("hidden", !enabled || mode !== "rgb");
+		custom.classList.toggle("hidden", !enabled || mode !== "custom");
+
+		const rgbButtons = [document.getElementById("filter-r-btn"), document.getElementById("filter-g-btn"), document.getElementById("filter-b-btn")];
+		rgbButtons.forEach((btn, i) => btn.classList.toggle("active", i === this.filterState.rgbIndex));
+		document.getElementById("filter-primary-btn").classList.toggle("active", this.filterState.customView === "primary");
+		document.getElementById("filter-custom-btn").classList.toggle("active", this.filterState.customView === "custom");
+	}
+
+	applyCurrentUIOptions() {
+		if (!this.puzzle || !this.currentOptions) {
+			this.updateFilterSwitcherUI();
+			return;
+		}
+		const useCustomTheme = !!(this.currentOptions.availableColors && (this.currentOptions.availableColors === true || this.currentOptions.availableColors.length > 0));
+		const colorList = this.resolveColorList(useCustomTheme);
+		const symColor = document.getElementById("sym-color-select").value;
+		const blinkMarks = document.getElementById("blink-marks").checked;
+		const stayPath = document.getElementById("stay-path").checked;
+		const uiOptions = this.buildRenderOptions({ blinkMarks, stayPath, symColor, colorList });
+
+		if (this.ui) {
+			this.ui.setOptions(uiOptions);
+		} else if (this.worker) {
+			this.worker.postMessage({ type: "setOptions", payload: uiOptions });
+		}
+		this.updateFilterSwitcherUI();
 	}
 
 	validate(path) {

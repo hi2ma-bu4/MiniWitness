@@ -468,6 +468,25 @@ export interface WitnessUIOptions {
 		/** 各色のカラーコードリスト（インデックスがColor値に対応） */
 		colorList?: string[];
 	};
+	/** パズル全体に掛けるカラーフィルター設定 */
+	filter?: {
+		/** フィルターを有効化するか */
+		enabled?: boolean;
+		/** カスタム単色か、RGB 3色プリセットか */
+		mode?: "custom" | "rgb";
+		/** customモード時に使用する色 */
+		customColor?: string;
+		/** rgbモード時の3色フィルター */
+		rgbColors?: [
+			string,
+			string,
+			string
+		];
+		/** rgbモード時に使用する色インデックス */
+		rgbIndex?: 0 | 1 | 2;
+		/** 白黒化のしきい値 (0-255) */
+		threshold?: number;
+	};
 	/** 高解像度ディスプレイ(Retina等)に対応させるためのピクセル比。省略時はwindow.devicePixelRatioが使用されます。 */
 	pixelRatio?: number;
 }
@@ -699,6 +718,8 @@ export declare class WitnessUI {
 	private animate;
 	private lastGoalReachable;
 	draw(): void;
+	private applyFilter;
+	private getActiveFilterColor;
 	/**
 	 * ゴール地点の波紋アニメーションを描画する
 	 * @param ctx 描画コンテキスト

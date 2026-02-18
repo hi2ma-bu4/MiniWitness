@@ -3502,6 +3502,14 @@ var WitnessUI = class {
       workerScript: options.workerScript ?? this.options?.workerScript,
       animations,
       colors,
+      filter: {
+        enabled: options.filter?.enabled ?? this.options?.filter?.enabled ?? false,
+        mode: options.filter?.mode ?? this.options?.filter?.mode ?? "custom",
+        customColor: options.filter?.customColor ?? this.options?.filter?.customColor ?? "#ffffff",
+        rgbColors: options.filter?.rgbColors ?? this.options?.filter?.rgbColors ?? ["#ff0000", "#00ff00", "#0000ff"],
+        rgbIndex: options.filter?.rgbIndex ?? this.options?.filter?.rgbIndex ?? 0,
+        threshold: options.filter?.threshold ?? this.options?.filter?.threshold ?? 128
+      },
       pixelRatio: options.pixelRatio ?? this.options?.pixelRatio ?? (typeof window !== "undefined" ? window.devicePixelRatio : 1)
     };
   }
@@ -4249,7 +4257,35 @@ var WitnessUI = class {
         this.drawPath(ctx, symPath, this.isDrawing, symColor, symPathOpacity, symTipPos);
       }
     }
+    this.applyFilter(ctx);
     this.emit("render:after", { ctx });
+  }
+  applyFilter(ctx) {
+    if (!this.options.filter.enabled) return;
+    const filterColor = this.getActiveFilterColor();
+    const filterRgb = this.colorToRgba(filterColor);
+    const width = Math.max(1, Math.floor(this.canvas.width));
+    const height = Math.max(1, Math.floor(this.canvas.height));
+    try {
+      const image = ctx.getImageData(0, 0, width, height);
+      const data = image.data;
+      for (let i = 0; i < data.length; i += 4) {
+        if (data[i + 3] === 0) continue;
+        data[i] = Math.round(data[i] * filterRgb.r / 255);
+        data[i + 1] = Math.round(data[i + 1] * filterRgb.g / 255);
+        data[i + 2] = Math.round(data[i + 2] * filterRgb.b / 255);
+      }
+      ctx.putImageData(image, 0, 0);
+    } catch (e) {
+    }
+  }
+  getActiveFilterColor() {
+    if (this.options.filter.mode === "rgb") {
+      const colors = this.options.filter.rgbColors ?? ["#ff0000", "#00ff00", "#0000ff"];
+      const index = Math.max(0, Math.min(2, this.options.filter.rgbIndex ?? 0));
+      return colors[index] ?? "#ffffff";
+    }
+    return this.options.filter.customColor || "#ffffff";
   }
   /**
    * ゴール地点の波紋アニメーションを描画する

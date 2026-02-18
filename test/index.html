@@ -109,6 +109,16 @@
 				</div>
 			</details>
 			<div class="control-group">
+				<label><input type="checkbox" id="filter-enabled"> Filter</label>
+				<label for="filter-mode">Filter Mode:</label>
+				<select id="filter-mode">
+					<option value="rgb" selected>RGB</option>
+					<option value="custom">Custom</option>
+				</select>
+				<label for="filter-custom-color">Custom Color:</label>
+				<input id="filter-custom-color" type="color" value="#ff00ff">
+			</div>
+			<div class="control-group">
 				<button id="new-puzzle-btn">New Puzzle</button>
 				<button id="share-puzzle-btn">Share Puzzle</button>
 			</div>
@@ -118,6 +128,18 @@
 
 	<div id="game-container">
 		<canvas id="game-canvas"></canvas>
+	</div>
+
+	<div id="filter-switcher" class="hidden">
+		<div id="filter-switcher-rgb" class="control-group hidden">
+			<button id="filter-r-btn">R</button>
+			<button id="filter-g-btn">G</button>
+			<button id="filter-b-btn">B</button>
+		</div>
+		<div id="filter-switcher-custom" class="control-group hidden">
+			<button id="filter-primary-btn">原色</button>
+			<button id="filter-custom-btn">カスタム</button>
+		</div>
 	</div>
 
 	<div id="event-log-container">
