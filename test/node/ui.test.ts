@@ -260,6 +260,86 @@ describe("WitnessUI Full Test Suite", { concurrency: false }, async () => {
 		assert.strictEqual(internalUI.fadingPath.length, 1);
 	});
 
+	await test("WitnessUI skips filter rendering for noop colors", () => {
+		const calls: string[] = [];
+		const ctx = {
+			imageSmoothingEnabled: true,
+			clearRect: () => calls.push("clearRect"),
+			save: () => calls.push("save"),
+			restore: () => calls.push("restore"),
+			beginPath: () => {},
+			moveTo: () => {},
+			lineTo: () => {},
+			stroke: () => {},
+			fill: () => {},
+			arc: () => {},
+			fillRect: () => calls.push("fillRect"),
+			translate: () => {},
+			rotate: () => {},
+			setTransform: () => {},
+			closePath: () => {},
+			quadraticCurveTo: () => {},
+			drawImage: () => calls.push("drawImage"),
+			globalCompositeOperation: "source-over",
+			fillStyle: "#000000",
+		};
+		const canvas = { width: 100, height: 100, getContext: () => ctx };
+		const ui = new WitnessUI(canvas as any, undefined, {
+			filter: { enabled: true, mode: "custom", customColor: "#ffffff" },
+		});
+		(ui as any).applyFilter(ctx);
+		assert.deepStrictEqual(calls, []);
+	});
+
+	await test("WitnessUI applies filter while preserving alpha mask", () => {
+		const calls: string[] = [];
+		const makeContext = () => ({
+			imageSmoothingEnabled: true,
+			clearRect: () => calls.push("clearRect"),
+			save: () => calls.push("save"),
+			restore: () => calls.push("restore"),
+			beginPath: () => {},
+			moveTo: () => {},
+			lineTo: () => {},
+			stroke: () => {},
+			fill: () => {},
+			arc: () => {},
+			fillRect: () => calls.push("fillRect"),
+			translate: () => {},
+			rotate: () => {},
+			setTransform: () => {},
+			closePath: () => {},
+			quadraticCurveTo: () => {},
+			drawImage: () => calls.push("drawImage"),
+			globalCompositeOperation: "source-over",
+			fillStyle: "#000000",
+		});
+
+		const mainCtx = makeContext();
+		const offscreenCtx = makeContext();
+		const offscreenCanvas = {
+			width: 100,
+			height: 100,
+			getContext: () => offscreenCtx,
+		};
+		const canvas = { width: 100, height: 100, getContext: () => mainCtx };
+
+		const originalDocument = (global as any).document;
+		(global as any).document = { createElement: () => offscreenCanvas };
+
+		try {
+			const ui = new WitnessUI(canvas as any, undefined, {
+				filter: { enabled: true, mode: "custom", customColor: "#ff0000" },
+			});
+			(ui as any).applyFilter(mainCtx);
+		} finally {
+			(global as any).document = originalDocument;
+		}
+
+		assert.ok(calls.includes("fillRect"));
+		assert.ok(calls.filter((c) => c === "drawImage").length >= 3);
+	});
+
 	await test("WitnessUI destroy removes listeners", () => {
 		const originalCanvasElement = (global as any).HTMLCanvasElement;
 		(global as any).HTMLCanvasElement = class {};

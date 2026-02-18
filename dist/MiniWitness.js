@@ -1,5 +1,5 @@
 /*!
- * MiniWitness 1.3.9
+ * MiniWitness 1.4.1
  * Copyright 2026 hi2ma-bu4
  * Licensed under the Apache License, Version 2.0
  * http://www.apache.org/licenses/LICENSE-2.0
@@ -3381,6 +3381,8 @@ var WitnessUI = class {
   // 透過描画用のオフスクリーンCanvas
   offscreenCanvas = null;
   offscreenCtx = null;
+  filterCanvas = null;
+  filterCtx = null;
   canvasRect = null;
   isDestroyed = false;
   animationFrameId = null;
@@ -4263,29 +4265,68 @@ var WitnessUI = class {
   applyFilter(ctx) {
     if (!this.options.filter.enabled) return;
     const filterColor = this.getActiveFilterColor();
+    if (filterColor === null || this.isNoopFilterColor(filterColor)) return;
     const filterRgb = this.colorToRgba(filterColor);
     const width = Math.max(1, Math.floor(this.canvas.width));
     const height = Math.max(1, Math.floor(this.canvas.height));
+    const filterBuffer = this.prepareFilterBuffer(width, height);
+    if (!filterBuffer) return;
+    const filterCtx = filterBuffer.ctx;
     try {
-      const image = ctx.getImageData(0, 0, width, height);
-      const data = image.data;
-      for (let i = 0; i < data.length; i += 4) {
-        if (data[i + 3] === 0) continue;
-        data[i] = Math.round(data[i] * filterRgb.r / 255);
-        data[i + 1] = Math.round(data[i + 1] * filterRgb.g / 255);
-        data[i + 2] = Math.round(data[i + 2] * filterRgb.b / 255);
-      }
-      ctx.putImageData(image, 0, 0);
+      filterCtx.save();
+      filterCtx.setTransform(1, 0, 0, 1, 0, 0);
+      filterCtx.clearRect(0, 0, width, height);
+      filterCtx.drawImage(this.canvas, 0, 0, width, height);
+      filterCtx.globalCompositeOperation = "multiply";
+      filterCtx.fillStyle = `rgb(${filterRgb.r}, ${filterRgb.g}, ${filterRgb.b})`;
+      filterCtx.fillRect(0, 0, width, height);
+      filterCtx.globalCompositeOperation = "destination-in";
+      filterCtx.drawImage(this.canvas, 0, 0, width, height);
+      filterCtx.restore();
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, width, height);
+      ctx.drawImage(filterBuffer.canvas, 0, 0, width, height);
+      ctx.restore();
     } catch (e) {
     }
+  }
+  prepareFilterBuffer(width, height) {
+    if (!this.filterCanvas) {
+      if (typeof document !== "undefined") {
+        this.filterCanvas = document.createElement("canvas");
+      } else if (typeof OffscreenCanvas !== "undefined") {
+        this.filterCanvas = new OffscreenCanvas(width, height);
+      } else {
+        return null;
+      }
+      this.filterCtx = this.filterCanvas.getContext("2d");
+    }
+    if (!this.filterCtx || !this.filterCanvas) return null;
+    if (this.filterCanvas.width !== width || this.filterCanvas.height !== height) {
+      this.filterCanvas.width = width;
+      this.filterCanvas.height = height;
+    }
+    return { canvas: this.filterCanvas, ctx: this.filterCtx };
   }
   getActiveFilterColor() {
     if (this.options.filter.mode === "rgb") {
       const colors = this.options.filter.rgbColors ?? ["#ff0000", "#00ff00", "#0000ff"];
       const index = Math.max(0, Math.min(2, this.options.filter.rgbIndex ?? 0));
-      return colors[index] ?? "#ffffff";
+      return colors[index] ?? null;
     }
-    return this.options.filter.customColor || "#ffffff";
+    const color = this.options.filter.customColor;
+    if (typeof color !== "string") return null;
+    const trimmed = color.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+  isNoopFilterColor(color) {
+    const normalized = color.toLowerCase().replace(/\s+/g, "");
+    if (normalized === "#fff" || normalized === "#ffffff" || normalized === "rgb(255,255,255)" || normalized === "rgba(255,255,255,1)") {
+      return true;
+    }
+    const rgba = this.colorToRgba(color);
+    return rgba.r === 255 && rgba.g === 255 && rgba.b === 255;
   }
   /**
    * ゴール地点の波紋アニメーションを描画する

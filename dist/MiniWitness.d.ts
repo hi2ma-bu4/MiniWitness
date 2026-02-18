@@ -581,6 +581,8 @@ export declare class WitnessUI {
 	private startTime;
 	private offscreenCanvas;
 	private offscreenCtx;
+	private filterCanvas;
+	private filterCtx;
 	private canvasRect;
 	private isDestroyed;
 	private animationFrameId;
@@ -719,7 +721,9 @@ export declare class WitnessUI {
 	private lastGoalReachable;
 	draw(): void;
 	private applyFilter;
+	private prepareFilterBuffer;
 	private getActiveFilterColor;
+	private isNoopFilterColor;
 	/**
 	 * ゴール地点の波紋アニメーションを描画する
 	 * @param ctx 描画コンテキスト
