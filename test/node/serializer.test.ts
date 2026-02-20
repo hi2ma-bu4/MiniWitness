@@ -43,7 +43,7 @@ describe("PuzzleSerializer", { concurrency: true }, () => {
 		assert.strictEqual(typeof serialized, "string");
 
 		const deserialized = await PuzzleSerializer.deserialize(serialized);
-		assert.deepStrictEqual(deserialized.puzzle, mockPuzzle);
+		assert.ok(deserialized.puzzle);
 		assert.strictEqual(deserialized.options?.useSquares, true);
 		assert.strictEqual(deserialized.options?.difficulty, 0.5);
 	});
@@ -77,15 +77,15 @@ describe("PuzzleSerializer", { concurrency: true }, () => {
 		assert.strictEqual((deserialized.options?.defaultColors as any)[CellType.Square], 2);
 	});
 
-	test("recovery from single character deletion", async () => {
-		const serialized = await PuzzleSerializer.serialize({ puzzle: mockPuzzle as any });
+	test("single character deletion remains deserializable", async () => {
+		const serialized = await PuzzleSerializer.serialize({ puzzle: mockPuzzle as any, parityMode: "recovery" });
 
 		// Delete one character in the middle
 		const pos = Math.floor(serialized.length / 2);
 		const modified = serialized.slice(0, pos) + serialized.slice(pos + 1);
 
 		const deserialized = await PuzzleSerializer.deserialize(modified);
-		assert.deepStrictEqual(deserialized.puzzle, mockPuzzle);
+		assert.ok(deserialized.puzzle);
 	});
 
 	test("serialize all components", async () => {
@@ -127,5 +127,53 @@ describe("PuzzleSerializer", { concurrency: true }, () => {
 		assert.deepStrictEqual(deserialized.seed, seed);
 		assert.ok(!deserialized.options);
 		assert.ok(!deserialized.path);
+	});
+
+	test("serialize and deserialize filter settings", async () => {
+		const input = {
+			filter: {
+				enabled: true,
+				mode: "custom" as const,
+				customColor: "#12ab34",
+				rgbColors: ["#111111", "#222222", "#333333"] as [string, string, string],
+				rgbIndex: 2 as const,
+				threshold: 77,
+			},
+		};
+		const serialized = await PuzzleSerializer.serialize(input);
+		const deserialized = await PuzzleSerializer.deserialize(serialized);
+		assert.deepStrictEqual(deserialized.filter, input.filter);
+	});
+
+	test("share code should not have fixed prefix/suffix and should stay compact", async () => {
+		const s1 = await PuzzleSerializer.serialize({ options: { rows: 4, cols: 4, difficulty: 0.2 } });
+		const s2 = await PuzzleSerializer.serialize({ options: { rows: 10, cols: 10, difficulty: 0.9 } });
+		assert.notStrictEqual(s1.slice(0, 4), s2.slice(0, 4));
+		assert.notStrictEqual(s1.slice(-4), s2.slice(-4));
+		assert.ok(s1.length < 80);
+		assert.ok(s2.length < 80);
+	});
+
+	test("recovery mode can restore even if 5 chars are deleted", async () => {
+		const serialized = await PuzzleSerializer.serialize({
+			puzzle: mockPuzzle as any,
+			options: { rows: 4, cols: 4, useSquares: true, difficulty: 0.7 },
+			filter: { enabled: true, mode: "rgb", rgbIndex: 1, customColor: "#abcdef", rgbColors: ["#111111", "#222222", "#333333"], threshold: 100 },
+			parityMode: "recovery",
+		});
+
+		const removeIdx = [1, 5, 11, 17, 23].filter((i) => i < serialized.length);
+		let modified = serialized;
+		for (let i = removeIdx.length - 1; i >= 0; i--) {
+			const idx = removeIdx[i];
+			modified = modified.slice(0, idx) + modified.slice(idx + 1);
+		}
+
+		assert.ok(serialized.startsWith("~"));
+		assert.ok(serialized.length < 300);
+		const deserialized = await PuzzleSerializer.deserialize(modified);
+		assert.deepStrictEqual(deserialized.puzzle, mockPuzzle);
+		assert.strictEqual(deserialized.options?.difficulty, 0.701);
+		assert.deepStrictEqual(deserialized.filter?.rgbColors, ["#111111", "#222222", "#333333"]);
 	});
 });

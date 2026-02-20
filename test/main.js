@@ -150,6 +150,9 @@ class WitnessGame {
 					this.currentOptions = { ...this.currentOptions, ...data.options };
 					this.syncOptionsToUI(this.currentOptions);
 				}
+				if (data.filter) {
+					this.syncFilterToUI(data.filter);
+				}
 
 				if (data.puzzle) {
 					const options = data.options || this.currentOptions || {};
@@ -246,6 +249,18 @@ class WitnessGame {
 		document.getElementById("custom-theme").checked = useCustomTheme;
 	}
 
+	syncFilterToUI(filter) {
+		this.filterState.enabled = !!filter.enabled;
+		this.filterState.mode = filter.mode === "rgb" ? "rgb" : "custom";
+		this.filterState.rgbIndex = Math.max(0, Math.min(2, filter.rgbIndex ?? 0));
+		document.getElementById("filter-enabled").checked = this.filterState.enabled;
+		document.getElementById("filter-mode").value = this.filterState.mode;
+		if (filter.customColor) {
+			document.getElementById("filter-custom-color").value = filter.customColor;
+		}
+		this.applyCurrentUIOptions();
+	}
+
 	loadPuzzle(puzzle, options) {
 		this.puzzle = puzzle;
 		this.currentOptions = options;
@@ -291,6 +306,7 @@ class WitnessGame {
 				: undefined,
 			options: document.getElementById("share-options").checked ? this.getOptionsFromUI() : undefined,
 			path: document.getElementById("share-path").checked ? this.lastPath : undefined,
+			filter: document.getElementById("share-filter").checked ? this.buildFilterOptions() : undefined,
 			parityMode: document.getElementById("parity-mode").value,
 		};
 

@@ -178,6 +178,19 @@ export interface SerializationOptions {
 	options?: GenerationOptions;
 	/** 解答パスを含めるか */
 	path?: SolutionPath;
+	/** UIのカラーフィルター設定を含めるか */
+	filter?: {
+		enabled?: boolean;
+		mode?: "custom" | "rgb";
+		customColor?: string;
+		rgbColors?: [
+			string,
+			string,
+			string
+		];
+		rgbIndex?: 0 | 1 | 2;
+		threshold?: number;
+	};
 	/** パリティモード ('detection': 破損検知のみ, 'recovery': 部分復元可能) */
 	parityMode?: "detection" | "recovery";
 }
@@ -192,6 +205,18 @@ export interface DeserializedData {
 	};
 	options?: GenerationOptions;
 	path?: SolutionPath;
+	filter?: {
+		enabled?: boolean;
+		mode?: "custom" | "rgb";
+		customColor?: string;
+		rgbColors?: [
+			string,
+			string,
+			string
+		];
+		rgbIndex?: 0 | 1 | 2;
+		threshold?: number;
+	};
 }
 /**
  * パズルのグリッド構造と状態を管理するクラス
@@ -394,6 +419,12 @@ export declare class PuzzleSerializer {
 	 * シリアライズされた文字列からデータを復元する
 	 */
 	static deserialize(str: string): Promise<DeserializedData>;
+	private static toBase64Url;
+	private static share64Value;
+	private static solveLinearGF64;
+	private static encodeRobustShareCode;
+	private static decodeRobustShareCode;
+	private static extractShareCodeCandidates;
 	private static finalizeDeserialize;
 	private static writePuzzle;
 	private static readPuzzle;
@@ -403,6 +434,10 @@ export declare class PuzzleSerializer {
 	private static readOptions;
 	private static writePath;
 	private static readPath;
+	private static writeColorHex24;
+	private static readColorHex24;
+	private static writeFilter;
+	private static readFilter;
 }
 /**
  * UI表示設定

@@ -5072,29 +5072,40 @@ var GF256_LOG = new Uint8Array(256);
     if (x & 256) x ^= 285;
   }
 }
+var SHARE64_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+var SHARE64_MAP = new Int16Array(128).fill(-1);
+for (let i = 0; i < SHARE64_ALPHABET.length; i++) SHARE64_MAP[SHARE64_ALPHABET.charCodeAt(i)] = i;
+var GF64_EXP = new Uint8Array(126);
+var GF64_LOG = new Int16Array(64).fill(-1);
+{
+  let x = 1;
+  for (let i = 0; i < 63; i++) {
+    GF64_EXP[i] = x;
+    GF64_LOG[x] = i;
+    x <<= 1;
+    if (x & 64) x ^= 67;
+  }
+  for (let i = 63; i < 126; i++) GF64_EXP[i] = GF64_EXP[i - 63];
+}
+function gf64_add(a, b) {
+  return a ^ b;
+}
+function gf64_mul(a, b) {
+  if (a === 0 || b === 0) return 0;
+  return GF64_EXP[GF64_LOG[a] + GF64_LOG[b]];
+}
+function gf64_inv(a) {
+  if (a === 0) throw new Error("GF64 inverse of zero");
+  return GF64_EXP[63 - GF64_LOG[a]];
+}
+function gf64_pow(a, p) {
+  if (p === 0) return 1;
+  if (a === 0) return 0;
+  return GF64_EXP[GF64_LOG[a] * p % 63];
+}
 function gf_mul(a, b) {
   if (a === 0 || b === 0) return 0;
   return GF256_EXP[GF256_LOG[a] + GF256_LOG[b]];
-}
-function rs_encode(data, nsym) {
-  let gen = new Uint8Array([1]);
-  for (let i = 0; i < nsym; i++) {
-    const next = new Uint8Array(gen.length + 1);
-    const root = GF256_EXP[i];
-    for (let j = 0; j < gen.length; j++) {
-      next[j] ^= gf_mul(gen[j], root);
-      next[j + 1] ^= gen[j];
-    }
-    gen = next;
-  }
-  const poly = gen.slice(0, nsym + 1).reverse();
-  const res = new Uint8Array(nsym);
-  for (let i = 0; i < data.length; i++) {
-    const m = data[i] ^ res[0];
-    for (let j = 0; j < nsym - 1; j++) res[j] = res[j + 1] ^ gf_mul(m, poly[j + 1]);
-    res[nsym - 1] = gf_mul(m, poly[nsym]);
-  }
-  return res;
 }
 function rs_check(data, parity) {
   const msg = new Uint8Array(data.length + parity.length);
@@ -5139,6 +5150,7 @@ var PuzzleSerializer = class {
     if (input.seed) flags |= 1 << 1;
     if (input.options) flags |= 1 << 2;
     if (input.path) flags |= 1 << 3;
+    if (input.filter) flags |= 1 << 5;
     const recovery = input.parityMode === "recovery";
     if (recovery) flags |= 1 << 4;
     bw.write(flags, 8);
@@ -5146,30 +5158,28 @@ var PuzzleSerializer = class {
     if (input.seed) this.writeSeed(bw, input.seed);
     if (input.options) this.writeOptions(bw, input.options);
     if (input.path) this.writePath(bw, input.path);
+    if (input.filter) this.writeFilter(bw, input.filter);
     const raw = bw.finish();
     const gz = new Uint8Array(await new Response(new Blob([raw.buffer]).stream().pipeThrough(new CompressionStream("gzip"))).arrayBuffer());
-    let final;
-    if (recovery) {
-      const parity = rs_encode(gz, 10);
-      final = new Uint8Array(gz.length + 10 + 2);
-      final.set(gz);
-      final.set(parity, gz.length);
-      final[final.length - 2] = gz.length & 255;
-      final[final.length - 1] = gz.length >> 8 & 255;
-    } else {
-      let p = 0;
-      for (const b of gz) p ^= b;
-      final = new Uint8Array(gz.length + 1);
-      final.set(gz);
-      final[gz.length] = p;
-    }
-    return btoa(String.fromCharCode(...final)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    const useGzip = gz.length + 1 < raw.length;
+    const payload = useGzip ? gz : raw;
+    const modeByte = useGzip ? 1 : 0;
+    const body = new Uint8Array(payload.length + 1);
+    body[0] = modeByte;
+    body.set(payload, 1);
+    let p = 0;
+    for (const b of body) p ^= b;
+    const final = new Uint8Array(body.length + 1);
+    final.set(body);
+    final[body.length] = p;
+    const base = this.toBase64Url(final);
+    return recovery ? this.encodeRobustShareCode(base) : base;
   }
   /**
    * シリアライズされた文字列からデータを復元する
    */
   static async deserialize(str) {
-    const tryDecode = async (s) => {
+    const tryDecode = (s) => {
       try {
         let b64 = s.replace(/-/g, "+").replace(/_/g, "/");
         while (b64.length % 4) b64 += "=";
@@ -5179,46 +5189,232 @@ var PuzzleSerializer = class {
         return null;
       }
     };
-    const attemptRecovery = async (data) => {
-      if (data.length === 0) return null;
+    const attemptRecovery = (data) => {
+      if (data.length < 2) return null;
+      let body = null;
       let p = 0;
       for (let i = 0; i < data.length - 1; i++) p ^= data[i];
-      if (p === data[data.length - 1]) return data.slice(0, -1);
-      if (data.length > 12) {
-        const gzLen = data[data.length - 2] | data[data.length - 1] << 8;
-        if (gzLen + 12 === data.length) {
-          const gz2 = data.slice(0, gzLen);
-          const parity = data.slice(gzLen, gzLen + 10);
-          if (rs_check(gz2, parity)) return gz2;
+      if (p === data[data.length - 1]) body = data.slice(0, -1);
+      if (!body && data.length > 13) {
+        const bodyLen = data[data.length - 2] | data[data.length - 1] << 8;
+        if (bodyLen + 12 === data.length) {
+          const candidate = data.slice(0, bodyLen);
+          const parity = data.slice(bodyLen, bodyLen + 10);
+          if (rs_check(candidate, parity)) body = candidate;
         }
+      }
+      if (!body || body.length < 1) return null;
+      const mode = body[0];
+      if (mode !== 0 && mode !== 1) return null;
+      return { payload: body.slice(1), compressed: mode === 1 };
+    };
+    const parseCandidate = async (candidate) => {
+      const decoded = tryDecode(candidate);
+      if (!decoded) return null;
+      const recovered = attemptRecovery(decoded);
+      if (!recovered) return null;
+      try {
+        const parsed = await this.finalizeDeserialize(recovered.payload, recovered.compressed);
+        if (parsed.puzzle || parsed.seed || parsed.options || parsed.path || parsed.filter) return parsed;
+      } catch {
+        return null;
       }
       return null;
     };
-    let buf = await tryDecode(str);
-    let gz = buf ? await attemptRecovery(buf) : null;
-    if (!gz && str.length < 1e3) {
-      const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-      for (let i = 0; i <= str.length; i++) {
-        for (let j = 0; j < chars.length; j++) {
-          const s = str.slice(0, i) + chars[j] + str.slice(i);
-          const b = await tryDecode(s);
-          if (b) {
-            const g = await attemptRecovery(b);
-            if (g) {
-              try {
-                return await this.finalizeDeserialize(g);
-              } catch {
-              }
-            }
-          }
+    const candidates = this.extractShareCodeCandidates(str);
+    for (const candidate of candidates) {
+      const parsed = await parseCandidate(candidate);
+      if (parsed) return parsed;
+    }
+    for (const candidate of candidates) {
+      if (candidate.length >= 1e3) continue;
+      for (let i = 0; i <= candidate.length; i++) {
+        for (let j = 0; j < SHARE64_ALPHABET.length; j++) {
+          const s = candidate.slice(0, i) + SHARE64_ALPHABET[j] + candidate.slice(i);
+          const parsed = await parseCandidate(s);
+          if (parsed) return parsed;
         }
       }
     }
-    if (!gz) throw new Error("Invalid parity data or unrecoverable corruption");
-    return this.finalizeDeserialize(gz);
+    throw new Error("Invalid parity data or unrecoverable corruption");
   }
-  static async finalizeDeserialize(gz) {
-    const raw = new Uint8Array(await new Response(new Blob([gz.buffer]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer());
+  static toBase64Url(bytes) {
+    return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+  static share64Value(ch) {
+    const code = ch.charCodeAt(0);
+    return code < SHARE64_MAP.length ? SHARE64_MAP[code] : -1;
+  }
+  static solveLinearGF64(matrix, vector) {
+    const n = matrix.length;
+    const a = matrix.map((row, i) => [...row, vector[i]]);
+    for (let col = 0; col < n; col++) {
+      let pivot = col;
+      while (pivot < n && a[pivot][col] === 0) pivot++;
+      if (pivot === n) throw new Error("Singular matrix");
+      if (pivot !== col) [a[col], a[pivot]] = [a[pivot], a[col]];
+      const inv = gf64_inv(a[col][col]);
+      for (let j = col; j <= n; j++) a[col][j] = gf64_mul(a[col][j], inv);
+      for (let r = 0; r < n; r++) {
+        if (r === col || a[r][col] === 0) continue;
+        const factor = a[r][col];
+        for (let j = col; j <= n; j++) a[r][j] = gf64_add(a[r][j], gf64_mul(factor, a[col][j]));
+      }
+    }
+    return a.map((row) => row[n]);
+  }
+  static encodeRobustShareCode(core) {
+    if (core.length === 0) return "~0-8~0-8~0-8~";
+    const parityCount = 5;
+    const chunkSize = Math.max(8, Math.ceil(core.length / 59));
+    const dataChunkCount = Math.ceil(core.length / chunkSize);
+    if (dataChunkCount + parityCount > 63) throw new Error("Share code is too long for recovery mode");
+    const dataChunks = [];
+    for (let i = 0; i < dataChunkCount; i++) {
+      const chars = [];
+      for (let j = 0; j < chunkSize; j++) {
+        const idx = i * chunkSize + j;
+        if (idx < core.length) {
+          const v = this.share64Value(core[idx]);
+          if (v < 0) throw new Error("Invalid core character for robust code");
+          chars.push(v);
+        } else {
+          chars.push(0);
+        }
+      }
+      dataChunks.push(chars);
+    }
+    const parityChunks = Array.from({ length: parityCount }, () => Array(chunkSize).fill(0));
+    for (let pos = 0; pos < chunkSize; pos++) {
+      for (let pj = 0; pj < parityCount; pj++) {
+        let acc = 0;
+        for (let di = 0; di < dataChunkCount; di++) {
+          const coef = gf64_pow(di + 1, pj);
+          acc = gf64_add(acc, gf64_mul(dataChunks[di][pos], coef));
+        }
+        parityChunks[pj][pos] = acc;
+      }
+    }
+    const checksum12 = (chunk) => {
+      let acc = 0;
+      for (let i = 0; i < chunk.length; i++) acc = acc + (i + 1) * chunk[i] & 4095;
+      return acc;
+    };
+    const toToken = (index, chunk) => {
+      const crc = checksum12(chunk);
+      let body = "";
+      for (const v of chunk) body += SHARE64_ALPHABET[v];
+      return `${SHARE64_ALPHABET[index]}${SHARE64_ALPHABET[crc >> 6 & 63]}${SHARE64_ALPHABET[crc & 63]}${body}`;
+    };
+    const tokens = [];
+    for (let i = 0; i < dataChunkCount; i++) tokens.push(toToken(i, dataChunks[i]));
+    for (let i = 0; i < parityCount; i++) tokens.push(toToken(dataChunkCount + i, parityChunks[i]));
+    const tokenStream = tokens.join(".");
+    const header = `${core.length.toString(36)}-${chunkSize.toString(36)}`;
+    const head = Array.from({ length: 8 }, () => header).join("~");
+    return `~${head}~${tokenStream}`;
+  }
+  static decodeRobustShareCode(str) {
+    if (!str.startsWith("~")) return null;
+    const segments = str.split("~");
+    let coreLen = -1;
+    let chunkSize = -1;
+    let headerIndex = -1;
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i];
+      const m = /^([0-9a-z]+)-([0-9a-z]+)$/.exec(seg);
+      if (!m) continue;
+      const l = Number.parseInt(m[1], 36);
+      const c = Number.parseInt(m[2], 36);
+      if (Number.isFinite(l) && l >= 0 && Number.isFinite(c) && c >= 1) {
+        coreLen = l;
+        chunkSize = c;
+        headerIndex = i;
+      }
+    }
+    if (coreLen < 0 || chunkSize < 1) return null;
+    const parityCount = 5;
+    const dataChunkCount = coreLen === 0 ? 0 : Math.ceil(coreLen / chunkSize);
+    const totalChunkCount = dataChunkCount + parityCount;
+    if (totalChunkCount > 63) return null;
+    if (coreLen === 0) return "";
+    const tokenLen = chunkSize + 3;
+    const tail = segments.slice(headerIndex + 1).join("~");
+    if (tail.length < tokenLen) return null;
+    const checksum12 = (chunk) => {
+      let acc = 0;
+      for (let i = 0; i < chunk.length; i++) acc = acc + (i + 1) * chunk[i] & 4095;
+      return acc;
+    };
+    const chunks = Array(totalChunkCount).fill(null);
+    for (const t of tail.split(".")) {
+      if (t.length !== tokenLen) continue;
+      const idx = this.share64Value(t[0]);
+      const crcHi = this.share64Value(t[1]);
+      const crcLo = this.share64Value(t[2]);
+      if (idx < 0 || idx >= totalChunkCount || crcHi < 0 || crcLo < 0) continue;
+      const data = [];
+      let ok = true;
+      for (let j = 3; j < t.length; j++) {
+        const v = this.share64Value(t[j]);
+        if (v < 0) {
+          ok = false;
+          break;
+        }
+        data.push(v);
+      }
+      if (!ok) continue;
+      const crc = crcHi << 6 | crcLo;
+      if (checksum12(data) !== crc) continue;
+      chunks[idx] = data;
+    }
+    const missingSet = /* @__PURE__ */ new Set();
+    for (let i = 0; i < dataChunkCount; i++) if (!chunks[i]) missingSet.add(i);
+    if (missingSet.size > parityCount) return null;
+    const availableParity = [];
+    for (let i = 0; i < parityCount; i++) if (chunks[dataChunkCount + i]) availableParity.push(i);
+    if (missingSet.size > availableParity.length) return null;
+    const missingData = [...missingSet];
+    if (missingData.length > 0) {
+      const rows = availableParity.slice(0, missingData.length);
+      for (let pos = 0; pos < chunkSize; pos++) {
+        const mat = rows.map((r) => missingData.map((di) => gf64_pow(di + 1, r)));
+        const vec = rows.map((r) => {
+          let rhs = chunks[dataChunkCount + r][pos];
+          for (let di = 0; di < dataChunkCount; di++) {
+            if (missingSet.has(di)) continue;
+            rhs = gf64_add(rhs, gf64_mul(chunks[di][pos], gf64_pow(di + 1, r)));
+          }
+          return rhs;
+        });
+        const solved = this.solveLinearGF64(mat, vec);
+        for (let i = 0; i < missingData.length; i++) {
+          const di = missingData[i];
+          if (!chunks[di]) chunks[di] = Array(chunkSize).fill(0);
+          chunks[di][pos] = solved[i];
+        }
+      }
+    }
+    let core = "";
+    for (let i = 0; i < dataChunkCount; i++) {
+      const chunk = chunks[i];
+      if (!chunk) return null;
+      for (const v of chunk) core += SHARE64_ALPHABET[v];
+    }
+    return core.slice(0, coreLen);
+  }
+  static extractShareCodeCandidates(str) {
+    const set = /* @__PURE__ */ new Set();
+    if (str) set.add(str);
+    const decodedRobust = this.decodeRobustShareCode(str);
+    if (decodedRobust) set.add(decodedRobust);
+    for (const part of str.split(".")) {
+      if (/^[0-5][A-Za-z0-9_-]+$/.test(part)) set.add(part.slice(1));
+    }
+    return [...set];
+  }
+  static async finalizeDeserialize(payload, compressed) {
+    const raw = compressed ? new Uint8Array(await new Response(new Blob([payload.buffer]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer()) : payload;
     const br = new BitReader(raw);
     const flags = br.read(8);
     const result = {};
@@ -5226,6 +5422,7 @@ var PuzzleSerializer = class {
     if (flags & 1 << 1) result.seed = this.readSeed(br);
     if (flags & 1 << 2) result.options = this.readOptions(br);
     if (flags & 1 << 3) result.path = this.readPath(br);
+    if (flags & 1 << 5) result.filter = this.readFilter(br);
     return result;
   }
   static writePuzzle(bw, puzzle) {
@@ -5416,6 +5613,34 @@ var PuzzleSerializer = class {
       points.push({ x, y });
     }
     return { points };
+  }
+  static writeColorHex24(bw, color) {
+    const v = /^#[0-9a-fA-F]{6}$/.test(color) ? color : "#000000";
+    bw.write(parseInt(v.slice(1), 16), 24);
+  }
+  static readColorHex24(br) {
+    return `#${br.read(24).toString(16).padStart(6, "0")}`;
+  }
+  static writeFilter(bw, filter) {
+    bw.write(+!!filter.enabled, 1);
+    bw.write(filter.mode === "rgb" ? 1 : 0, 1);
+    this.writeColorHex24(bw, filter.customColor ?? "#ffffff");
+    const rgb = filter.rgbColors ?? ["#ff0000", "#00ff00", "#0000ff"];
+    this.writeColorHex24(bw, rgb[0]);
+    this.writeColorHex24(bw, rgb[1]);
+    this.writeColorHex24(bw, rgb[2]);
+    bw.write(Math.max(0, Math.min(2, filter.rgbIndex ?? 0)), 2);
+    bw.write(Math.max(0, Math.min(255, Math.round(filter.threshold ?? 128))), 8);
+  }
+  static readFilter(br) {
+    return {
+      enabled: !!br.read(1),
+      mode: br.read(1) ? "rgb" : "custom",
+      customColor: this.readColorHex24(br),
+      rgbColors: [this.readColorHex24(br), this.readColorHex24(br), this.readColorHex24(br)],
+      rgbIndex: br.read(2),
+      threshold: br.read(8)
+    };
   }
 };
 

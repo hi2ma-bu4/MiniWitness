@@ -180,6 +180,15 @@ export interface SerializationOptions {
 	options?: GenerationOptions;
 	/** 解答パスを含めるか */
 	path?: SolutionPath;
+	/** UIのカラーフィルター設定を含めるか */
+	filter?: {
+		enabled?: boolean;
+		mode?: "custom" | "rgb";
+		customColor?: string;
+		rgbColors?: [string, string, string];
+		rgbIndex?: 0 | 1 | 2;
+		threshold?: number;
+	};
 	/** パリティモード ('detection': 破損検知のみ, 'recovery': 部分復元可能) */
 	parityMode?: "detection" | "recovery";
 }
@@ -192,4 +201,12 @@ export interface DeserializedData {
 	seed?: { type: RngType; value: string };
 	options?: GenerationOptions;
 	path?: SolutionPath;
+	filter?: {
+		enabled?: boolean;
+		mode?: "custom" | "rgb";
+		customColor?: string;
+		rgbColors?: [string, string, string];
+		rgbIndex?: 0 | 1 | 2;
+		threshold?: number;
+	};
 }
