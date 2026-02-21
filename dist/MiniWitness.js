@@ -1,5 +1,5 @@
 /*!
- * MiniWitness 1.4.4
+ * MiniWitness 1.4.5
  * Copyright 2026 hi2ma-bu4
  * Licensed under the Apache License, Version 2.0
  * http://www.apache.org/licenses/LICENSE-2.0
@@ -3999,6 +3999,12 @@ var WitnessUI = class {
         return;
       }
       let maxMove = edgeType === 1 /* Broken */ ? this.options.cellSize * 0.35 : this.options.cellSize;
+      const antiClipDistance = Math.max(0, this.options.cellSize - this.options.pathWidth - 1);
+      const antiClipDistanceForBothTips = Math.max(0, antiClipDistance / 2);
+      const getStartNodeExtraPadding = (p, start) => {
+        if (p.x !== start.x || p.y !== start.y) return 0;
+        return Math.max(0, this.options.startNodeRadius - this.options.pathWidth / 2);
+      };
       const targetEdgeKey = this.getEdgeKey(lastPoint, target);
       const isBacktracking = this.path.length >= 2 && target.x === this.path[this.path.length - 2].x && target.y === this.path[this.path.length - 2].y;
       if (!isBacktracking) {
@@ -4013,7 +4019,9 @@ var WitnessUI = class {
       if (isTargetInPath && this.path.length >= 2) {
         const secondToLast = this.path[this.path.length - 2];
         if (target.x !== secondToLast.x || target.y !== secondToLast.y) {
-          maxMove = Math.min(maxMove, Math.max(0, this.options.cellSize - this.options.pathWidth - 1));
+          const mainStart = this.path[0];
+          const extraPadding = getStartNodeExtraPadding(target, mainStart);
+          maxMove = Math.min(maxMove, Math.max(0, antiClipDistance - extraPadding));
         }
       }
       if (symmetry !== 0 /* None */) {
@@ -4022,6 +4030,8 @@ var WitnessUI = class {
         const symEdgeType = this.getEdgeType(symLast, symTarget);
         const symPath2 = this.getSymmetryPath(this.path);
         const symEdgeKey = this.getEdgeKey(symLast, symTarget);
+        const mainStart = this.path[0];
+        const symStart = symPath2[0];
         if (symTarget.x < 0 || symTarget.x > this.puzzle.cols || symTarget.y < 0 || symTarget.y > this.puzzle.rows || symEdgeType === 2 /* Absent */) {
           this.currentMousePos = lastPos;
           return;
@@ -4035,8 +4045,19 @@ var WitnessUI = class {
         const isEdgeOccupiedBySym = symPath2.some((p, i) => i < symPath2.length - 1 && this.getEdgeKey(symPath2[i], symPath2[i + 1]) === targetEdgeKey);
         const isMirrorEdgeOccupiedByMain = this.path.some((p, i) => i < this.path.length - 1 && this.getEdgeKey(this.path[i], this.path[i + 1]) === symEdgeKey);
         const isSelfMirrorEdge = targetEdgeKey === symEdgeKey;
-        if (isNodeOccupiedBySym || isSymNodeOccupiedByMain || isMeetingAtNode || isEdgeOccupiedBySym || isMirrorEdgeOccupiedByMain || isSelfMirrorEdge) {
-          maxMove = Math.min(maxMove, Math.max(0, this.options.cellSize - this.options.pathWidth - 1));
+        if (isNodeOccupiedBySym || isEdgeOccupiedBySym) {
+          const extraPadding = getStartNodeExtraPadding(target, symStart);
+          maxMove = Math.min(maxMove, Math.max(0, antiClipDistance - extraPadding));
+        }
+        if (isSymNodeOccupiedByMain || isMirrorEdgeOccupiedByMain) {
+          const extraPadding = getStartNodeExtraPadding(symTarget, mainStart);
+          maxMove = Math.min(maxMove, Math.max(0, antiClipDistance - extraPadding));
+        }
+        if (isSelfMirrorEdge) {
+          maxMove = Math.min(maxMove, antiClipDistanceForBothTips);
+        }
+        if (isMeetingAtNode) {
+          maxMove = Math.min(maxMove, maxMove - (maxMove - antiClipDistance) / 2);
         }
       }
       if (target.x !== lastPoint.x) {
@@ -4069,7 +4090,7 @@ var WitnessUI = class {
       if (n.x >= 0 && n.x <= this.puzzle.cols && n.y >= 0 && n.y <= this.puzzle.rows) {
         const nPos = this.getCanvasCoords(n.x, n.y);
         const dist = Math.hypot(nPos.x - this.currentMousePos.x, nPos.y - this.currentMousePos.y);
-        if (dist < this.options.cellSize * 0.18) {
+        if (dist < this.options.cellSize * 0.3) {
           const idx = this.path.findIndex((p) => p.x === n.x && p.y === n.y);
           if (idx === -1) {
             if (symmetry !== 0 /* None */) {
@@ -4130,7 +4151,7 @@ var WitnessUI = class {
         return true;
       }
     }
-    this.exitTipPos = exitDir ? { ...this.currentMousePos } : null;
+    this.exitTipPos = { ...this.currentMousePos };
     this.emit("path:end", { path: this.path, isExit: false });
     this.startFade(this.options.colors.interrupted);
     return true;
@@ -4235,16 +4256,7 @@ var WitnessUI = class {
           const originalSymAlpha = this.colorToRgba(symColor).a;
           symColor = this.setAlpha(this.options.colors.error, originalSymAlpha);
         }
-        let symTipPos = null;
-        if (this.fadingTipPos) {
-          const gridRelX = (this.fadingTipPos.x - this.options.gridPadding) / this.options.cellSize;
-          const gridRelY = (this.fadingTipPos.y - this.options.gridPadding) / this.options.cellSize;
-          const symGridRel = this.getSymmetricalPoint({ x: gridRelX, y: gridRelY });
-          symTipPos = {
-            x: symGridRel.x * this.options.cellSize + this.options.gridPadding,
-            y: symGridRel.y * this.options.cellSize + this.options.gridPadding
-          };
-        }
+        const symTipPos = this.getSymmetryTipPos(this.fadingTipPos, this.fadingPath);
         this.drawPath(ctx, symFadingPath, false, symColor, this.fadeOpacity, symTipPos);
       }
     } else if (this.path.length > 0) {
@@ -4271,19 +4283,8 @@ var WitnessUI = class {
           }
         }
       }
-      let symTipPos = null;
-      if (this.isDrawing || this.exitTipPos) {
-        const tip = this.isDrawing ? this.currentMousePos : this.exitTipPos;
-        if (this.puzzle.symmetry !== void 0 && this.puzzle.symmetry !== 0 /* None */) {
-          const gridRelX = (tip.x - this.options.gridPadding) / this.options.cellSize;
-          const gridRelY = (tip.y - this.options.gridPadding) / this.options.cellSize;
-          const symGridRel = this.getSymmetricalPoint({ x: gridRelX, y: gridRelY }, true);
-          symTipPos = {
-            x: symGridRel.x * this.options.cellSize + this.options.gridPadding,
-            y: symGridRel.y * this.options.cellSize + this.options.gridPadding
-          };
-        }
-      }
+      const mainTipPos = this.isDrawing ? this.currentMousePos : this.exitTipPos;
+      const symTipPos = this.getSymmetryTipPos(mainTipPos, this.path);
       const isAtExit = this.isPathAtExit(this.path, this.isDrawing ? this.currentMousePos : this.exitTipPos);
       if (isAtExit !== this.lastGoalReachable) {
         this.lastGoalReachable = isAtExit;
@@ -4295,7 +4296,6 @@ var WitnessUI = class {
         color = this.lerpColor(color, "#ffffff", pulseFactor * 0.6);
         color = this.setAlpha(color, originalAlpha);
       }
-      const mainTipPos = this.isDrawing ? this.currentMousePos : this.exitTipPos;
       this.drawPath(ctx, this.path, this.isDrawing, color, pathOpacity, mainTipPos);
       if (this.puzzle.symmetry !== void 0 && this.puzzle.symmetry !== 0 /* None */) {
         const symPath = this.getSymmetryPath(this.path);
@@ -5031,6 +5031,25 @@ var WitnessUI = class {
       return { x: cols - p.x, y: rows - p.y };
     }
     return { ...p };
+  }
+  /**
+   * メイン線先端から対称線先端座標を求める
+   */
+  getSymmetryTipPos(tipPos, path) {
+    if (!this.puzzle || !this.puzzle.symmetry || !tipPos || path.length === 0) return null;
+    const symPath = this.getSymmetryPath(path);
+    const lastMain = path[path.length - 1];
+    const lastSym = symPath[symPath.length - 1];
+    const lastMainPos = this.getCanvasCoords(lastMain.x, lastMain.y);
+    const lastSymPos = this.getCanvasCoords(lastSym.x, lastSym.y);
+    const dx = tipPos.x - lastMainPos.x;
+    const dy = tipPos.y - lastMainPos.y;
+    const symDelta = this.getSymmetricalPoint({ x: dx / this.options.cellSize, y: dy / this.options.cellSize }, true);
+    const centerDelta = this.getSymmetricalPoint({ x: 0, y: 0 }, true);
+    return {
+      x: lastSymPos.x + (symDelta.x - centerDelta.x) * this.options.cellSize,
+      y: lastSymPos.y + (symDelta.y - centerDelta.y) * this.options.cellSize
+    };
   }
   /**
    * 指定されたパスの先端が出口の出っ張りにあるか判定する

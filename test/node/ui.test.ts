@@ -1,6 +1,6 @@
 import assert from "node:assert";
 import { describe, test } from "node:test";
-import { CellType, Color, NodeType, PuzzleSerializer, WitnessUI } from "../../dist/MiniWitness.js";
+import { CellType, Color, NodeType, PuzzleSerializer, SymmetryType, WitnessUI } from "../../dist/MiniWitness.js";
 
 describe("WitnessUI Full Test Suite", { concurrency: false }, async () => {
 	if (typeof (global as any).OffscreenCanvas === "undefined") {
@@ -349,6 +349,106 @@ describe("WitnessUI Full Test Suite", { concurrency: false }, async () => {
 		assert.strictEqual(internalUI.isFading, true);
 		assert.strictEqual(internalUI.isInvalidPath, true);
 		assert.strictEqual(internalUI.fadingPath.length, 1);
+	});
+
+	await test("WitnessUI symmetry tip keeps mirrored offset on even grid", () => {
+		const puzzle = createEmptyPuzzle(2, 2);
+		(puzzle as any).symmetry = 1;
+		const ui = new WitnessUI(createMockCanvas() as any, puzzle as any, { cellSize: 80, gridPadding: 60 });
+		const internalUI = ui as any;
+
+		const path = [
+			{ x: 0, y: 0 },
+			{ x: 1, y: 0 },
+		];
+		const lastMainPos = internalUI.getCanvasCoords(1, 0);
+		const mainTip = { x: lastMainPos.x + 24, y: lastMainPos.y };
+		const symTip = internalUI.getSymmetryTipPos(mainTip, path);
+		const symPath = internalUI.getSymmetryPath(path);
+		const lastSymPos = internalUI.getCanvasCoords(symPath[symPath.length - 1].x, symPath[symPath.length - 1].y);
+
+		assert.ok(symTip);
+		assert.strictEqual(symTip.x - lastSymPos.x, -24);
+		assert.strictEqual(symTip.y - lastSymPos.y, 0);
+	});
+
+	await test("WitnessUI symmetry tip keeps mirrored offset on odd grid", () => {
+		const puzzle = createEmptyPuzzle(3, 3);
+		(puzzle as any).symmetry = 1;
+		const ui = new WitnessUI(createMockCanvas() as any, puzzle as any, { cellSize: 80, gridPadding: 60 });
+		const internalUI = ui as any;
+
+		const path = [
+			{ x: 0, y: 1 },
+			{ x: 1, y: 1 },
+		];
+		const lastMainPos = internalUI.getCanvasCoords(1, 1);
+		const mainTip = { x: lastMainPos.x + 18, y: lastMainPos.y };
+		const symTip = internalUI.getSymmetryTipPos(mainTip, path);
+		const symPath = internalUI.getSymmetryPath(path);
+		const lastSymPos = internalUI.getCanvasCoords(symPath[symPath.length - 1].x, symPath[symPath.length - 1].y);
+
+		assert.ok(symTip);
+		assert.strictEqual(symTip.x - lastSymPos.x, -18);
+		assert.strictEqual(symTip.y - lastSymPos.y, 0);
+	});
+
+	await test("WitnessUI symmetry midpoint approach (even grid) allows near-center distance", () => {
+		const puzzle = createEmptyPuzzle(2, 2);
+		(puzzle as any).symmetry = SymmetryType.Horizontal;
+		const ui = new WitnessUI(createMockCanvas() as any, puzzle as any, { cellSize: 80, gridPadding: 60, pathWidth: 24 });
+		const internalUI = ui as any;
+
+		internalUI.isDrawing = true;
+		internalUI.path = [{ x: 0, y: 1 }];
+		const lastPos = internalUI.getCanvasCoords(0, 1);
+		internalUI.currentMousePos = { ...lastPos };
+
+		ui.handleMove({ clientX: lastPos.x + 500, clientY: lastPos.y });
+
+		const moved = internalUI.currentMousePos.x - lastPos.x;
+		const maxAllowed = 80 - 24 - 1;
+		assert.ok(moved > 0);
+		assert.ok(moved <= maxAllowed + 0.0001);
+	});
+
+	await test("WitnessUI symmetry anti-clip limits self-mirror-edge approach (odd grid)", () => {
+		const puzzle = createEmptyPuzzle(2, 3);
+		(puzzle as any).symmetry = SymmetryType.Horizontal;
+		const ui = new WitnessUI(createMockCanvas() as any, puzzle as any, { cellSize: 80, gridPadding: 60, pathWidth: 24 });
+		const internalUI = ui as any;
+
+		internalUI.isDrawing = true;
+		internalUI.path = [{ x: 1, y: 1 }];
+		const lastPos = internalUI.getCanvasCoords(1, 1);
+		internalUI.currentMousePos = { ...lastPos };
+
+		ui.handleMove({ clientX: lastPos.x + 500, clientY: lastPos.y });
+
+		const moved = internalUI.currentMousePos.x - lastPos.x;
+		const maxAllowed = (80 - 24 - 1) / 2;
+		assert.ok(moved > 0);
+		assert.ok(moved <= maxAllowed + 0.0001);
+	});
+
+	await test("WitnessUI cancel keeps tip position for fade", () => {
+		const puzzle = createEmptyPuzzle(2, 2);
+		puzzle.nodes[0][0].type = NodeType.Start;
+		const ui = new WitnessUI(createMockCanvas() as any, puzzle as any, { cellSize: 80, gridPadding: 60 });
+		const internalUI = ui as any;
+
+		internalUI.isDrawing = true;
+		internalUI.path = [
+			{ x: 0, y: 0 },
+			{ x: 1, y: 0 },
+		];
+		const tip = { x: 133, y: 60 };
+		internalUI.currentMousePos = { ...tip };
+
+		const ended = ui.handleEnd({ clientX: tip.x, clientY: tip.y }, "mouse");
+		assert.strictEqual(ended, true);
+		assert.deepStrictEqual(internalUI.exitTipPos, tip);
+		assert.deepStrictEqual(internalUI.fadingTipPos, tip);
 	});
 
 	await test("WitnessUI skips filter rendering for noop colors", () => {

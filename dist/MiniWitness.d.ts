@@ -877,6 +877,10 @@ export declare class WitnessUI {
 	 */
 	private getSymmetricalPoint;
 	/**
+	 * メイン線先端から対称線先端座標を求める
+	 */
+	private getSymmetryTipPos;
+	/**
 	 * 指定されたパスの先端が出口の出っ張りにあるか判定する
 	 */
 	private isPathAtExit;

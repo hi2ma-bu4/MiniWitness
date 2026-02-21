@@ -875,6 +875,12 @@ export class WitnessUI {
 			}
 
 			let maxMove = edgeType === EdgeType.Broken ? this.options.cellSize * 0.35 : this.options.cellSize;
+			const antiClipDistance = Math.max(0, this.options.cellSize - this.options.pathWidth - 1);
+			const antiClipDistanceForBothTips = Math.max(0, antiClipDistance / 2);
+			const getStartNodeExtraPadding = (p: Point, start: Point): number => {
+				if (p.x !== start.x || p.y !== start.y) return 0;
+				return Math.max(0, this.options.startNodeRadius - this.options.pathWidth / 2);
+			};
 
 			// 自己衝突チェック（メインパスのエッジ）
 			const targetEdgeKey = this.getEdgeKey(lastPoint, target);
@@ -895,7 +901,9 @@ export class WitnessUI {
 			if (isTargetInPath && this.path.length >= 2) {
 				const secondToLast = this.path[this.path.length - 2];
 				if (target.x !== secondToLast.x || target.y !== secondToLast.y) {
-					maxMove = Math.min(maxMove, Math.max(0, this.options.cellSize - this.options.pathWidth - 1));
+					const mainStart = this.path[0];
+					const extraPadding = getStartNodeExtraPadding(target, mainStart);
+					maxMove = Math.min(maxMove, Math.max(0, antiClipDistance - extraPadding));
 				}
 			}
 
@@ -905,6 +913,8 @@ export class WitnessUI {
 				const symEdgeType = this.getEdgeType(symLast, symTarget);
 				const symPath = this.getSymmetryPath(this.path);
 				const symEdgeKey = this.getEdgeKey(symLast, symTarget);
+				const mainStart = this.path[0];
+				const symStart = symPath[0];
 
 				if (symTarget.x < 0 || symTarget.x > this.puzzle!.cols || symTarget.y < 0 || symTarget.y > this.puzzle!.rows || symEdgeType === EdgeType.Absent) {
 					this.currentMousePos = lastPos;
@@ -923,8 +933,24 @@ export class WitnessUI {
 				const isMirrorEdgeOccupiedByMain = this.path.some((p, i) => i < this.path.length - 1 && this.getEdgeKey(this.path[i], this.path[i + 1]) === symEdgeKey);
 				const isSelfMirrorEdge = targetEdgeKey === symEdgeKey;
 
-				if (isNodeOccupiedBySym || isSymNodeOccupiedByMain || isMeetingAtNode || isEdgeOccupiedBySym || isMirrorEdgeOccupiedByMain || isSelfMirrorEdge) {
-					maxMove = Math.min(maxMove, Math.max(0, this.options.cellSize - this.options.pathWidth - 1));
+				if (isNodeOccupiedBySym || isEdgeOccupiedBySym) {
+					const extraPadding = getStartNodeExtraPadding(target, symStart);
+					maxMove = Math.min(maxMove, Math.max(0, antiClipDistance - extraPadding));
+				}
+
+				if (isSymNodeOccupiedByMain || isMirrorEdgeOccupiedByMain) {
+					const extraPadding = getStartNodeExtraPadding(symTarget, mainStart);
+					maxMove = Math.min(maxMove, Math.max(0, antiClipDistance - extraPadding));
+				}
+
+				// 対称先端どうしが互いに近づくケースでは、両先端の合計移動量で判定する必要がある
+				if (isSelfMirrorEdge) {
+					maxMove = Math.min(maxMove, antiClipDistanceForBothTips);
+				}
+
+				// 対称の中央ノードに向かい合って進むケース（偶数盤面）は、通常のめり込み防止距離まで許可する
+				if (isMeetingAtNode) {
+					maxMove = Math.min(maxMove, maxMove - (maxMove - antiClipDistance) / 2);
 				}
 			}
 			if (target.x !== lastPoint.x) {
@@ -1035,7 +1061,8 @@ export class WitnessUI {
 			}
 		}
 
-		this.exitTipPos = exitDir ? { ...this.currentMousePos } : null;
+		// キャンセル時も現在の先端位置を保持し、フェード開始前にノードへ縮まないようにする
+		this.exitTipPos = { ...this.currentMousePos };
 		this.emit("path:end", { path: this.path, isExit: false });
 		this.startFade(this.options.colors.interrupted); // 途中で離した場合は指定されたフェード色で消える
 		return true;
@@ -1161,17 +1188,7 @@ export class WitnessUI {
 					symColor = this.setAlpha(this.options.colors.error as string, originalSymAlpha);
 				}
 
-				let symTipPos: Point | null = null;
-				if (this.fadingTipPos) {
-					const gridRelX = (this.fadingTipPos.x - this.options.gridPadding) / this.options.cellSize;
-					const gridRelY = (this.fadingTipPos.y - this.options.gridPadding) / this.options.cellSize;
-					const symGridRel = this.getSymmetricalPoint({ x: gridRelX, y: gridRelY });
-					symTipPos = {
-						x: symGridRel.x * this.options.cellSize + this.options.gridPadding,
-						y: symGridRel.y * this.options.cellSize + this.options.gridPadding,
-					};
-				}
-				// 途中で離した場合はメインと同じ色で消えても良いが、一応対称側の色でフェードさせる
+				const symTipPos = this.getSymmetryTipPos(this.fadingTipPos, this.fadingPath);
 				this.drawPath(ctx, symFadingPath, false, symColor, this.fadeOpacity, symTipPos);
 			}
 		} else if (this.path.length > 0) {
@@ -1205,19 +1222,8 @@ export class WitnessUI {
 				}
 			}
 
-			let symTipPos: Point | null = null;
-			if (this.isDrawing || this.exitTipPos) {
-				const tip = this.isDrawing ? this.currentMousePos : this.exitTipPos!;
-				if (this.puzzle.symmetry !== undefined && this.puzzle.symmetry !== SymmetryType.None) {
-					const gridRelX = (tip.x - this.options.gridPadding) / this.options.cellSize;
-					const gridRelY = (tip.y - this.options.gridPadding) / this.options.cellSize;
-					const symGridRel = this.getSymmetricalPoint({ x: gridRelX, y: gridRelY }, true);
-					symTipPos = {
-						x: symGridRel.x * this.options.cellSize + this.options.gridPadding,
-						y: symGridRel.y * this.options.cellSize + this.options.gridPadding,
-					};
-				}
-			}
+			const mainTipPos = this.isDrawing ? this.currentMousePos : this.exitTipPos;
+			const symTipPos = this.getSymmetryTipPos(mainTipPos, this.path);
 
 			// ゴール到達時の発光処理（点滅）
 			const isAtExit = this.isPathAtExit(this.path, this.isDrawing ? this.currentMousePos : this.exitTipPos);
@@ -1234,7 +1240,6 @@ export class WitnessUI {
 				color = this.setAlpha(color, originalAlpha);
 			}
 
-			const mainTipPos = this.isDrawing ? this.currentMousePos : this.exitTipPos;
 			this.drawPath(ctx, this.path, this.isDrawing, color, pathOpacity, mainTipPos);
 
 			if (this.puzzle.symmetry !== undefined && this.puzzle.symmetry !== SymmetryType.None) {
@@ -2063,6 +2068,30 @@ export class WitnessUI {
 			return { x: cols - p.x, y: rows - p.y };
 		}
 		return { ...p };
+	}
+
+	/**
+	 * メイン線先端から対称線先端座標を求める
+	 */
+	private getSymmetryTipPos(tipPos: Point | null, path: Point[]): Point | null {
+		if (!this.puzzle || !this.puzzle.symmetry || !tipPos || path.length === 0) return null;
+
+		const symPath = this.getSymmetryPath(path);
+		const lastMain = path[path.length - 1];
+		const lastSym = symPath[symPath.length - 1];
+		const lastMainPos = this.getCanvasCoords(lastMain.x, lastMain.y);
+		const lastSymPos = this.getCanvasCoords(lastSym.x, lastSym.y);
+
+		const dx = tipPos.x - lastMainPos.x;
+		const dy = tipPos.y - lastMainPos.y;
+
+		const symDelta = this.getSymmetricalPoint({ x: dx / this.options.cellSize, y: dy / this.options.cellSize }, true);
+		const centerDelta = this.getSymmetricalPoint({ x: 0, y: 0 }, true);
+
+		return {
+			x: lastSymPos.x + (symDelta.x - centerDelta.x) * this.options.cellSize,
+			y: lastSymPos.y + (symDelta.y - centerDelta.y) * this.options.cellSize,
+		};
 	}
 
 	/**
