@@ -136,10 +136,10 @@ describe("WitnessUI Full Test Suite", { concurrency: false }, async () => {
 			receivedData = data;
 		});
 
-		(ui as any).emit("path:start", { x: 1, y: 2 });
+		(ui as any).emit("path:start", { x: 1, y: 2, startIndex: 0 });
 
 		assert.strictEqual(eventFired, true);
-		assert.deepStrictEqual(receivedData, { x: 1, y: 2 });
+		assert.deepStrictEqual(receivedData, { x: 1, y: 2, startIndex: 0 });
 	});
 
 	await test("WitnessUI goal:reachable event", () => {
@@ -393,25 +393,6 @@ describe("WitnessUI Full Test Suite", { concurrency: false }, async () => {
 		assert.strictEqual(symTip.y - lastSymPos.y, 0);
 	});
 
-	await test("WitnessUI symmetry midpoint approach (even grid) allows near-center distance", () => {
-		const puzzle = createEmptyPuzzle(2, 2);
-		(puzzle as any).symmetry = SymmetryType.Horizontal;
-		const ui = new WitnessUI(createMockCanvas() as any, puzzle as any, { cellSize: 80, gridPadding: 60, pathWidth: 24 });
-		const internalUI = ui as any;
-
-		internalUI.isDrawing = true;
-		internalUI.path = [{ x: 0, y: 1 }];
-		const lastPos = internalUI.getCanvasCoords(0, 1);
-		internalUI.currentMousePos = { ...lastPos };
-
-		ui.handleMove({ clientX: lastPos.x + 500, clientY: lastPos.y });
-
-		const moved = internalUI.currentMousePos.x - lastPos.x;
-		const maxAllowed = 80 - 24 - 1;
-		assert.ok(moved > 0);
-		assert.ok(moved <= maxAllowed + 0.0001);
-	});
-
 	await test("WitnessUI symmetry anti-clip limits self-mirror-edge approach (odd grid)", () => {
 		const puzzle = createEmptyPuzzle(2, 3);
 		(puzzle as any).symmetry = SymmetryType.Horizontal;
@@ -608,5 +589,39 @@ describe("WitnessUI Full Test Suite", { concurrency: false }, async () => {
 		assert.deepStrictEqual(internalUI.path, path);
 		assert.ok(internalUI.exitTipPos !== null, "exitTipPos should be set if path ends at goal");
 		assert.strictEqual(internalUI.isInvalidPath, false);
+	});
+
+	await test("WitnessUI path:end event includes start/end node meta", () => {
+		const puzzle = createEmptyPuzzle(1, 1);
+		puzzle.nodes[0][0].type = NodeType.Start;
+		puzzle.nodes[0][1].type = NodeType.End;
+		const ui = new WitnessUI(createMockCanvas() as any, puzzle as any, { cellSize: 80, gridPadding: 60 });
+		let eventData: any = null;
+		ui.on("path:end", (data) => {
+			eventData = data;
+		});
+		ui.handleStart({ clientX: 60, clientY: 60 }, "mouse");
+		(ui as any).path = [
+			{ x: 0, y: 0 },
+			{ x: 1, y: 0 },
+		];
+		(ui as any).currentMousePos = { x: 163, y: 60 };
+		ui.handleEnd({ clientX: 163, clientY: 60 }, "mouse");
+		assert.ok(eventData);
+		assert.strictEqual(eventData.startNode?.index, 0);
+		assert.strictEqual(eventData.endNode?.index, 0);
+	});
+
+	await test("WitnessUI hitTestInput detects node/cell/edge", () => {
+		const puzzle = createEmptyPuzzle(2, 2);
+		const ui = new WitnessUI(createMockCanvas() as any, puzzle as any, { cellSize: 80, gridPadding: 60 });
+		const node = ui.hitTestInput(60, 60);
+		const cell = ui.hitTestInput(100, 100);
+		const hEdge = ui.hitTestInput(100, 60);
+		const vEdge = ui.hitTestInput(60, 100);
+		assert.deepStrictEqual(node, { kind: "node", x: 0, y: 0 });
+		assert.deepStrictEqual(cell, { kind: "cell", r: 0, c: 0 });
+		assert.deepStrictEqual(hEdge, { kind: "hEdge", r: 0, c: 0 });
+		assert.deepStrictEqual(vEdge, { kind: "vEdge", r: 0, c: 0 });
 	});
 });

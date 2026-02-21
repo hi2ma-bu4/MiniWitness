@@ -1,4 +1,4 @@
-import { PuzzleSerializer, RngType, WitnessCore, WitnessUI } from "../dist/MiniWitness.js";
+import { CellType, EdgeType, NodeType, PuzzleSerializer, RngType, WitnessCore, WitnessUI } from "../dist/MiniWitness.js";
 
 class WitnessGame {
 	constructor() {
@@ -29,6 +29,14 @@ class WitnessGame {
 			rgbIndex: 0,
 			customView: "custom",
 		};
+		this.customMode = false;
+		this.customEditorPuzzle = null;
+		this.customTool = { target: "node", value: 0 };
+		this.customColor = 1;
+		this.customOverlayButtons = [];
+		this.customLongPressTimer = null;
+		this.customPressPoint = null;
+		this.customLongPressed = false;
 
 		this.init();
 	}
@@ -63,6 +71,16 @@ class WitnessGame {
 
 		this.newPuzzleBtn.addEventListener("click", () => this.startNewGame());
 		this.sharePuzzleBtn.addEventListener("click", () => this.sharePuzzle());
+		document.getElementById("custom-mode-toggle").addEventListener("change", (e) => this.toggleCustomMode(e.target.checked));
+		this.canvas.addEventListener("mousedown", (e) => this.onCustomPointerDown(e), true);
+		this.canvas.addEventListener("mouseup", (e) => this.onCustomPointerUp(e), true);
+		this.canvas.addEventListener("touchstart", (e) => this.onCustomPointerDown(e), { capture: true, passive: false });
+		this.canvas.addEventListener("touchend", (e) => this.onCustomPointerUp(e), { capture: true, passive: false });
+		document.getElementById("custom-apply-btn").addEventListener("click", () => this.applyCustomPuzzle());
+		document.getElementById("custom-sync-btn").addEventListener("click", () => this.syncCustomEditorFromCurrentPuzzle());
+		document.getElementById("custom-clear-btn").addEventListener("click", () => this.clearCustomBoard());
+		document.getElementById("custom-share-btn").addEventListener("click", () => this.shareCustomPuzzle());
+		document.getElementById("custom-load-btn").addEventListener("click", () => this.loadCustomFromShareCode());
 
 		this.sharePuzzleCheckbox.addEventListener("change", () => {
 			if (this.sharePuzzleCheckbox.checked) this.sharePathCheckbox.checked = true;
@@ -545,11 +563,11 @@ class WitnessGame {
 			if (logEl.children.length > 50) logEl.removeChild(logEl.lastChild);
 		};
 
-		this.ui.on("path:start", (data) => log(`Path Start: (${data.x}, ${data.y})`));
-		this.ui.on("path:end", (data) => log(`Path End: exit=${data.isExit}, len=${data.path.length}`));
+		this.ui.on("path:start", (data) => log(`Path Start: (${data.x}, ${data.y}) idx=${data.startIndex}`));
+		this.ui.on("path:end", (data) => log(`Path End: exit=${data.isExit}, len=${data.path.length}, start=${data.startNode?.index ?? "-"}, end=${data.endNode?.index ?? "-"}`));
 		this.ui.on("path:complete", (data) => this.validate(data.path));
 		this.ui.on("goal:reachable", (data) => log(`Goal Reachable: ${data.reachable}`));
-		this.ui.on("goal:reached", (data) => log(`Goal Reached: valid=${data.isValid}`));
+		this.ui.on("goal:reached", (data) => log(`Goal Reached: valid=${data.isValid}, start=${data.startNode?.index ?? "-"}, end=${data.endNode?.index ?? "-"}`));
 		this.ui.on("goal:validated", (data) => {
 			log(`Goal Validated: valid=${data.result.isValid}`);
 			if (this.isWorkerMode && this.workerType === 2) {
@@ -565,6 +583,9 @@ class WitnessGame {
 			if (this.isWorkerMode && this.workerType === 2) {
 				this.loadPuzzle(data.puzzle, data.genOptions || this.currentOptions || {});
 			}
+		});
+		this.ui.on("render:after", ({ ctx }) => {
+			if (this.customMode) this.drawCustomOverlay(ctx);
 		});
 	}
 
@@ -642,6 +663,288 @@ class WitnessGame {
 			this.worker.postMessage({ type: "setOptions", payload: uiOptions });
 		}
 		this.updateFilterSwitcherUI();
+	}
+
+	toggleCustomMode(enabled) {
+		if (enabled && !this.ui) {
+			this.updateStatus("Custom create is available in non-worker mode.", "#f44");
+			document.getElementById("custom-mode-toggle").checked = false;
+			return;
+		}
+		this.customMode = enabled;
+		document.getElementById("custom-create-tools").classList.toggle("hidden", !enabled);
+		if (enabled) {
+			this.syncCustomEditorFromCurrentPuzzle();
+			this.updateCustomToolIndicator("canvas");
+		} else {
+			this.updateCustomToolIndicator("off");
+		}
+		if (this.ui) this.ui.draw();
+	}
+
+	updateCustomToolIndicator(hitLabel = "canvas") {
+		const labels = { node: "Node", edge: "Edge", cell: "Cell" };
+		const mode = this.customMode ? "ON" : "OFF";
+		const colorName = ["None", "Black", "White", "Red", "Blue"][this.customColor] || this.customColor;
+		document.getElementById("custom-tool-indicator").textContent = `Edit on canvas: ${mode} | Tool: ${labels[this.customTool.target]} | Color: ${colorName} | Target: ${hitLabel}`;
+	}
+
+	createEmptyPuzzle(rows, cols) {
+		return {
+			rows,
+			cols,
+			symmetry: parseInt(document.getElementById("symmetry-select").value),
+			cells: Array.from({ length: rows }, () => Array.from({ length: cols }, () => ({ type: CellType.None, color: 0 }))),
+			vEdges: Array.from({ length: rows }, () => Array.from({ length: cols + 1 }, () => ({ type: EdgeType.Normal }))),
+			hEdges: Array.from({ length: rows + 1 }, () => Array.from({ length: cols }, () => ({ type: EdgeType.Normal }))),
+			nodes: Array.from({ length: rows + 1 }, () => Array.from({ length: cols + 1 }, () => ({ type: NodeType.Normal }))),
+		};
+	}
+
+	getTetrisShapePreset(index) {
+		const presets = [
+			[[1]],
+			[[1, 1]],
+			[[1, 1, 1]],
+			[[1, 1, 1, 1]],
+			[
+				[1, 1],
+				[1, 1],
+			],
+			[
+				[1, 0],
+				[1, 1],
+			],
+			[
+				[1, 0, 0],
+				[1, 1, 1],
+			],
+			[
+				[1, 1, 1],
+				[0, 1, 0],
+			],
+			[
+				[0, 1, 1],
+				[1, 1, 0],
+			],
+		];
+		return presets[index % presets.length];
+	}
+
+	syncCustomEditorFromCurrentPuzzle() {
+		const puzzle = this.puzzle ? structuredClone(this.puzzle) : this.createEmptyPuzzle(parseInt(this.sizeSelect.value), parseInt(this.sizeSelect.value));
+		this.customEditorPuzzle = puzzle;
+		document.getElementById("custom-puzzle-json").value = JSON.stringify(puzzle, null, 2);
+	}
+
+	onCustomPointerDown(event) {
+		if (!this.customMode || !this.ui) return;
+		if (event.cancelable) event.preventDefault();
+		event.stopImmediatePropagation?.();
+		const p = this.extractClientPoint(event);
+		this.customPressPoint = p;
+		this.customLongPressed = false;
+		if (this.customLongPressTimer) clearTimeout(this.customLongPressTimer);
+		this.customLongPressTimer = setTimeout(() => {
+			this.customLongPressed = true;
+			this.applyCustomDelete(p.x, p.y);
+		}, 420);
+	}
+
+	onCustomPointerUp(event) {
+		if (!this.customMode || !this.ui) return;
+		if (event.cancelable) event.preventDefault();
+		event.stopImmediatePropagation?.();
+		const p = this.extractClientPoint(event);
+		if (this.customLongPressTimer) clearTimeout(this.customLongPressTimer);
+		this.customLongPressTimer = null;
+		if (this.customLongPressed) return;
+		this.applyCustomClick(p.x, p.y);
+	}
+
+	extractClientPoint(event) {
+		const touch = event.changedTouches?.[0] || event.touches?.[0];
+		return { x: touch ? touch.clientX : event.clientX, y: touch ? touch.clientY : event.clientY };
+	}
+
+	applyCustomClick(clientX, clientY) {
+		if (!this.customEditorPuzzle) this.syncCustomEditorFromCurrentPuzzle();
+		if (!this.customEditorPuzzle) return;
+		if (this.handleOverlayClick(clientX, clientY)) return;
+		const hit = this.ui.hitTestInput(clientX, clientY);
+		if (!hit) return;
+		this.applyCustomCycle(hit);
+		this.refreshCustomPuzzle(hit.kind);
+	}
+
+	applyCustomDelete(clientX, clientY) {
+		if (!this.customEditorPuzzle) this.syncCustomEditorFromCurrentPuzzle();
+		if (!this.customEditorPuzzle) return;
+		const hit = this.ui.hitTestInput(clientX, clientY);
+		if (!hit) return;
+		const p = this.customEditorPuzzle;
+		if (hit.kind === "node") p.nodes[hit.y][hit.x].type = NodeType.Normal;
+		if (hit.kind === "hEdge") p.hEdges[hit.r][hit.c].type = EdgeType.Normal;
+		if (hit.kind === "vEdge") p.vEdges[hit.r][hit.c].type = EdgeType.Normal;
+		if (hit.kind === "cell") p.cells[hit.r][hit.c] = { type: CellType.None, color: 0 };
+		this.refreshCustomPuzzle(`${hit.kind}:delete`);
+	}
+
+	applyCustomCycle(hit) {
+		const p = this.customEditorPuzzle;
+		if (hit.kind === "node") {
+			const order = [NodeType.Normal, NodeType.Start, NodeType.End];
+			const cur = p.nodes[hit.y][hit.x].type;
+			p.nodes[hit.y][hit.x].type = order[(order.indexOf(cur) + 1 + order.length) % order.length];
+			this.customTool = { target: "node", value: p.nodes[hit.y][hit.x].type };
+			return;
+		}
+		if (hit.kind === "hEdge" || hit.kind === "vEdge") {
+			const order = [EdgeType.Normal, EdgeType.Broken, EdgeType.Absent, EdgeType.Hexagon, EdgeType.HexagonMain, EdgeType.HexagonSymmetry];
+			const edge = hit.kind === "hEdge" ? p.hEdges[hit.r][hit.c] : p.vEdges[hit.r][hit.c];
+			edge.type = order[(order.indexOf(edge.type) + 1 + order.length) % order.length];
+			this.customTool = { target: "edge", value: edge.type };
+			return;
+		}
+		const cell = p.cells[hit.r][hit.c];
+		if (cell.type === CellType.None) {
+			cell.type = CellType.Square;
+			cell.color = this.customColor;
+		} else {
+			cell.color = (cell.color % 4) + 1;
+			this.customColor = cell.color;
+			if (cell.type === CellType.Triangle) {
+				cell.count = ((cell.count || 1) % 3) + 1;
+			}
+			if ([CellType.Tetris, CellType.TetrisNegative].includes(cell.type)) {
+				const seq = Number(cell.__shapeSeq || 0) + 1;
+				cell.shape = this.getTetrisShapePreset(seq);
+				cell.__shapeSeq = seq;
+			}
+		}
+		this.customTool = { target: "cell", value: cell.type };
+	}
+
+	handleOverlayClick(clientX, clientY) {
+		for (const btn of this.customOverlayButtons) {
+			if (clientX >= btn.x && clientX <= btn.x + btn.w && clientY >= btn.y && clientY <= btn.y + btn.h) {
+				btn.action();
+				if (this.ui) this.ui.draw();
+				return true;
+			}
+		}
+		return false;
+	}
+
+	drawCustomOverlay(ctx) {
+		if (!this.customMode || !this.ui || !this.canvas.getBoundingClientRect) return;
+		const rect = this.canvas.getBoundingClientRect();
+		const x0 = rect.left + 10;
+		const y0 = rect.top + 10;
+		const items = [
+			{ key: "node", label: "Node" },
+			{ key: "edge", label: "Edge" },
+			{ key: "cell", label: "Cell" },
+		];
+		const colors = [1, 2, 3, 4];
+		this.customOverlayButtons = [];
+		ctx.save();
+		ctx.globalAlpha = 0.9;
+		ctx.fillStyle = "rgba(10,10,10,0.7)";
+		ctx.fillRect(10, 10, 260, 68);
+		ctx.font = "12px sans-serif";
+		items.forEach((it, i) => {
+			const bx = 16 + i * 58;
+			const by = 18;
+			ctx.fillStyle = this.customTool.target === it.key ? "#4db8ff" : "#333";
+			ctx.fillRect(bx, by, 52, 20);
+			ctx.fillStyle = "#fff";
+			ctx.fillText(it.label, bx + 10, by + 14);
+			this.customOverlayButtons.push({
+				x: x0 + (bx - 10),
+				y: y0 + (by - 10),
+				w: 52,
+				h: 20,
+				action: () => {
+					this.customTool.target = it.key;
+					this.updateCustomToolIndicator("overlay");
+				},
+			});
+		});
+		colors.forEach((c, i) => {
+			const bx = 16 + i * 32;
+			const by = 46;
+			ctx.fillStyle = ["", "#000", "#fff", "#d44", "#36f"][c];
+			ctx.fillRect(bx, by, 24, 16);
+			ctx.strokeStyle = this.customColor === c ? "#4db8ff" : "#888";
+			ctx.lineWidth = 2;
+			ctx.strokeRect(bx, by, 24, 16);
+			this.customOverlayButtons.push({
+				x: x0 + (bx - 10),
+				y: y0 + (by - 10),
+				w: 24,
+				h: 16,
+				action: () => {
+					this.customColor = c;
+					this.updateCustomToolIndicator("overlay");
+				},
+			});
+		});
+		ctx.fillStyle = "#ddd";
+		ctx.fillText("Tap: cycle / recolor   Hold: clear", 150, 58);
+		ctx.restore();
+	}
+
+	refreshCustomPuzzle(hitLabel) {
+		document.getElementById("custom-puzzle-json").value = JSON.stringify(this.customEditorPuzzle, null, 2);
+		this.loadPuzzle(structuredClone(this.customEditorPuzzle), this.getOptionsFromUI());
+		this.updateCustomToolIndicator(hitLabel);
+	}
+
+	clearCustomBoard() {
+		this.customEditorPuzzle = this.createEmptyPuzzle(parseInt(this.sizeSelect.value), parseInt(this.sizeSelect.value));
+		this.refreshCustomPuzzle("cleared");
+	}
+
+	applyCustomPuzzle() {
+		try {
+			const advancedJson = document.getElementById("custom-puzzle-json").value.trim();
+			if (advancedJson) this.customEditorPuzzle = JSON.parse(advancedJson);
+			if (!this.customEditorPuzzle) this.clearCustomBoard();
+			this.refreshCustomPuzzle("applied");
+			this.updateStatus("Custom puzzle applied.", "#4f4");
+		} catch (error) {
+			console.error(error);
+			this.updateStatus("Custom JSON parse failed.", "#f44");
+		}
+	}
+
+	async shareCustomPuzzle() {
+		try {
+			if (!this.customEditorPuzzle) this.syncCustomEditorFromCurrentPuzzle();
+			const serialized = await PuzzleSerializer.serialize({ puzzle: this.customEditorPuzzle, parityMode: document.getElementById("parity-mode").value });
+			await navigator.clipboard.writeText(serialized);
+			document.getElementById("custom-share-code").value = serialized;
+			this.updateStatus("Custom share code copied.", "#4f4");
+		} catch (error) {
+			console.error(error);
+			this.updateStatus("Failed to create custom share code.", "#f44");
+		}
+	}
+
+	async loadCustomFromShareCode() {
+		try {
+			const shareCode = document.getElementById("custom-share-code").value.trim();
+			if (!shareCode) return;
+			const data = await PuzzleSerializer.deserialize(shareCode);
+			if (!data.puzzle) throw new Error("No puzzle data in code");
+			this.customEditorPuzzle = data.puzzle;
+			this.refreshCustomPuzzle("loaded");
+			this.updateStatus("Custom share code loaded.", "#4f4");
+		} catch (error) {
+			console.error(error);
+			this.updateStatus("Failed to load custom share code.", "#f44");
+		}
 	}
 
 	validate(path) {

@@ -544,6 +544,7 @@ export interface WitnessEventMap {
 	"path:start": {
 		x: number;
 		y: number;
+		startIndex: number;
 	};
 	/** パスの移動中 (グリッド座標、パス全体、現在のマウス位置) */
 	"path:move": {
@@ -556,10 +557,30 @@ export interface WitnessEventMap {
 	"path:end": {
 		path: Point[];
 		isExit: boolean;
+		startNode: {
+			x: number;
+			y: number;
+			index: number;
+		} | null;
+		endNode: {
+			x: number;
+			y: number;
+			index: number;
+		} | null;
 	};
 	/** パスが完了し、出口に到達した瞬間 */
 	"path:complete": {
 		path: Point[];
+		startNode: {
+			x: number;
+			y: number;
+			index: number;
+		} | null;
+		endNode: {
+			x: number;
+			y: number;
+			index: number;
+		} | null;
 	};
 	/** ゴール可能状態（先端がゴールの出っ張りに近い）の変化 */
 	"goal:reachable": {
@@ -569,6 +590,16 @@ export interface WitnessEventMap {
 	"goal:reached": {
 		path: Point[];
 		isValid: boolean;
+		startNode: {
+			x: number;
+			y: number;
+			index: number;
+		} | null;
+		endNode: {
+			x: number;
+			y: number;
+			index: number;
+		} | null;
 	};
 	/** 無効化アニメーション（消しゴム等）が終了し、完全にバリデーション表示が完了した時 */
 	"goal:validated": {
@@ -586,6 +617,23 @@ export interface WitnessEventMap {
 }
 export type WitnessEventName = keyof WitnessEventMap;
 export type WitnessContext = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+export type WitnessHitTarget = {
+	kind: "node";
+	x: number;
+	y: number;
+} | {
+	kind: "cell";
+	r: number;
+	c: number;
+} | {
+	kind: "hEdge";
+	r: number;
+	c: number;
+} | {
+	kind: "vEdge";
+	r: number;
+	c: number;
+};
 /**
  * the witnessパズルの描画とユーザー操作を管理するクラス
  */
@@ -633,6 +681,7 @@ export declare class WitnessUI {
 	private boundTouchEnd;
 	private boundUpdateRect;
 	private isTwoClickDrawing;
+	private activeStartNode;
 	constructor(canvasOrId: HTMLCanvasElement | OffscreenCanvas | string, puzzle?: PuzzleData, options?: WitnessUIOptions);
 	/**
 	 * デフォルトオプションとユーザー指定オプションをマージする
@@ -719,6 +768,14 @@ export declare class WitnessUI {
 	 */
 	private getCanvasCoords;
 	/**
+	 * 画面座標をCanvas上の論理座標に変換する
+	 */
+	private toCanvasPoint;
+	/**
+	 * 入力座標がノード/エッジ/セルのどこに当たっているか判定する
+	 */
+	hitTestInput(clientX: number, clientY: number): WitnessHitTarget | null;
+	/**
 	 * 指定されたノードが出口の場合、その出っ張りの方向ベクトルを返す
 	 * @param x グリッドX
 	 * @param y グリッドY
@@ -741,6 +798,9 @@ export declare class WitnessUI {
 		clientX: number;
 		clientY: number;
 	}, source?: "mouse" | "touch"): boolean;
+	private getNodeIndexByType;
+	private getStartNodeMetaFromPath;
+	private getEndNodeMetaFromPath;
 	/**
 	 * 二点間のエッジタイプを取得する
 	 * @param p1 点1

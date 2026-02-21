@@ -1,5 +1,5 @@
 /*!
- * MiniWitness 1.4.5
+ * MiniWitness 1.4.6
  * Copyright 2026 hi2ma-bu4
  * Licensed under the Apache License, Version 2.0
  * http://www.apache.org/licenses/LICENSE-2.0
@@ -3396,6 +3396,7 @@ var WitnessUI = class {
   boundTouchEnd = null;
   boundUpdateRect = null;
   isTwoClickDrawing = false;
+  activeStartNode = null;
   constructor(canvasOrId, puzzle, options = {}) {
     if (typeof canvasOrId === "string") {
       if (typeof document === "undefined") {
@@ -3439,7 +3440,8 @@ var WitnessUI = class {
             this.isTwoClickDrawing = false;
             this.setTwoClickPointerUi(false);
           } else if (type === "pathComplete") {
-            this.emit("path:complete", { path: payload });
+            const path = Array.isArray(payload?.path) ? payload.path : payload;
+            this.emit("path:complete", { path, startNode: this.getStartNodeMetaFromPath(), endNode: this.getEndNodeMetaFromPath() });
           } else if (type === "puzzleCreated") {
             if (payload?.puzzle) {
               this.setPuzzle(payload.puzzle);
@@ -3548,6 +3550,7 @@ var WitnessUI = class {
     this.errorCells = [];
     this.errorEdges = [];
     this.errorNodes = [];
+    this.activeStartNode = null;
     this.cancelFade();
     if (this.options.autoResize) {
       this.resizeCanvas();
@@ -3655,11 +3658,11 @@ var WitnessUI = class {
     if (typeof self !== "undefined" && self.postMessage && !this.worker) {
       const isOffscreen = typeof OffscreenCanvas !== "undefined" && this.canvas instanceof OffscreenCanvas;
       if (isOffscreen) {
-        const nonSerializableEvents = ["render:before", "render:after"];
         const redundantEvents = ["path:complete", "puzzle:created", "goal:validated"];
-        if (!nonSerializableEvents.includes(type) && !redundantEvents.includes(type)) {
+        if (!redundantEvents.includes(type)) {
           try {
-            self.postMessage({ type: "uiEvent", payload: { type, data } });
+            const serializableData = type === "render:before" || type === "render:after" ? { phase: type } : data;
+            self.postMessage({ type: "uiEvent", payload: { type, data: serializableData } });
           } catch (e) {
           }
         }
@@ -3691,7 +3694,7 @@ var WitnessUI = class {
     } else {
       this.isInvalidPath = true;
     }
-    this.emit("goal:reached", { path: this.path, isValid });
+    this.emit("goal:reached", { path: this.path, isValid, startNode: this.getStartNodeMetaFromPath(), endNode: this.getEndNodeMetaFromPath() });
   }
   /**
    * パズルのサイズに合わせてCanvasの物理サイズを調整する
@@ -3857,6 +3860,48 @@ var WitnessUI = class {
     };
   }
   /**
+   * 画面座標をCanvas上の論理座標に変換する
+   */
+  toCanvasPoint(clientX, clientY) {
+    const dpr = this.options.pixelRatio;
+    const rect = this.canvasRect || (typeof HTMLCanvasElement !== "undefined" && this.canvas instanceof HTMLCanvasElement ? this.canvas.getBoundingClientRect() : { left: 0, top: 0, width: this.canvas.width / dpr, height: this.canvas.height / dpr });
+    return {
+      x: (clientX - rect.left) * (this.canvas.width / dpr / rect.width),
+      y: (clientY - rect.top) * (this.canvas.height / dpr / rect.height)
+    };
+  }
+  /**
+   * 入力座標がノード/エッジ/セルのどこに当たっているか判定する
+   */
+  hitTestInput(clientX, clientY) {
+    if (!this.puzzle) return null;
+    const p = this.toCanvasPoint(clientX, clientY);
+    const gx = (p.x - this.options.gridPadding) / this.options.cellSize;
+    const gy = (p.y - this.options.gridPadding) / this.options.cellSize;
+    const nearX = Math.round(gx);
+    const nearY = Math.round(gy);
+    const dx = Math.abs(gx - nearX);
+    const dy = Math.abs(gy - nearY);
+    const nodeThreshold = 0.2;
+    const edgeThreshold = 0.2;
+    if (dx <= nodeThreshold && dy <= nodeThreshold) {
+      if (nearX >= 0 && nearX <= this.puzzle.cols && nearY >= 0 && nearY <= this.puzzle.rows) return { kind: "node", x: nearX, y: nearY };
+      return null;
+    }
+    if (dy <= edgeThreshold && gx >= 0 && gx <= this.puzzle.cols && nearY >= 0 && nearY <= this.puzzle.rows) {
+      const c2 = Math.floor(gx);
+      if (c2 >= 0 && c2 < this.puzzle.cols) return { kind: "hEdge", r: nearY, c: c2 };
+    }
+    if (dx <= edgeThreshold && gy >= 0 && gy <= this.puzzle.rows && nearX >= 0 && nearX <= this.puzzle.cols) {
+      const r2 = Math.floor(gy);
+      if (r2 >= 0 && r2 < this.puzzle.rows) return { kind: "vEdge", r: r2, c: nearX };
+    }
+    const c = Math.floor(gx);
+    const r = Math.floor(gy);
+    if (c >= 0 && c < this.puzzle.cols && r >= 0 && r < this.puzzle.rows) return { kind: "cell", r, c };
+    return null;
+  }
+  /**
    * 指定されたノードが出口の場合、その出っ張りの方向ベクトルを返す
    * @param x グリッドX
    * @param y グリッドY
@@ -3924,15 +3969,15 @@ var WitnessUI = class {
       this.setTwoClickPointerUi(true);
     }
     this.draw();
-    this.emit("path:start", { x: shouldStartDrawing.x, y: shouldStartDrawing.y });
+    this.activeStartNode = { ...shouldStartDrawing, index: this.getNodeIndexByType(1 /* Start */, shouldStartDrawing.x, shouldStartDrawing.y) };
+    this.emit("path:start", { x: shouldStartDrawing.x, y: shouldStartDrawing.y, startIndex: this.activeStartNode.index });
     return true;
   }
   isStartNodeHit(e) {
     if (!this.puzzle) return null;
-    const dpr = this.options.pixelRatio;
-    const rect = this.canvasRect || (typeof HTMLCanvasElement !== "undefined" && this.canvas instanceof HTMLCanvasElement ? this.canvas.getBoundingClientRect() : { left: 0, top: 0, width: this.canvas.width / dpr, height: this.canvas.height / dpr });
-    const mouseX = (e.clientX - rect.left) * (this.canvas.width / dpr / rect.width);
-    const mouseY = (e.clientY - rect.top) * (this.canvas.height / dpr / rect.height);
+    const canvasPoint = this.toCanvasPoint(e.clientX, e.clientY);
+    const mouseX = canvasPoint.x;
+    const mouseY = canvasPoint.y;
     for (let r = 0; r <= this.puzzle.rows; r++) {
       for (let c = 0; c <= this.puzzle.cols; c++) {
         if (this.puzzle.nodes[r][c].type !== 1 /* Start */) continue;
@@ -3966,8 +4011,9 @@ var WitnessUI = class {
     if (!this.puzzle || !this.isDrawing) return;
     const dpr = this.options.pixelRatio;
     const rect = this.canvasRect || (typeof HTMLCanvasElement !== "undefined" && this.canvas instanceof HTMLCanvasElement ? this.canvas.getBoundingClientRect() : { left: 0, top: 0, width: this.canvas.width / dpr, height: this.canvas.height / dpr });
-    let mouseX = (e.clientX - rect.left) * (this.canvas.width / dpr / rect.width);
-    let mouseY = (e.clientY - rect.top) * (this.canvas.height / dpr / rect.height);
+    const canvasPoint = this.toCanvasPoint(e.clientX, e.clientY);
+    let mouseX = canvasPoint.x;
+    let mouseY = canvasPoint.y;
     const isPointerLocked = e.pointerLocked === true || this.isTwoClickDrawing && typeof document !== "undefined" && typeof HTMLCanvasElement !== "undefined" && this.canvas instanceof HTMLCanvasElement && document.pointerLockElement === this.canvas;
     if (this.isTwoClickDrawing && isPointerLocked) {
       const scaleX = this.canvas.width / dpr / rect.width;
@@ -4135,7 +4181,8 @@ var WitnessUI = class {
     const lastPoint = this.path[this.path.length - 1];
     const lastPos = this.getCanvasCoords(lastPoint.x, lastPoint.y);
     const exitDir = this.getExitDir(lastPoint.x, lastPoint.y);
-    let isExit = false;
+    const startNode = this.getStartNodeMetaFromPath();
+    const endNode = this.getEndNodeMetaFromPath();
     if (exitDir) {
       const dx_exit = this.currentMousePos.x - lastPos.x;
       const dy_exit = this.currentMousePos.y - lastPos.y;
@@ -4145,16 +4192,42 @@ var WitnessUI = class {
           x: lastPos.x + exitDir.x * this.options.exitLength,
           y: lastPos.y + exitDir.y * this.options.exitLength
         };
-        isExit = true;
-        this.emit("path:complete", { path: this.path });
-        this.emit("path:end", { path: this.path, isExit: true });
+        this.emit("path:complete", { path: this.path, startNode, endNode });
+        this.emit("path:end", { path: this.path, isExit: true, startNode, endNode });
         return true;
       }
     }
     this.exitTipPos = { ...this.currentMousePos };
-    this.emit("path:end", { path: this.path, isExit: false });
+    this.emit("path:end", { path: this.path, isExit: false, startNode, endNode: null });
     this.startFade(this.options.colors.interrupted);
     return true;
+  }
+  getNodeIndexByType(type, x, y) {
+    if (!this.puzzle) return -1;
+    let index = 0;
+    for (let r = 0; r <= this.puzzle.rows; r++) {
+      for (let c = 0; c <= this.puzzle.cols; c++) {
+        if (this.puzzle.nodes[r][c].type === type) {
+          if (c === x && r === y) {
+            return index;
+          }
+          index++;
+        }
+      }
+    }
+    return -1;
+  }
+  getStartNodeMetaFromPath() {
+    if (this.activeStartNode) return this.activeStartNode;
+    if (!this.path.length) return null;
+    const start = this.path[0];
+    return { x: start.x, y: start.y, index: this.getNodeIndexByType(1 /* Start */, start.x, start.y) };
+  }
+  getEndNodeMetaFromPath() {
+    if (!this.path.length) return null;
+    const end = this.path[this.path.length - 1];
+    if (!this.puzzle || this.puzzle.nodes[end.y]?.[end.x]?.type !== 2 /* End */) return null;
+    return { x: end.x, y: end.y, index: this.getNodeIndexByType(2 /* End */, end.x, end.y) };
   }
   /**
    * 二点間のエッジタイプを取得する

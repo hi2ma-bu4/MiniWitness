@@ -210,3 +210,110 @@ input[type="color"] {
     border-color: #4db8ff;
     box-shadow: 0 0 0 1px #4db8ff inset;
 }
+
+textarea {
+    width: 100%;
+    max-width: 700px;
+    background: #111;
+    color: #ddd;
+    border: 1px solid #444;
+    border-radius: 6px;
+    padding: 8px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 12px;
+}
+
+.custom-editor-group {
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+}
+
+@media (max-width: 768px) {
+
+    select,
+    button,
+    input {
+        font-size: 15px;
+        min-height: 40px;
+    }
+
+    .control-group {
+        gap: 8px;
+    }
+
+    #status-message {
+        font-size: 16px;
+        height: auto;
+        min-height: 1.5em;
+    }
+}
+
+#custom-create-tools {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    overflow-x: hidden;
+}
+
+.custom-tool.active {
+    border-color: #4db8ff;
+    box-shadow: 0 0 0 1px #4db8ff inset;
+}
+
+.custom-editor-group {
+    width: 100%;
+    max-width: 100%;
+}
+
+.custom-editor-group label {
+    width: 100%;
+    text-align: left;
+}
+
+#custom-tool-indicator {
+    font-size: 12px;
+    color: #8ec7ff;
+}
+
+.color-swatch {
+    width: 30px;
+    height: 30px;
+    min-width: 30px;
+    border: 2px solid #666;
+    padding: 0;
+}
+
+.color-swatch[data-color="0"] {
+    background: #222;
+    color: #ccc;
+}
+
+.color-swatch[data-color="1"] {
+    background: #000;
+}
+
+.color-swatch[data-color="2"] {
+    background: #fff;
+    color: #111;
+}
+
+.color-swatch[data-color="3"] {
+    background: #d44;
+}
+
+.color-swatch[data-color="4"] {
+    background: #36f;
+}
+
+.color-swatch.active {
+    border-color: #4db8ff;
+    box-shadow: 0 0 0 2px rgba(77, 184, 255, 0.35);
+}
+
+.custom-hint {
+    font-size: 13px;
+    color: #b5cbe3;
+    text-align: left;
+    max-width: 700px;
+}

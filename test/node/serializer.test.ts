@@ -88,6 +88,14 @@ describe("PuzzleSerializer", { concurrency: true }, () => {
 		assert.ok(deserialized.puzzle);
 	});
 
+	test("puzzle-only share code does not include generator options or seed", async () => {
+		const serialized = await PuzzleSerializer.serialize({ puzzle: mockPuzzle as any });
+		const deserialized = await PuzzleSerializer.deserialize(serialized);
+		assert.deepStrictEqual(deserialized.puzzle, mockPuzzle);
+		assert.strictEqual(deserialized.options, undefined);
+		assert.strictEqual(deserialized.seed, undefined);
+	});
+
 	test("serialize all components", async () => {
 		const seed = { type: RngType.Mulberry32, value: "abcdef1234567890" };
 		const options = { rows: 5, cols: 5, useHexagons: true, complexity: 0.5 };

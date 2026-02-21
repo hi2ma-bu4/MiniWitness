@@ -98,6 +98,39 @@
 				</div>
 			</details>
 			<details class="advanced-settings">
+				<summary>Custom Create</summary>
+				<div class="control-group">
+					<label><input type="checkbox" id="custom-mode-toggle"> Enable Custom Create</label>
+					<span id="custom-tool-indicator">Edit on canvas: OFF</span>
+				</div>
+				<div id="custom-create-tools" class="hidden">
+					<div class="control-group">
+						<span class="custom-hint">Canvas上を直接編集: タップで循環変更 / 長押しで削除。
+							ツールと色はCanvas左上のオーバーレイから選択できます。</span>
+					</div>
+					<div class="control-group">
+						<button id="custom-sync-btn" type="button">Sync from Current Puzzle</button>
+						<button id="custom-clear-btn" type="button">Clear Board</button>
+						<button id="custom-apply-btn" type="button">Apply (optional)</button>
+					</div>
+					<div class="control-group custom-editor-group">
+						<label for="custom-share-code">Custom Share Code (Puzzle only)</label>
+						<textarea id="custom-share-code" rows="3" spellcheck="false" placeholder="Paste code or generate code"></textarea>
+					</div>
+					<div class="control-group">
+						<button id="custom-share-btn" type="button">Copy Custom Share Code</button>
+						<button id="custom-load-btn" type="button">Load from Custom Share Code</button>
+					</div>
+					<details class="advanced-settings">
+						<summary>Advanced JSON Editor</summary>
+						<div class="control-group custom-editor-group">
+							<label for="custom-puzzle-json">Puzzle JSON</label>
+							<textarea id="custom-puzzle-json" rows="10" spellcheck="false"></textarea>
+						</div>
+					</details>
+				</div>
+			</details>
+			<details class="advanced-settings">
 				<summary>Share Settings</summary>
 				<div class="control-group">
 					<label><input type="checkbox" id="share-puzzle" checked> Puzzle</label>
