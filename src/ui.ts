@@ -4,6 +4,8 @@ import { CellType, Color, EdgeType, NodeType, SymmetryType, type CellConstraint,
  * UI表示設定
  */
 export interface WitnessUIOptions {
+	/** 線を引く操作モード */
+	inputMode?: "drag" | "twoClick";
 	/** グリッド周囲の余白 */
 	gridPadding?: number;
 	/** セル1辺のサイズ */
@@ -170,6 +172,7 @@ export class WitnessUI {
 	private boundTouchMove: ((e: TouchEvent) => void) | null = null;
 	private boundTouchEnd: ((e: TouchEvent) => void) | null = null;
 	private boundUpdateRect: (() => void) | null = null;
+	private isTwoClickDrawing = false;
 
 	constructor(canvasOrId: HTMLCanvasElement | OffscreenCanvas | string, puzzle?: PuzzleData, options: WitnessUIOptions = {}) {
 		if (typeof canvasOrId === "string") {
@@ -209,8 +212,14 @@ export class WitnessUI {
 					const { type, payload } = e.data;
 					if (type === "drawingStarted") {
 						this.isDrawing = payload !== false; // payloadがfalseなら開始失敗
+						if (!this.isDrawing) {
+							this.isTwoClickDrawing = false;
+							this.setTwoClickPointerUi(false);
+						}
 					} else if (type === "drawingEnded") {
 						this.isDrawing = false;
+						this.isTwoClickDrawing = false;
+						this.setTwoClickPointerUi(false);
 					} else if (type === "pathComplete") {
 						this.emit("path:complete", { path: payload });
 					} else if (type === "puzzleCreated") {
@@ -278,6 +287,7 @@ export class WitnessUI {
 		};
 
 		return {
+			inputMode: options.inputMode ?? this.options?.inputMode ?? "drag",
 			gridPadding: options.gridPadding ?? this.options?.gridPadding ?? 60,
 			cellSize: options.cellSize ?? this.options?.cellSize ?? 80,
 			nodeRadius: options.nodeRadius ?? this.options?.nodeRadius ?? 6,
@@ -381,7 +391,13 @@ export class WitnessUI {
 	 * 表示オプションを更新する
 	 */
 	public setOptions(options: WitnessUIOptions) {
+		const prevInputMode = this.options.inputMode;
 		this.options = this.mergeOptions({ ...this.options, ...options });
+
+		if (prevInputMode !== this.options.inputMode && this.options.inputMode !== "twoClick") {
+			this.isTwoClickDrawing = false;
+			this.setTwoClickPointerUi(false);
+		}
 		if (this.worker) {
 			if (this.options.autoResize && this.puzzle) {
 				this.resizeCanvas();
@@ -549,6 +565,21 @@ export class WitnessUI {
 		}
 	}
 
+	private setTwoClickPointerUi(active: boolean) {
+		if (typeof HTMLCanvasElement === "undefined" || !(this.canvas instanceof HTMLCanvasElement)) return;
+		if (typeof document === "undefined") return;
+
+		if (active) {
+			this.canvas.style.cursor = "none";
+			this.canvas.requestPointerLock?.();
+		} else {
+			if (document.pointerLockElement === this.canvas) {
+				document.exitPointerLock?.();
+			}
+			this.canvas.style.cursor = "";
+		}
+	}
+
 	/**
 	 * マウス・タッチイベントを初期化する
 	 */
@@ -556,7 +587,8 @@ export class WitnessUI {
 		if (typeof window === "undefined" || typeof HTMLCanvasElement === "undefined" || !(this.canvas instanceof HTMLCanvasElement)) return;
 
 		this.boundMouseDown = (e: MouseEvent) => {
-			if (this.handleStart(e)) {
+			const consumed = this.options.inputMode === "twoClick" && this.isDrawing ? this.handleEnd(e, "mouse") : this.handleStart(e, "mouse");
+			if (consumed) {
 				if (e.cancelable) e.preventDefault();
 			}
 		};
@@ -567,14 +599,14 @@ export class WitnessUI {
 			this.handleMove(e);
 		};
 		this.boundMouseUp = (e: MouseEvent) => {
-			if (this.isDrawing) {
+			if (this.options.inputMode !== "twoClick" && this.isDrawing) {
 				if (e.cancelable) e.preventDefault();
+				this.handleEnd(e, "mouse");
 			}
-			this.handleEnd(e);
 		};
 
 		this.boundTouchStart = (e: TouchEvent) => {
-			if (this.handleStart(e.touches[0])) {
+			if (this.handleStart(e.touches[0], "touch")) {
 				if (e.cancelable) e.preventDefault();
 			}
 		};
@@ -585,9 +617,9 @@ export class WitnessUI {
 			}
 		};
 		this.boundTouchEnd = (e: TouchEvent) => {
-			if (this.isDrawing) {
+			if (this.options.inputMode !== "twoClick" && this.isDrawing) {
 				if (e.cancelable) e.preventDefault();
-				this.handleEnd(e.changedTouches[0]);
+				this.handleEnd(e.changedTouches[0], "touch");
 			}
 		};
 
@@ -650,6 +682,8 @@ export class WitnessUI {
 		this.boundTouchStart = null;
 		this.boundTouchMove = null;
 		this.boundTouchEnd = null;
+
+		this.setTwoClickPointerUi(false);
 	}
 
 	// --- 座標変換 ---
@@ -706,7 +740,10 @@ export class WitnessUI {
 
 	// --- イベントハンドラ ---
 
-	public handleStart(e: { clientX: number; clientY: number }): boolean {
+	public handleStart(e: { clientX: number; clientY: number }, source: "mouse" | "touch" = "mouse"): boolean {
+		if (this.options.inputMode === "twoClick" && source !== "mouse") {
+			return false;
+		}
 		const shouldStartDrawing = this.isStartNodeHit(e);
 
 		if (this.worker) {
@@ -716,6 +753,10 @@ export class WitnessUI {
 			}
 
 			this.isDrawing = true; // 先行してフラグを立てる
+			this.isTwoClickDrawing = this.options.inputMode === "twoClick";
+			if (this.isTwoClickDrawing) {
+				this.setTwoClickPointerUi(true);
+			}
 			this.worker.postMessage({ type: "event", payload: { eventType: "mousedown", eventData: { clientX: e.clientX, clientY: e.clientY } } });
 			return true;
 		}
@@ -734,9 +775,15 @@ export class WitnessUI {
 		this.errorNodes = [];
 
 		this.isDrawing = true;
+		this.isTwoClickDrawing = this.options.inputMode === "twoClick";
 		this.path = [{ x: shouldStartDrawing.x, y: shouldStartDrawing.y }];
 		this.currentMousePos = this.getCanvasCoords(shouldStartDrawing.x, shouldStartDrawing.y);
 		this.exitTipPos = null;
+
+		if (this.isTwoClickDrawing) {
+			this.setTwoClickPointerUi(true);
+		}
+
 		this.draw();
 		this.emit("path:start", { x: shouldStartDrawing.x, y: shouldStartDrawing.y });
 		return true;
@@ -762,10 +809,22 @@ export class WitnessUI {
 		return null;
 	}
 
-	public handleMove(e: { clientX: number; clientY: number }) {
+	public handleMove(e: { clientX: number; clientY: number; movementX?: number; movementY?: number; pointerLocked?: boolean }) {
 		if (this.worker) {
 			if (this.isDrawing) {
-				this.worker.postMessage({ type: "event", payload: { eventType: "mousemove", eventData: { clientX: e.clientX, clientY: e.clientY } } });
+				this.worker.postMessage({
+					type: "event",
+					payload: {
+						eventType: "mousemove",
+						eventData: {
+							clientX: e.clientX,
+							clientY: e.clientY,
+							movementX: (e as MouseEvent).movementX,
+							movementY: (e as MouseEvent).movementY,
+							pointerLocked: typeof document !== "undefined" && typeof HTMLCanvasElement !== "undefined" && this.canvas instanceof HTMLCanvasElement && document.pointerLockElement === this.canvas,
+						},
+					},
+				});
 			}
 			return;
 		}
@@ -773,8 +832,17 @@ export class WitnessUI {
 
 		const dpr = this.options.pixelRatio;
 		const rect = this.canvasRect || (typeof HTMLCanvasElement !== "undefined" && this.canvas instanceof HTMLCanvasElement ? this.canvas.getBoundingClientRect() : { left: 0, top: 0, width: this.canvas.width / dpr, height: this.canvas.height / dpr });
-		const mouseX = (e.clientX - rect.left) * (this.canvas.width / dpr / rect.width);
-		const mouseY = (e.clientY - rect.top) * (this.canvas.height / dpr / rect.height);
+		let mouseX = (e.clientX - rect.left) * (this.canvas.width / dpr / rect.width);
+		let mouseY = (e.clientY - rect.top) * (this.canvas.height / dpr / rect.height);
+
+		const isPointerLocked = e.pointerLocked === true || (this.isTwoClickDrawing && typeof document !== "undefined" && typeof HTMLCanvasElement !== "undefined" && this.canvas instanceof HTMLCanvasElement && document.pointerLockElement === this.canvas);
+
+		if (this.isTwoClickDrawing && isPointerLocked) {
+			const scaleX = this.canvas.width / dpr / rect.width;
+			const scaleY = this.canvas.height / dpr / rect.height;
+			mouseX = this.currentMousePos.x + (e.movementX ?? 0) * scaleX;
+			mouseY = this.currentMousePos.y + (e.movementY ?? 0) * scaleY;
+		}
 
 		const lastPoint = this.path[this.path.length - 1];
 		const lastPos = this.getCanvasCoords(lastPoint.x, lastPoint.y);
@@ -827,7 +895,7 @@ export class WitnessUI {
 			if (isTargetInPath && this.path.length >= 2) {
 				const secondToLast = this.path[this.path.length - 2];
 				if (target.x !== secondToLast.x || target.y !== secondToLast.y) {
-					maxMove = Math.min(maxMove, this.options.cellSize * 0.5 - this.options.pathWidth * 0.5);
+					maxMove = Math.min(maxMove, Math.max(0, this.options.cellSize - this.options.pathWidth - 1));
 				}
 			}
 
@@ -856,7 +924,7 @@ export class WitnessUI {
 				const isSelfMirrorEdge = targetEdgeKey === symEdgeKey;
 
 				if (isNodeOccupiedBySym || isSymNodeOccupiedByMain || isMeetingAtNode || isEdgeOccupiedBySym || isMirrorEdgeOccupiedByMain || isSelfMirrorEdge) {
-					maxMove = Math.min(maxMove, this.options.cellSize * 0.5 - this.options.pathWidth * 0.5);
+					maxMove = Math.min(maxMove, Math.max(0, this.options.cellSize - this.options.pathWidth - 1));
 				}
 			}
 			if (target.x !== lastPoint.x) {
@@ -925,16 +993,24 @@ export class WitnessUI {
 		this.draw();
 	}
 
-	public handleEnd(e: { clientX: number; clientY: number }) {
+	public handleEnd(e: { clientX: number; clientY: number }, source: "mouse" | "touch" = "mouse"): boolean {
+		if (this.options.inputMode === "twoClick" && source !== "mouse") {
+			return false;
+		}
+
 		if (this.worker) {
 			if (this.isDrawing) {
 				this.isDrawing = false;
+				this.isTwoClickDrawing = false;
+				this.setTwoClickPointerUi(false);
 				this.worker.postMessage({ type: "event", payload: { eventType: "mouseup", eventData: { clientX: e.clientX, clientY: e.clientY } } });
 			}
-			return;
+			return true;
 		}
-		if (!this.puzzle || !this.isDrawing) return;
+		if (!this.puzzle || !this.isDrawing) return false;
 		this.isDrawing = false;
+		this.isTwoClickDrawing = false;
+		this.setTwoClickPointerUi(false);
 
 		const lastPoint = this.path[this.path.length - 1];
 		const lastPos = this.getCanvasCoords(lastPoint.x, lastPoint.y);
@@ -955,13 +1031,14 @@ export class WitnessUI {
 				isExit = true;
 				this.emit("path:complete", { path: this.path });
 				this.emit("path:end", { path: this.path, isExit: true });
-				return;
+				return true;
 			}
 		}
 
 		this.exitTipPos = exitDir ? { ...this.currentMousePos } : null;
 		this.emit("path:end", { path: this.path, isExit: false });
 		this.startFade(this.options.colors.interrupted); // 途中で離した場合は指定されたフェード色で消える
+		return true;
 	}
 
 	/**
@@ -1157,7 +1234,8 @@ export class WitnessUI {
 				color = this.setAlpha(color, originalAlpha);
 			}
 
-			this.drawPath(ctx, this.path, this.isDrawing, color, pathOpacity, this.isDrawing ? this.currentMousePos : this.exitTipPos);
+			const mainTipPos = this.isDrawing ? this.currentMousePos : this.exitTipPos;
+			this.drawPath(ctx, this.path, this.isDrawing, color, pathOpacity, mainTipPos);
 
 			if (this.puzzle.symmetry !== undefined && this.puzzle.symmetry !== SymmetryType.None) {
 				const symPath = this.getSymmetryPath(this.path);
@@ -1194,8 +1272,23 @@ export class WitnessUI {
 				this.drawPath(ctx, symPath, this.isDrawing, symColor, symPathOpacity, symTipPos);
 			}
 		}
+		if (this.isDrawing && this.isTwoClickDrawing && this.path.length > 0) {
+			const lastPoint = this.path[this.path.length - 1];
+			const lastPos = this.getCanvasCoords(lastPoint.x, lastPoint.y);
+			const pointerPos = this.exitTipPos ? this.exitTipPos : this.currentMousePos || lastPos;
+			this.drawTwoClickPointer(ctx, pointerPos);
+		}
 		this.applyFilter(ctx);
 		this.emit("render:after", { ctx });
+	}
+
+	private drawTwoClickPointer(ctx: WitnessContext, pos: Point) {
+		ctx.save();
+		ctx.beginPath();
+		ctx.arc(pos.x, pos.y, this.options.pathWidth * 0.5, 0, Math.PI * 2);
+		ctx.fillStyle = "rgba(255, 255, 255, 0.4)";
+		ctx.fill();
+		ctx.restore();
 	}
 
 	private applyFilter(ctx: WitnessContext) {

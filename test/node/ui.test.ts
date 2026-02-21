@@ -46,6 +46,8 @@ describe("WitnessUI Full Test Suite", { concurrency: false }, async () => {
 	const createMockCanvas = () => ({
 		width: 100,
 		height: 100,
+		style: {},
+		requestPointerLock: () => {},
 		getContext: () => ({
 			imageSmoothingEnabled: true,
 			clearRect: () => {},
@@ -178,6 +180,95 @@ describe("WitnessUI Full Test Suite", { concurrency: false }, async () => {
 		const internalUI = ui as any;
 		assert.strictEqual(internalUI.options.blinkMarksOnError, false);
 		assert.strictEqual(internalUI.options.stayPathOnError, false);
+	});
+
+	await test("WitnessUI inputMode defaults to drag", () => {
+		const ui = new WitnessUI(createMockCanvas() as unknown as HTMLCanvasElement);
+		const internalUI = ui as any;
+		assert.strictEqual(internalUI.options.inputMode, "drag");
+	});
+
+	await test("WitnessUI twoClick mode starts and ends by click", () => {
+		const puzzle = createEmptyPuzzle(1, 1);
+		puzzle.nodes[0][0].type = NodeType.Start;
+		puzzle.nodes[0][1].type = NodeType.End;
+		const ui = new WitnessUI(createMockCanvas() as any, puzzle as any, {
+			inputMode: "twoClick",
+			cellSize: 80,
+			gridPadding: 60,
+		});
+
+		const internalUI = ui as any;
+		const startX = 60;
+		const startY = 60;
+		const started = ui.handleStart({ clientX: startX, clientY: startY }, "mouse");
+		assert.strictEqual(started, true);
+		assert.strictEqual(internalUI.isDrawing, true);
+
+		ui.handleMove({ clientX: 140, clientY: 60 });
+		assert.strictEqual(internalUI.path.length >= 1, true);
+
+		const ended = ui.handleEnd({ clientX: 140, clientY: 60 }, "mouse");
+		assert.strictEqual(ended, true);
+		assert.strictEqual(internalUI.isDrawing, false);
+	});
+
+	await test("WitnessUI twoClick pointer-locked move follows movement delta", () => {
+		const puzzle = createEmptyPuzzle(1, 2);
+		puzzle.nodes[0][0].type = NodeType.Start;
+		const ui = new WitnessUI(createMockCanvas() as any, puzzle as any, {
+			inputMode: "twoClick",
+			cellSize: 80,
+			gridPadding: 60,
+		});
+		const internalUI = ui as any;
+		ui.handleStart({ clientX: 60, clientY: 60 }, "mouse");
+		const before = { ...internalUI.currentMousePos };
+		ui.handleMove({ clientX: 60, clientY: 60, movementX: 20, movementY: 0, pointerLocked: true });
+		assert.ok(internalUI.currentMousePos.x > before.x);
+	});
+
+	await test("WitnessUI twoClick mode is unavailable on touch", () => {
+		const puzzle = createEmptyPuzzle(1, 1);
+		puzzle.nodes[0][0].type = NodeType.Start;
+		const ui = new WitnessUI(createMockCanvas() as any, puzzle as any, { inputMode: "twoClick" });
+		const started = ui.handleStart({ clientX: 60, clientY: 60 }, "touch");
+		assert.strictEqual(started, false);
+	});
+
+	await test("WitnessUI draws twoClick pointer overlay", () => {
+		const calls: string[] = [];
+		const ctx = {
+			imageSmoothingEnabled: true,
+			clearRect: () => {},
+			save: () => calls.push("save"),
+			restore: () => calls.push("restore"),
+			beginPath: () => calls.push("beginPath"),
+			moveTo: () => {},
+			lineTo: () => {},
+			stroke: () => {},
+			fill: () => calls.push("fill"),
+			arc: () => calls.push("arc"),
+			fillRect: () => {},
+			translate: () => {},
+			rotate: () => {},
+			setTransform: () => {},
+			closePath: () => {},
+			quadraticCurveTo: () => {},
+			drawImage: () => {},
+			fillStyle: "#000000",
+		};
+		const puzzle = createEmptyPuzzle(1, 1);
+		puzzle.nodes[0][0].type = NodeType.Start;
+		const ui = new WitnessUI({ width: 100, height: 100, getContext: () => ctx } as any, puzzle as any, { inputMode: "twoClick" });
+		const internalUI = ui as any;
+		internalUI.isDrawing = true;
+		internalUI.isTwoClickDrawing = true;
+		internalUI.path = [{ x: 0, y: 0 }];
+		internalUI.currentMousePos = { x: 60, y: 60 };
+		ui.draw();
+		assert.ok(calls.includes("arc"));
+		assert.ok(calls.includes("fill"));
 	});
 
 	await test("WitnessUI stayPathOnError=false triggers fade immediately", () => {

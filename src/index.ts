@@ -149,12 +149,12 @@ if (typeof self !== "undefined" && "postMessage" in self && !("document" in self
 				const { eventType, eventData } = payload;
 				if (ui) {
 					if (eventType === "mousedown" || eventType === "touchstart") {
-						const started = ui.handleStart(eventData);
+						const started = ui.handleStart(eventData, eventType === "touchstart" ? "touch" : "mouse");
 						(self as any).postMessage({ type: "drawingStarted", payload: started });
 					} else if (eventType === "mousemove" || eventType === "touchmove") {
 						ui.handleMove(eventData);
 					} else if (eventType === "mouseup" || eventType === "touchend") {
-						ui.handleEnd(eventData);
+						ui.handleEnd(eventData, eventType === "touchend" ? "touch" : "mouse");
 						(self as any).postMessage({ type: "drawingEnded" });
 					}
 				}

@@ -444,6 +444,8 @@ export declare class PuzzleSerializer {
  * UI表示設定
  */
 export interface WitnessUIOptions {
+	/** 線を引く操作モード */
+	inputMode?: "drag" | "twoClick";
 	/** グリッド周囲の余白 */
 	gridPadding?: number;
 	/** セル1辺のサイズ */
@@ -630,6 +632,7 @@ export declare class WitnessUI {
 	private boundTouchMove;
 	private boundTouchEnd;
 	private boundUpdateRect;
+	private isTwoClickDrawing;
 	constructor(canvasOrId: HTMLCanvasElement | OffscreenCanvas | string, puzzle?: PuzzleData, options?: WitnessUIOptions);
 	/**
 	 * デフォルトオプションとユーザー指定オプションをマージする
@@ -699,6 +702,7 @@ export declare class WitnessUI {
 	 * Workerにパズル生成を依頼する (Workerモード時のみ有効)
 	 */
 	createPuzzle(rows: number, cols: number, genOptions: any): void;
+	private setTwoClickPointerUi;
 	/**
 	 * マウス・タッチイベントを初期化する
 	 */
@@ -724,16 +728,19 @@ export declare class WitnessUI {
 	handleStart(e: {
 		clientX: number;
 		clientY: number;
-	}): boolean;
+	}, source?: "mouse" | "touch"): boolean;
 	private isStartNodeHit;
 	handleMove(e: {
 		clientX: number;
 		clientY: number;
+		movementX?: number;
+		movementY?: number;
+		pointerLocked?: boolean;
 	}): void;
 	handleEnd(e: {
 		clientX: number;
 		clientY: number;
-	}): void;
+	}, source?: "mouse" | "touch"): boolean;
 	/**
 	 * 二点間のエッジタイプを取得する
 	 * @param p1 点1
@@ -756,6 +763,7 @@ export declare class WitnessUI {
 	private animate;
 	private lastGoalReachable;
 	draw(): void;
+	private drawTwoClickPointer;
 	private applyFilter;
 	private prepareFilterBuffer;
 	private getActiveFilterColor;

@@ -108,6 +108,10 @@ class WitnessGame {
 			}
 		});
 
+		document.getElementById("input-mode-select").addEventListener("change", () => {
+			this.applyCurrentUIOptions();
+		});
+
 		document.getElementById("filter-enabled").addEventListener("change", () => {
 			this.filterState.enabled = document.getElementById("filter-enabled").checked;
 			this.applyCurrentUIOptions();
@@ -258,6 +262,9 @@ class WitnessGame {
 		document.getElementById("use-triangles").checked = !!options.useTriangles;
 		document.getElementById("use-eraser").checked = !!options.useEraser;
 		document.getElementById("use-broken-edges").checked = !!options.useBrokenEdges;
+		if (options.inputMode) {
+			document.getElementById("input-mode-select").value = options.inputMode;
+		}
 		document.getElementById("symmetry-select").value = options.symmetry ?? 0;
 		document.getElementById("complexity-slider").value = options.complexity ?? 1;
 		document.getElementById("difficulty-slider").value = options.difficulty ?? 1;
@@ -592,6 +599,7 @@ class WitnessGame {
 		return {
 			blinkMarksOnError: blinkMarks,
 			stayPathOnError: stayPath,
+			inputMode: document.getElementById("input-mode-select").value,
 			colors: {
 				colorList,
 				symmetry: symColor,
