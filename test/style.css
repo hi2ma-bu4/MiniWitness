@@ -1,49 +1,49 @@
 body {
+    align-items: center;
     background-color: #1a1a1a;
     color: #e0e0e0;
     display: flex;
     flex-direction: column;
-    align-items: center;
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     margin: 0;
     padding: 20px;
 }
 
 #ui-overlay {
-    text-align: center;
     margin-bottom: 20px;
+    text-align: center;
 }
 
 h1 {
-    margin: 10px 0;
     font-weight: 300;
     letter-spacing: 2px;
+    margin: 10px 0;
 }
 
 .controls {
-    margin-bottom: 15px;
+    align-items: center;
     display: flex;
     flex-direction: column;
     gap: 10px;
-    align-items: center;
+    margin-bottom: 15px;
 }
 
 .control-group {
-    display: flex;
-    gap: 15px;
     align-items: center;
+    display: flex;
     flex-wrap: wrap;
+    gap: 15px;
     justify-content: center;
     margin: 5px 0;
 }
 
 .advanced-settings {
-    width: 100%;
-    max-width: 600px;
+    background: #222;
     border: 1px solid #444;
     border-radius: 8px;
-    background: #222;
-    transition: background 0.2s;
+    max-width: 600px;
+    transition: background .2s;
+    width: 100%;
 }
 
 .advanced-settings:hover {
@@ -51,12 +51,12 @@ h1 {
 }
 
 .advanced-settings summary {
+    color: #aaa;
     cursor: pointer;
     font-weight: bold;
-    color: #aaa;
-    user-select: none;
-    padding: 5px;
     outline: none;
+    padding: 5px;
+    user-select: none;
 }
 
 .advanced-settings summary:hover {
@@ -66,12 +66,12 @@ h1 {
 select,
 button {
     background: #333;
-    color: white;
     border: 1px solid #555;
-    padding: 8px 15px;
     border-radius: 4px;
-    font-size: 16px;
+    color: white;
     cursor: pointer;
+    font-size: 16px;
+    padding: 8px 15px;
 }
 
 button:hover {
@@ -79,57 +79,66 @@ button:hover {
 }
 
 #status-message {
+    color: #aaa;
     font-size: 18px;
     height: 1.5em;
-    color: #aaa;
 }
 
 #game-container {
+    align-items: center;
     background-color: #222;
     border-radius: 12px;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-    padding: 20px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, .5);
     display: flex;
     justify-content: center;
-    align-items: center;
-    max-width: 95vw;
     margin: 0 auto;
+    max-width: 95vw;
     overflow: hidden;
+    padding: 20px;
+    position: relative;
 }
 
 #game-canvas {
     cursor: crosshair;
     display: block;
-    max-width: 100%;
     height: auto;
+    max-width: 100%;
+}
+
+#custom-overlay-canvas {
+    left: 0;
+    pointer-events: none;
+    position: absolute;
+    top: 0;
+    z-index: 2;
 }
 
 #event-log-container {
-    margin-top: 15px;
-    width: 100%;
-    max-width: 600px;
     background: #222;
     border: 1px solid #444;
     border-radius: 8px;
-    padding: 10px;
     font-family: monospace;
     font-size: 12px;
+    margin-top: 15px;
+    max-width: 600px;
+    padding: 10px;
+    width: 100%;
 }
 
 #event-log-title {
-    color: #aaa;
-    margin-bottom: 5px;
-    font-weight: bold;
     border-bottom: 1px solid #333;
+    color: #aaa;
+    font-weight: bold;
+    margin-bottom: 5px;
     padding-bottom: 2px;
 }
 
 #event-log {
-    height: 80px;
-    overflow-y: auto;
     color: #0f0;
     display: flex;
     flex-direction: column;
+    height: 80px;
+    overflow-y: auto;
 }
 
 .log-entry {
@@ -137,14 +146,14 @@ button:hover {
 }
 
 .instructions {
+    background: #2a2a2a;
+    border: 1px solid #333;
+    border-radius: 8px;
+    line-height: 1;
     margin-top: 30px;
     max-width: 600px;
-    text-align: left;
-    background: #2a2a2a;
     padding: 20px;
-    border-radius: 8px;
-    border: 1px solid #333;
-    line-height: 1;
+    text-align: left;
 }
 
 .instructions strong {
@@ -152,8 +161,8 @@ button:hover {
 }
 
 ul {
-    padding-left: 20px;
     margin-top: 10px;
+    padding-left: 20px;
 }
 
 li {
@@ -161,21 +170,21 @@ li {
 }
 
 #copyright {
-    margin-top: 12px;
     font-size: 12px;
-    opacity: 0.35;
+    margin-top: 12px;
+    opacity: .35;
     user-select: none;
 }
 
 #copyright a {
     color: #aaa;
     text-decoration: none;
-    transition: opacity 0.2s ease, color 0.2s ease;
+    transition: opacity .2s ease, color .2s ease;
 }
 
 #copyright a:hover {
-    opacity: 1;
     color: #4db8ff;
+    opacity: 1;
     text-decoration: underline;
 }
 
@@ -190,12 +199,12 @@ li {
 }
 
 input[type="color"] {
-    width: 44px;
-    height: 36px;
+    background: #333;
     border: 1px solid #555;
     border-radius: 4px;
-    background: #333;
+    height: 36px;
     padding: 2px;
+    width: 44px;
 }
 
 #filter-switcher {
@@ -212,20 +221,21 @@ input[type="color"] {
 }
 
 textarea {
-    width: 100%;
-    max-width: 700px;
     background: #111;
-    color: #ddd;
     border: 1px solid #444;
     border-radius: 6px;
-    padding: 8px;
+    box-sizing: border-box;
+    color: #ddd;
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     font-size: 12px;
+    max-width: 700px;
+    padding: 8px;
+    width: 100%;
 }
 
 .custom-editor-group {
-    flex-direction: column;
     align-items: stretch;
+    flex-direction: column;
     width: 100%;
 }
 
@@ -250,10 +260,10 @@ textarea {
 }
 
 #custom-create-tools {
-    width: 100%;
-    max-width: 100%;
     box-sizing: border-box;
+    max-width: 100%;
     overflow-x: hidden;
+    width: 100%;
 }
 
 .custom-tool.active {
@@ -262,26 +272,25 @@ textarea {
 }
 
 .custom-editor-group {
-    width: 100%;
     max-width: 100%;
+    width: 100%;
 }
 
 .custom-editor-group label {
     width: 100%;
-    text-align: left;
 }
 
 #custom-tool-indicator {
-    font-size: 12px;
     color: #8ec7ff;
+    font-size: 12px;
 }
 
 .color-swatch {
-    width: 30px;
+    border: 2px solid #666;
     height: 30px;
     min-width: 30px;
-    border: 2px solid #666;
     padding: 0;
+    width: 30px;
 }
 
 .color-swatch[data-color="0"] {
@@ -308,12 +317,12 @@ textarea {
 
 .color-swatch.active {
     border-color: #4db8ff;
-    box-shadow: 0 0 0 2px rgba(77, 184, 255, 0.35);
+    box-shadow: 0 0 0 2px rgba(77, 184, 255, .35);
 }
 
 .custom-hint {
-    font-size: 13px;
     color: #b5cbe3;
-    text-align: left;
+    font-size: 13px;
     max-width: 700px;
+    text-align: left;
 }

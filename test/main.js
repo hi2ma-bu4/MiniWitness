@@ -4,6 +4,7 @@ class WitnessGame {
 	constructor() {
 		this.core = new WitnessCore();
 		this.canvas = document.getElementById("game-canvas");
+		this.gameContainer = document.getElementById("game-container");
 		this.ui = null;
 		this.worker = null;
 		this.isWorkerMode = false;
@@ -37,6 +38,8 @@ class WitnessGame {
 		this.customLongPressTimer = null;
 		this.customPressPoint = null;
 		this.customLongPressed = false;
+		this.customOverlayCanvas = document.getElementById("custom-overlay-canvas");
+		this.customOverlayCtx = null;
 
 		this.init();
 	}
@@ -76,6 +79,8 @@ class WitnessGame {
 		this.canvas.addEventListener("mouseup", (e) => this.onCustomPointerUp(e), true);
 		this.canvas.addEventListener("touchstart", (e) => this.onCustomPointerDown(e), { capture: true, passive: false });
 		this.canvas.addEventListener("touchend", (e) => this.onCustomPointerUp(e), { capture: true, passive: false });
+		window.addEventListener("resize", () => this.syncCustomOverlayCanvasSize());
+		window.addEventListener("scroll", () => this.syncCustomOverlayCanvasSize());
 		document.getElementById("custom-apply-btn").addEventListener("click", () => this.applyCustomPuzzle());
 		document.getElementById("custom-sync-btn").addEventListener("click", () => this.syncCustomEditorFromCurrentPuzzle());
 		document.getElementById("custom-clear-btn").addEventListener("click", () => this.clearCustomBoard());
@@ -159,6 +164,7 @@ class WitnessGame {
 		});
 
 		this.updateFilterSwitcherUI();
+		this.syncCustomOverlayCanvasSize();
 
 		// URLパラメータからシードとRNGを読み込む
 		const seed = params.get("seed");
@@ -584,8 +590,8 @@ class WitnessGame {
 				this.loadPuzzle(data.puzzle, data.genOptions || this.currentOptions || {});
 			}
 		});
-		this.ui.on("render:after", ({ ctx }) => {
-			if (this.customMode) this.drawCustomOverlay(ctx);
+		this.ui.on("render:after", (event) => {
+			if (this.customMode) this.drawCustomOverlay(event?.ctx);
 		});
 	}
 
@@ -678,6 +684,7 @@ class WitnessGame {
 			this.updateCustomToolIndicator("canvas");
 		} else {
 			this.updateCustomToolIndicator("off");
+			this.clearCustomOverlayCanvas();
 		}
 		if (this.ui) this.ui.draw();
 	}
@@ -825,6 +832,40 @@ class WitnessGame {
 		this.customTool = { target: "cell", value: cell.type };
 	}
 
+	syncCustomOverlayCanvasSize() {
+		if (!this.customOverlayCanvas || !this.canvas?.getBoundingClientRect) return;
+		const rect = this.canvas.getBoundingClientRect();
+		const width = Math.max(1, Math.round(rect.width));
+		const height = Math.max(1, Math.round(rect.height));
+		this.customOverlayCanvas.style.width = `${width}px`;
+		this.customOverlayCanvas.style.height = `${height}px`;
+		if (this.customOverlayCanvas.width !== width) this.customOverlayCanvas.width = width;
+		if (this.customOverlayCanvas.height !== height) this.customOverlayCanvas.height = height;
+		if (this.gameContainer?.getBoundingClientRect) {
+			const cRect = this.canvas.getBoundingClientRect();
+			const gRect = this.gameContainer.getBoundingClientRect();
+			this.customOverlayCanvas.style.left = `${Math.round(cRect.left - gRect.left)}px`;
+			this.customOverlayCanvas.style.top = `${Math.round(cRect.top - gRect.top)}px`;
+		}
+	}
+
+	clearCustomOverlayCanvas() {
+		if (!this.customOverlayCanvas) return;
+		const ctx = this.customOverlayCanvas.getContext("2d");
+		if (!ctx) return;
+		ctx.clearRect(0, 0, this.customOverlayCanvas.width, this.customOverlayCanvas.height);
+	}
+
+	getCustomOverlayContext(ctx) {
+		if (ctx && typeof ctx.save === "function") return ctx;
+		if (!this.customOverlayCanvas) return null;
+		this.syncCustomOverlayCanvasSize();
+		if (!this.customOverlayCtx) this.customOverlayCtx = this.customOverlayCanvas.getContext("2d");
+		if (!this.customOverlayCtx) return null;
+		this.customOverlayCtx.clearRect(0, 0, this.customOverlayCanvas.width, this.customOverlayCanvas.height);
+		return this.customOverlayCtx;
+	}
+
 	handleOverlayClick(clientX, clientY) {
 		for (const btn of this.customOverlayButtons) {
 			if (clientX >= btn.x && clientX <= btn.x + btn.w && clientY >= btn.y && clientY <= btn.y + btn.h) {
@@ -838,6 +879,8 @@ class WitnessGame {
 
 	drawCustomOverlay(ctx) {
 		if (!this.customMode || !this.ui || !this.canvas.getBoundingClientRect) return;
+		const overlayCtx = this.getCustomOverlayContext(ctx);
+		if (!overlayCtx) return;
 		const rect = this.canvas.getBoundingClientRect();
 		const x0 = rect.left + 10;
 		const y0 = rect.top + 10;
@@ -848,18 +891,18 @@ class WitnessGame {
 		];
 		const colors = [1, 2, 3, 4];
 		this.customOverlayButtons = [];
-		ctx.save();
-		ctx.globalAlpha = 0.9;
-		ctx.fillStyle = "rgba(10,10,10,0.7)";
-		ctx.fillRect(10, 10, 260, 68);
-		ctx.font = "12px sans-serif";
+		overlayCtx.save();
+		overlayCtx.globalAlpha = 0.9;
+		overlayCtx.fillStyle = "rgba(10,10,10,0.7)";
+		overlayCtx.fillRect(10, 10, 260, 68);
+		overlayCtx.font = "12px sans-serif";
 		items.forEach((it, i) => {
 			const bx = 16 + i * 58;
 			const by = 18;
-			ctx.fillStyle = this.customTool.target === it.key ? "#4db8ff" : "#333";
-			ctx.fillRect(bx, by, 52, 20);
-			ctx.fillStyle = "#fff";
-			ctx.fillText(it.label, bx + 10, by + 14);
+			overlayCtx.fillStyle = this.customTool.target === it.key ? "#4db8ff" : "#333";
+			overlayCtx.fillRect(bx, by, 52, 20);
+			overlayCtx.fillStyle = "#fff";
+			overlayCtx.fillText(it.label, bx + 10, by + 14);
 			this.customOverlayButtons.push({
 				x: x0 + (bx - 10),
 				y: y0 + (by - 10),
@@ -874,11 +917,11 @@ class WitnessGame {
 		colors.forEach((c, i) => {
 			const bx = 16 + i * 32;
 			const by = 46;
-			ctx.fillStyle = ["", "#000", "#fff", "#d44", "#36f"][c];
-			ctx.fillRect(bx, by, 24, 16);
-			ctx.strokeStyle = this.customColor === c ? "#4db8ff" : "#888";
-			ctx.lineWidth = 2;
-			ctx.strokeRect(bx, by, 24, 16);
+			overlayCtx.fillStyle = ["", "#000", "#fff", "#d44", "#36f"][c];
+			overlayCtx.fillRect(bx, by, 24, 16);
+			overlayCtx.strokeStyle = this.customColor === c ? "#4db8ff" : "#888";
+			overlayCtx.lineWidth = 2;
+			overlayCtx.strokeRect(bx, by, 24, 16);
 			this.customOverlayButtons.push({
 				x: x0 + (bx - 10),
 				y: y0 + (by - 10),
@@ -890,15 +933,16 @@ class WitnessGame {
 				},
 			});
 		});
-		ctx.fillStyle = "#ddd";
-		ctx.fillText("Tap: cycle / recolor   Hold: clear", 150, 58);
-		ctx.restore();
+		overlayCtx.fillStyle = "#ddd";
+		overlayCtx.fillText("Tap: cycle / recolor   Hold: clear", 150, 58);
+		overlayCtx.restore();
 	}
 
 	refreshCustomPuzzle(hitLabel) {
 		document.getElementById("custom-puzzle-json").value = JSON.stringify(this.customEditorPuzzle, null, 2);
 		this.loadPuzzle(structuredClone(this.customEditorPuzzle), this.getOptionsFromUI());
 		this.updateCustomToolIndicator(hitLabel);
+		if (!this.customMode) this.clearCustomOverlayCanvas();
 	}
 
 	clearCustomBoard() {
@@ -965,5 +1009,7 @@ class WitnessGame {
 	}
 }
 
-window.witnessGame = new WitnessGame();
-window.PuzzleSerializer = PuzzleSerializer;
+if (typeof window !== "undefined") {
+	window.witnessGame = new WitnessGame();
+	window.PuzzleSerializer = PuzzleSerializer;
+}
