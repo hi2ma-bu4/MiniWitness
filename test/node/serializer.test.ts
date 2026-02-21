@@ -33,13 +33,13 @@ describe("PuzzleSerializer", { concurrency: true }, () => {
 		symmetry: 0,
 	};
 
-	test("serialize and deserialize (legacy support)", async () => {
+	test("serialize and deserialize", async () => {
 		const options = {
 			useSquares: true,
 			difficulty: 0.5,
 			symmetry: 0,
 		};
-		const serialized = await PuzzleSerializer.serialize(mockPuzzle as any, options);
+		const serialized = await PuzzleSerializer.serialize({ puzzle: mockPuzzle as any, options });
 		assert.strictEqual(typeof serialized, "string");
 
 		const deserialized = await PuzzleSerializer.deserialize(serialized);
@@ -162,14 +162,16 @@ describe("PuzzleSerializer", { concurrency: true }, () => {
 			parityMode: "recovery",
 		});
 
-		const removeIdx = [1, 5, 11, 17, 23].filter((i) => i < serialized.length);
+		const tokenStart = serialized.lastIndexOf(".", serialized.lastIndexOf(".") - 1) + 1;
+		const removeIdx = [1, 5, 11, 17, 23].map((i) => tokenStart + i).filter((i) => i < serialized.length);
 		let modified = serialized;
 		for (let i = removeIdx.length - 1; i >= 0; i--) {
 			const idx = removeIdx[i];
 			modified = modified.slice(0, idx) + modified.slice(idx + 1);
 		}
 
-		assert.ok(serialized.startsWith("~"));
+		assert.ok(/^r\.[0-9a-z]+-[0-9a-z]+\./.test(serialized));
+		assert.ok(/^[A-Za-z0-9._-]+$/.test(serialized));
 		assert.ok(serialized.length < 300);
 		const deserialized = await PuzzleSerializer.deserialize(modified);
 		assert.deepStrictEqual(deserialized.puzzle, mockPuzzle);

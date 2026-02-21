@@ -12,11 +12,16 @@ class WitnessGame {
 		this.sizeSelect = document.getElementById("size-select");
 		this.newPuzzleBtn = document.getElementById("new-puzzle-btn");
 		this.sharePuzzleBtn = document.getElementById("share-puzzle-btn");
+		this.sharePathCheckbox = document.getElementById("share-path");
+		this.sharePuzzleCheckbox = document.getElementById("share-puzzle");
+		this.shareSeedCheckbox = document.getElementById("share-seed");
+		this.shareOptionsCheckbox = document.getElementById("share-options");
 
 		this.puzzle = null;
 		this.currentOptions = null;
 		this.isDrawing = false;
 		this.lastPath = null;
+		this.pendingSharedPath = null;
 
 		this.filterState = {
 			enabled: false,
@@ -58,6 +63,10 @@ class WitnessGame {
 
 		this.newPuzzleBtn.addEventListener("click", () => this.startNewGame());
 		this.sharePuzzleBtn.addEventListener("click", () => this.sharePuzzle());
+
+		this.sharePuzzleCheckbox.addEventListener("change", () => {
+			if (this.sharePuzzleCheckbox.checked) this.sharePathCheckbox.checked = true;
+		});
 
 		document.getElementById("sym-color-select").addEventListener("change", () => {
 			const options = {
@@ -154,7 +163,14 @@ class WitnessGame {
 					this.syncFilterToUI(data.filter);
 				}
 
+				const canRestorePathWithoutPuzzle = !data.puzzle && !!data.path && !!data.seed && !!data.options;
+				if (canRestorePathWithoutPuzzle) {
+					this.pendingSharedPath = data.path;
+					this.sharePathCheckbox.checked = true;
+				}
+
 				if (data.puzzle) {
+					this.sharePathCheckbox.checked = true;
 					const options = data.options || this.currentOptions || {};
 					if (data.options?.availableColors) {
 						options.availableColors = data.options.availableColors;
@@ -211,6 +227,7 @@ class WitnessGame {
 	startNewGame() {
 		const options = this.getOptionsFromUI();
 		this.lastPath = null;
+		if (this.sharePathCheckbox.checked) this.sharePathCheckbox.checked = false;
 
 		this.updateStatus("Generating puzzle... (Searching for optimal difficulty)");
 		setTimeout(() => {
@@ -282,8 +299,20 @@ class WitnessGame {
 		if (this.ui) {
 			this.ui.setOptions(uiOptions);
 			this.ui.setPuzzle(this.puzzle);
+			if (this.pendingSharedPath) {
+				this.lastPath = this.pendingSharedPath;
+				this.ui.setPath(this.pendingSharedPath.points);
+				this.validate(this.pendingSharedPath.points);
+				this.pendingSharedPath = null;
+			}
 		} else if (this.worker) {
 			this.worker.postMessage({ type: "setPuzzle", payload: { puzzle: this.puzzle, options: uiOptions } });
+			if (this.pendingSharedPath) {
+				this.lastPath = this.pendingSharedPath;
+				this.worker.postMessage({ type: "setPath", payload: { path: this.pendingSharedPath.points } });
+				this.validate(this.pendingSharedPath.points);
+				this.pendingSharedPath = null;
+			}
 		}
 		this.updateFilterSwitcherUI();
 		let status = `Puzzle loaded! (Difficulty: ${diff.toFixed(2)})`;
@@ -296,16 +325,22 @@ class WitnessGame {
 
 		console.log("Sharing puzzle. lastPath:", this.lastPath);
 
+		const includePuzzle = this.sharePuzzleCheckbox.checked;
+		const includeSeed = this.shareSeedCheckbox.checked;
+		const includeOptions = this.shareOptionsCheckbox.checked;
+		const includePathRequested = this.sharePathCheckbox.checked;
+		const includePath = includePathRequested || (!includePuzzle && !!this.lastPath && includeSeed && includeOptions);
+
 		const shareOptions = {
-			puzzle: document.getElementById("share-puzzle").checked ? this.puzzle : undefined,
-			seed: document.getElementById("share-seed").checked
+			puzzle: includePuzzle ? this.puzzle : undefined,
+			seed: includeSeed
 				? {
 						type: parseInt(document.getElementById("rng-select").value),
 						value: this.puzzle.seed || document.getElementById("seed-input").value,
 					}
 				: undefined,
-			options: document.getElementById("share-options").checked ? this.getOptionsFromUI() : undefined,
-			path: document.getElementById("share-path").checked ? this.lastPath : undefined,
+			options: includeOptions ? this.getOptionsFromUI() : undefined,
+			path: includePath ? this.lastPath : undefined,
 			filter: document.getElementById("share-filter").checked ? this.buildFilterOptions() : undefined,
 			parityMode: document.getElementById("parity-mode").value,
 		};

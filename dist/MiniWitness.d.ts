@@ -414,7 +414,7 @@ export declare class PuzzleSerializer {
 	/**
 	 * データを圧縮されたBase64文字列に変換する
 	 */
-	static serialize(data: SerializationOptions | PuzzleData, legacyOptions?: GenerationOptions): Promise<string>;
+	static serialize(input: SerializationOptions): Promise<string>;
 	/**
 	 * シリアライズされた文字列からデータを復元する
 	 */
@@ -424,6 +424,7 @@ export declare class PuzzleSerializer {
 	private static solveLinearGF64;
 	private static encodeRobustShareCode;
 	private static decodeRobustShareCode;
+	private static decodeRobustCore;
 	private static extractShareCodeCandidates;
 	private static finalizeDeserialize;
 	private static writePuzzle;

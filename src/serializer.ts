@@ -100,25 +100,6 @@ function gf64_pow(a: number, p: number): number {
 	return GF64_EXP[(GF64_LOG[a] * p) % 63];
 }
 
-function gf_mul(a: number, b: number): number {
-	if (a === 0 || b === 0) return 0;
-	return GF256_EXP[GF256_LOG[a] + GF256_LOG[b]];
-}
-
-// Simple syndrome check
-function rs_check(data: Uint8Array, parity: Uint8Array): boolean {
-	const msg = new Uint8Array(data.length + parity.length);
-	msg.set(data);
-	msg.set(parity, data.length);
-	for (let i = 0; i < parity.length; i++) {
-		let s = 0;
-		const x = GF256_EXP[i];
-		for (let j = 0; j < msg.length; j++) s = gf_mul(s, x) ^ msg[j];
-		if (s !== 0) return false;
-	}
-	return true;
-}
-
 /* ================= Utils ================= */
 
 function collectShapes(cells: CellConstraint[][]): number[][][] {
@@ -143,17 +124,7 @@ export class PuzzleSerializer {
 	/**
 	 * データを圧縮されたBase64文字列に変換する
 	 */
-	static async serialize(data: SerializationOptions | PuzzleData, legacyOptions?: GenerationOptions): Promise<string> {
-		let input: SerializationOptions;
-		const d = data as any;
-		const isLegacy = typeof d === "object" && d !== null && "rows" in d && "cells" in d && !("puzzle" in d) && !("options" in d) && !("path" in d) && !("seed" in d);
-
-		if (isLegacy) {
-			input = { puzzle: data as PuzzleData, options: legacyOptions };
-		} else {
-			input = data as SerializationOptions;
-		}
-
+	static async serialize(input: SerializationOptions): Promise<string> {
 		const bw = new BitWriter();
 
 		let flags = 0;
@@ -210,22 +181,10 @@ export class PuzzleSerializer {
 
 		const attemptRecovery = (data: Uint8Array): { payload: Uint8Array; compressed: boolean } | null => {
 			if (data.length < 2) return null;
-			let body: Uint8Array | null = null;
 
-			// detection mode parity (current)
 			let p = 0;
 			for (let i = 0; i < data.length - 1; i++) p ^= data[i];
-			if (p === data[data.length - 1]) body = data.slice(0, -1);
-
-			// backward-compatible recovery mode (legacy RS)
-			if (!body && data.length > 13) {
-				const bodyLen = data[data.length - 2] | (data[data.length - 1] << 8);
-				if (bodyLen + 12 === data.length) {
-					const candidate = data.slice(0, bodyLen);
-					const parity = data.slice(bodyLen, bodyLen + 10);
-					if (rs_check(candidate, parity)) body = candidate;
-				}
-			}
+			const body = p === data[data.length - 1] ? data.slice(0, -1) : null;
 			if (!body || body.length < 1) return null;
 			const mode = body[0];
 			if (mode !== 0 && mode !== 1) return null;
@@ -298,7 +257,7 @@ export class PuzzleSerializer {
 	}
 
 	private static encodeRobustShareCode(core: string): string {
-		if (core.length === 0) return "~0-8~0-8~0-8~";
+		if (core.length === 0) return "r.0-8.0-8.0-8";
 		const parityCount = 5;
 		const chunkSize = Math.max(8, Math.ceil(core.length / 59));
 		const dataChunkCount = Math.ceil(core.length / chunkSize);
@@ -351,15 +310,24 @@ export class PuzzleSerializer {
 		const tokenStream = tokens.join(".");
 
 		const header = `${core.length.toString(36)}-${chunkSize.toString(36)}`;
-		const head = Array.from({ length: 8 }, () => header).join("~");
-		return `~${head}~${tokenStream}`;
+		const repeatedHeader = Array.from({ length: 8 }, () => header).join(".");
+		return `r.${repeatedHeader}.${tokenStream}`;
 	}
 
 	private static decodeRobustShareCode(str: string): string | null {
-		if (!str.startsWith("~")) return null;
-		const segments = str.split("~");
+		if (!str.startsWith("r.")) return null;
 		let coreLen = -1;
 		let chunkSize = -1;
+		let tail = "";
+		const compactHeader = /^r\.([0-9a-z]+)\.([0-9a-z]+)(?:\.(.*))?$/.exec(str);
+		if (compactHeader) {
+			coreLen = Number.parseInt(compactHeader[1], 36);
+			chunkSize = Number.parseInt(compactHeader[2], 36);
+			tail = compactHeader[3] || "";
+			if (coreLen >= 0 && chunkSize >= 1) return this.decodeRobustCore(coreLen, chunkSize, tail);
+		}
+
+		const segments = str.slice(2).split(".");
 		let headerIndex = -1;
 		for (let i = 0; i < segments.length; i++) {
 			const seg = segments[i];
@@ -373,8 +341,12 @@ export class PuzzleSerializer {
 				headerIndex = i;
 			}
 		}
-		if (coreLen < 0 || chunkSize < 1) return null;
+		if (headerIndex < 0 || coreLen < 0 || chunkSize < 1) return null;
+		tail = segments.slice(headerIndex + 1).join(".");
+		return this.decodeRobustCore(coreLen, chunkSize, tail);
+	}
 
+	private static decodeRobustCore(coreLen: number, chunkSize: number, tail: string): string | null {
 		const parityCount = 5;
 		const dataChunkCount = coreLen === 0 ? 0 : Math.ceil(coreLen / chunkSize);
 		const totalChunkCount = dataChunkCount + parityCount;
@@ -382,7 +354,6 @@ export class PuzzleSerializer {
 		if (coreLen === 0) return "";
 
 		const tokenLen = chunkSize + 3;
-		const tail = segments.slice(headerIndex + 1).join("~");
 		if (tail.length < tokenLen) return null;
 
 		const checksum12 = (chunk: number[]): number => {
@@ -457,11 +428,6 @@ export class PuzzleSerializer {
 		if (str) set.add(str);
 		const decodedRobust = this.decodeRobustShareCode(str);
 		if (decodedRobust) set.add(decodedRobust);
-
-		// Backward compatibility for older 6-replica format
-		for (const part of str.split(".")) {
-			if (/^[0-5][A-Za-z0-9_-]+$/.test(part)) set.add(part.slice(1));
-		}
 		return [...set];
 	}
 
