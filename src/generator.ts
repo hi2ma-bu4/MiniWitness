@@ -911,10 +911,15 @@ export class PuzzleGenerator {
 				const intendedColors = new Set<number>();
 
 				// 四角形の配置
-				let squareColor = availableColors[Math.floor(this.rng!.next() * availableColors.length)];
+				// None(0)を除いた色リストを使用
+				const nonNoneColors = availableColors.filter((c) => c !== 0);
+				// 候補がない場合はフォールバック
+				const safeColors = nonNoneColors.length > 0 ? nonNoneColors : [Color.Black];
+				let squareColor = safeColors[Math.floor(this.rng!.next() * safeColors.length)];
+
 				// 必須かつ未配置の場合は、まだ使っていない色を優先的に選ぶ
 				if (useSquares && squareColorsUsed.size < 2) {
-					const unusedColors = availableColors.filter((c) => !squareColorsUsed.has(c));
+					const unusedColors = safeColors.filter((c) => !squareColorsUsed.has(c));
 					if (unusedColors.length > 0) {
 						squareColor = unusedColors[Math.floor(this.rng!.next() * unusedColors.length)];
 					}
@@ -1073,7 +1078,8 @@ export class PuzzleGenerator {
 									let tetrisColor = defColor;
 									// トゲ(Star)とのペアリングを意図する場合のみ色を付ける
 									if (useStars && this.rng!.next() < 0.3) {
-										const candidates = availableColors.filter((c) => c !== defColor && !intendedColors.has(c));
+										// トゲはNone(0)禁止なので、ペアリング用カラーも0以外から選ぶ
+										const candidates = availableColors.filter((c) => c !== defColor && c !== 0 && !intendedColors.has(c));
 										if (candidates.length > 0) {
 											tetrisColor = candidates[Math.floor(this.rng!.next() * candidates.length)];
 											intendedColors.add(tetrisColor);
@@ -1115,7 +1121,8 @@ export class PuzzleGenerator {
 								const defColor = getDefColor(CellType.Triangle, Color.None);
 								let triangleColor = defColor;
 								if (useStars && this.rng!.next() < 0.3) {
-									const candidates = availableColors.filter((c) => c !== defColor && !intendedColors.has(c));
+									// トゲはNone(0)禁止なので、ペアリング用カラーも0以外から選ぶ
+									const candidates = availableColors.filter((c) => c !== defColor && c !== 0 && !intendedColors.has(c));
 									if (candidates.length > 0) {
 										triangleColor = candidates[Math.floor(this.rng!.next() * candidates.length)];
 										intendedColors.add(triangleColor);
@@ -1173,13 +1180,16 @@ export class PuzzleGenerator {
 								grid.cells[errCell.y][errCell.x].type = CellType.Square;
 								const existingSquare = region.find((p) => grid.cells[p.y][p.x].type === CellType.Square);
 								const existingSquareColor = existingSquare ? grid.cells[existingSquare.y][existingSquare.x].color : undefined;
-								grid.cells[errCell.y][errCell.x].color = availableColors.find((c) => c !== existingSquareColor) || Color.Red;
+								const nonNoneColors = availableColors.filter((c) => c !== 0);
+								grid.cells[errCell.y][errCell.x].color = nonNoneColors.find((c) => c !== existingSquareColor) || Color.Red;
 								squaresPlaced++;
 								errorPlaced = true;
 							} else if (errorType === "star" && potentialCells.length >= 2) {
 								const errCell = potentialCells.pop()!;
 								grid.cells[errCell.y][errCell.x].type = CellType.Star;
-								grid.cells[errCell.y][errCell.x].color = availableColors[Math.floor(this.rng!.next() * availableColors.length)];
+								const nonNoneColors = availableColors.filter((c) => c !== 0);
+								const safeColors = nonNoneColors.length > 0 ? nonNoneColors : [Color.Black];
+								grid.cells[errCell.y][errCell.x].color = safeColors[Math.floor(this.rng!.next() * safeColors.length)];
 								starsPlaced++;
 								errorPlaced = true;
 							} else if (errorType === "tetris" && potentialCells.length >= 2) {
@@ -1253,7 +1263,8 @@ export class PuzzleGenerator {
 							let eraserColor = defColor;
 							// トゲ(Star)とのペアリングを意図する場合のみ色を付ける
 							if (useStars && this.rng!.next() < 0.3) {
-								const candidates = availableColors.filter((c) => c !== defColor && !intendedColors.has(c));
+								// トゲはNone(0)禁止なので、ペアリング用カラーも0以外から選ぶ
+								const candidates = availableColors.filter((c) => c !== defColor && c !== 0 && !intendedColors.has(c));
 								if (candidates.length > 0) {
 									eraserColor = candidates[Math.floor(this.rng!.next() * candidates.length)];
 									intendedColors.add(eraserColor);
@@ -1267,8 +1278,12 @@ export class PuzzleGenerator {
 
 				// 星の配置
 				if (useStars) {
+					const nonNoneColors = availableColors.filter((c) => c !== 0);
+					const safeColors = nonNoneColors.length > 0 ? nonNoneColors : [Color.Black];
+
 					// 1. まず非デフォルト色の記号、または意図的に色付けされた記号をトゲでペアリングする（必須）
 					for (const color of availableColors) {
+						if (color === 0) continue; // トゲは0禁止
 						if (potentialCells.length < 1) break;
 						const colorCount = region.filter((p) => grid.cells[p.y][p.x].color === color).length;
 						// 非デフォルト色、または意図的に割り当てられた色が1つだけある場合、トゲを追加してペアにする
@@ -1284,7 +1299,7 @@ export class PuzzleGenerator {
 					const maxPairs = Math.max(1, Math.floor(region.length / 8));
 					for (let p = 0; p < maxPairs; p++) {
 						if (potentialCells.length < 2) break;
-						for (const color of availableColors) {
+						for (const color of safeColors) {
 							if (potentialCells.length < 2) break;
 							if (this.rng!.next() > 0.3 + complexity * 0.4) continue;
 
@@ -1321,7 +1336,7 @@ export class PuzzleGenerator {
 
 						const availableCells = region.filter((p) => grid.cells[p.y][p.x].type === CellType.None);
 						if (availableCells.length > 0) {
-							const otherColor = availableColors.find((c) => !squareColorsUsed.has(c)) || Color.White;
+							const otherColor = availableColors.filter((c) => c !== 0).find((c) => !squareColorsUsed.has(c)) || Color.White;
 							const cell = availableCells[Math.floor(this.rng!.next() * availableCells.length)];
 							grid.cells[cell.y][cell.x].type = CellType.Square;
 							grid.cells[cell.y][cell.x].color = otherColor;

@@ -466,7 +466,7 @@ export class PuzzleSerializer {
 		for (const row of puzzle.cells) {
 			for (const c of row) {
 				bw.write(c.type, 4);
-				bw.write(c.color, 3);
+				bw.write(c.color, 4);
 				if (c.type === CellType.Triangle) {
 					bw.write(c.count || 0, 2);
 				} else if (c.shape) {
@@ -507,7 +507,7 @@ export class PuzzleSerializer {
 			const row: CellConstraint[] = [];
 			for (let x = 0; x < cols; x++) {
 				const type = br.read(4) as CellType;
-				const color = br.read(3);
+				const color = br.read(4);
 				const cell: CellConstraint = { type, color };
 				if (type === CellType.Triangle) {
 					cell.count = br.read(2);
@@ -563,7 +563,7 @@ export class PuzzleSerializer {
 		if (options.availableColors && options.availableColors.length > 0) {
 			bw.write(1, 1);
 			bw.write(options.availableColors.length, 4);
-			for (const c of options.availableColors) bw.write(c, 3);
+			for (const c of options.availableColors) bw.write(c, 4);
 		} else {
 			bw.write(0, 1);
 		}
@@ -574,7 +574,7 @@ export class PuzzleSerializer {
 			for (const [key, val] of entries) {
 				const type = isNaN(Number(key)) ? (CellType as any)[key] : Number(key);
 				bw.write(type, 4);
-				bw.write(val as number, 3);
+				bw.write(val as number, 4);
 			}
 		} else {
 			bw.write(0, 4);
@@ -606,7 +606,7 @@ export class PuzzleSerializer {
 		if (br.read(1)) {
 			const len = br.read(4);
 			options.availableColors = [];
-			for (let i = 0; i < len; i++) options.availableColors.push(br.read(3));
+			for (let i = 0; i < len; i++) options.availableColors.push(br.read(4));
 		}
 
 		const defLen = br.read(4);
@@ -614,7 +614,7 @@ export class PuzzleSerializer {
 			options.defaultColors = {};
 			for (let i = 0; i < defLen; i++) {
 				const type = br.read(4);
-				const color = br.read(3);
+				const color = br.read(4);
 				(options.defaultColors as any)[type] = color;
 			}
 		}

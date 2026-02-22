@@ -1,5 +1,5 @@
 /*!
- * MiniWitness 1.4.8
+ * MiniWitness 1.4.9
  * Copyright 2026 hi2ma-bu4
  * Licensed under the Apache License, Version 2.0
  * http://www.apache.org/licenses/LICENSE-2.0
@@ -2520,9 +2520,11 @@ var PuzzleGenerator = class {
         const potentialCells = [...region];
         this.shuffleArray(potentialCells);
         const intendedColors = /* @__PURE__ */ new Set();
-        let squareColor = availableColors[Math.floor(this.rng.next() * availableColors.length)];
+        const nonNoneColors = availableColors.filter((c) => c !== 0);
+        const safeColors = nonNoneColors.length > 0 ? nonNoneColors : [Color.Black];
+        let squareColor = safeColors[Math.floor(this.rng.next() * safeColors.length)];
         if (useSquares && squareColorsUsed.size < 2) {
-          const unusedColors = availableColors.filter((c) => !squareColorsUsed.has(c));
+          const unusedColors = safeColors.filter((c) => !squareColorsUsed.has(c));
           if (unusedColors.length > 0) {
             squareColor = unusedColors[Math.floor(this.rng.next() * unusedColors.length)];
           }
@@ -2648,7 +2650,7 @@ var PuzzleGenerator = class {
                   const defColor = getDefColor(3 /* Tetris */, Color.None);
                   let tetrisColor = defColor;
                   if (useStars && this.rng.next() < 0.3) {
-                    const candidates = availableColors.filter((c) => c !== defColor && !intendedColors.has(c));
+                    const candidates = availableColors.filter((c) => c !== defColor && c !== 0 && !intendedColors.has(c));
                     if (candidates.length > 0) {
                       tetrisColor = candidates[Math.floor(this.rng.next() * candidates.length)];
                       intendedColors.add(tetrisColor);
@@ -2683,7 +2685,7 @@ var PuzzleGenerator = class {
                 const defColor = getDefColor(8 /* Triangle */, Color.None);
                 let triangleColor = defColor;
                 if (useStars && this.rng.next() < 0.3) {
-                  const candidates = availableColors.filter((c) => c !== defColor && !intendedColors.has(c));
+                  const candidates = availableColors.filter((c) => c !== defColor && c !== 0 && !intendedColors.has(c));
                   if (candidates.length > 0) {
                     triangleColor = candidates[Math.floor(this.rng.next() * candidates.length)];
                     intendedColors.add(triangleColor);
@@ -2733,13 +2735,16 @@ var PuzzleGenerator = class {
                 grid.cells[errCell.y][errCell.x].type = 1 /* Square */;
                 const existingSquare = region.find((p) => grid.cells[p.y][p.x].type === 1 /* Square */);
                 const existingSquareColor = existingSquare ? grid.cells[existingSquare.y][existingSquare.x].color : void 0;
-                grid.cells[errCell.y][errCell.x].color = availableColors.find((c) => c !== existingSquareColor) || Color.Red;
+                const nonNoneColors2 = availableColors.filter((c) => c !== 0);
+                grid.cells[errCell.y][errCell.x].color = nonNoneColors2.find((c) => c !== existingSquareColor) || Color.Red;
                 squaresPlaced++;
                 errorPlaced = true;
               } else if (errorType === "star" && potentialCells.length >= 2) {
                 const errCell = potentialCells.pop();
                 grid.cells[errCell.y][errCell.x].type = 2 /* Star */;
-                grid.cells[errCell.y][errCell.x].color = availableColors[Math.floor(this.rng.next() * availableColors.length)];
+                const nonNoneColors2 = availableColors.filter((c) => c !== 0);
+                const safeColors2 = nonNoneColors2.length > 0 ? nonNoneColors2 : [Color.Black];
+                grid.cells[errCell.y][errCell.x].color = safeColors2[Math.floor(this.rng.next() * safeColors2.length)];
                 starsPlaced++;
                 errorPlaced = true;
               } else if (errorType === "tetris" && potentialCells.length >= 2) {
@@ -2808,7 +2813,7 @@ var PuzzleGenerator = class {
               const defColor = getDefColor(7 /* Eraser */, Color.White);
               let eraserColor = defColor;
               if (useStars && this.rng.next() < 0.3) {
-                const candidates = availableColors.filter((c) => c !== defColor && !intendedColors.has(c));
+                const candidates = availableColors.filter((c) => c !== defColor && c !== 0 && !intendedColors.has(c));
                 if (candidates.length > 0) {
                   eraserColor = candidates[Math.floor(this.rng.next() * candidates.length)];
                   intendedColors.add(eraserColor);
@@ -2820,7 +2825,10 @@ var PuzzleGenerator = class {
           }
         }
         if (useStars) {
+          const nonNoneColors2 = availableColors.filter((c) => c !== 0);
+          const safeColors2 = nonNoneColors2.length > 0 ? nonNoneColors2 : [Color.Black];
           for (const color of availableColors) {
+            if (color === 0) continue;
             if (potentialCells.length < 1) break;
             const colorCount = region.filter((p) => grid.cells[p.y][p.x].color === color).length;
             if (colorCount === 1 && (color !== Color.White || intendedColors.has(color))) {
@@ -2833,7 +2841,7 @@ var PuzzleGenerator = class {
           const maxPairs = Math.max(1, Math.floor(region.length / 8));
           for (let p = 0; p < maxPairs; p++) {
             if (potentialCells.length < 2) break;
-            for (const color of availableColors) {
+            for (const color of safeColors2) {
               if (potentialCells.length < 2) break;
               if (this.rng.next() > 0.3 + complexity * 0.4) continue;
               const colorCount = region.filter((p2) => grid.cells[p2.y][p2.x].color === color).length;
@@ -2862,7 +2870,7 @@ var PuzzleGenerator = class {
             if (region.some((p) => grid.cells[p.y][p.x].type === 1 /* Square */)) continue;
             const availableCells = region.filter((p) => grid.cells[p.y][p.x].type === 0 /* None */);
             if (availableCells.length > 0) {
-              const otherColor = availableColors.find((c) => !squareColorsUsed.has(c)) || Color.White;
+              const otherColor = availableColors.filter((c) => c !== 0).find((c) => !squareColorsUsed.has(c)) || Color.White;
               const cell = availableCells[Math.floor(this.rng.next() * availableCells.length)];
               grid.cells[cell.y][cell.x].type = 1 /* Square */;
               grid.cells[cell.y][cell.x].color = otherColor;
@@ -5003,6 +5011,9 @@ var WitnessUI = class {
     if (this.options.colors.colorMap && this.options.colors.colorMap[colorEnum] !== void 0) {
       return this.options.colors.colorMap[colorEnum];
     }
+    if (colorEnum !== 0) {
+      return this.getColorCode(0, defaultFallback);
+    }
     return defaultFallback;
   }
   /**
@@ -5589,7 +5600,7 @@ var PuzzleSerializer = class {
     for (const row of puzzle.cells) {
       for (const c of row) {
         bw.write(c.type, 4);
-        bw.write(c.color, 3);
+        bw.write(c.color, 4);
         if (c.type === 8 /* Triangle */) {
           bw.write(c.count || 0, 2);
         } else if (c.shape) {
@@ -5626,7 +5637,7 @@ var PuzzleSerializer = class {
       const row = [];
       for (let x = 0; x < cols; x++) {
         const type = br.read(4);
-        const color = br.read(3);
+        const color = br.read(4);
         const cell = { type, color };
         if (type === 8 /* Triangle */) {
           cell.count = br.read(2);
@@ -5676,7 +5687,7 @@ var PuzzleSerializer = class {
     if (options.availableColors && options.availableColors.length > 0) {
       bw.write(1, 1);
       bw.write(options.availableColors.length, 4);
-      for (const c of options.availableColors) bw.write(c, 3);
+      for (const c of options.availableColors) bw.write(c, 4);
     } else {
       bw.write(0, 1);
     }
@@ -5686,7 +5697,7 @@ var PuzzleSerializer = class {
       for (const [key, val] of entries) {
         const type = isNaN(Number(key)) ? CellType[key] : Number(key);
         bw.write(type, 4);
-        bw.write(val, 3);
+        bw.write(val, 4);
       }
     } else {
       bw.write(0, 4);
@@ -5714,14 +5725,14 @@ var PuzzleSerializer = class {
     if (br.read(1)) {
       const len = br.read(4);
       options.availableColors = [];
-      for (let i = 0; i < len; i++) options.availableColors.push(br.read(3));
+      for (let i = 0; i < len; i++) options.availableColors.push(br.read(4));
     }
     const defLen = br.read(4);
     if (defLen > 0) {
       options.defaultColors = {};
       for (let i = 0; i < defLen; i++) {
         const type = br.read(4);
-        const color = br.read(3);
+        const color = br.read(4);
         options.defaultColors[type] = color;
       }
     }

@@ -2038,6 +2038,10 @@ export class WitnessUI {
 		if (this.options.colors.colorMap && this.options.colors.colorMap[colorEnum] !== undefined) {
 			return this.options.colors.colorMap[colorEnum];
 		}
+		// none (0) をデフォルトカラー（フォールバック）とする
+		if (colorEnum !== 0) {
+			return this.getColorCode(0, defaultFallback);
+		}
 		return defaultFallback;
 	}
 

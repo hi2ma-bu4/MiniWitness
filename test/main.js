@@ -276,7 +276,7 @@ class WitnessGame {
 			difficulty: parseFloat(document.getElementById("difficulty-slider").value),
 			pathLength: parseFloat(document.getElementById("path-length-slider").value),
 			availableColors: useCustomTheme ? this.currentOptions?.availableColors || [1, 2, 3, 4] : undefined,
-			defaultColors: useCustomTheme ? this.currentOptions?.defaultColors || { Tetris: 5, TetrisNegative: 5, Triangle: 5 } : undefined,
+			defaultColors: useCustomTheme ? this.currentOptions?.defaultColors || { Tetris: 0, TetrisNegative: 0, Triangle: 0 } : undefined,
 			seed: document.getElementById("seed-input").value || undefined,
 			rngType: parseInt(document.getElementById("rng-select").value),
 		};
@@ -634,17 +634,16 @@ class WitnessGame {
 	resolveColorList(useCustomTheme) {
 		if (!useCustomTheme) return undefined;
 		if (!this.filterState.enabled) {
-			return ["#444444", "#00ff00", "#ff00ff", "#00ffff", "#ffffff", "#ffff00"];
+			return ["#ffcc00", "#00ff00", "#ff00ff", "#00ffff", "#ffffff"];
 		}
 		// RGBフィルターで白黒判別しやすい原色寄り配色
-		return ["#ff0000", "#0000ff", "#00ff00", "#000000", "#ffffff", "#ff00ff", "#00ffff", "#ffff00"];
+		return ["#ffff00", "#ff0000", "#0000ff", "#00ff00", "#000000", "#ffffff", "#ff00ff", "#00ffff"];
 	}
 
 	getCustomPaletteColor(colorIndex) {
-		if (colorIndex === 0) return "#000000";
 		const useCustomTheme = !!(this.currentOptions?.availableColors && (this.currentOptions.availableColors === true || this.currentOptions.availableColors.length > 0));
 		const list = this.resolveColorList(useCustomTheme);
-		const fallback = ["#000000", "#000", "#fff", "#d44", "#36f"];
+		const fallback = ["#ffcc00", "#000", "#fff", "#d44", "#36f"];
 		return list?.[colorIndex] || fallback[colorIndex] || "#000";
 	}
 
@@ -1078,7 +1077,16 @@ class WitnessGame {
 		this.customMarkType = activeMarkType;
 		const isNegativeTetris = this.isNegativeTetrisType(activeMarkType);
 		const isSamePlacement = this.isSameCellPlacement(cell, activeMarkType);
-		const nextColor = isNegativeTetris ? 0 : isSamePlacement ? (cell.color + 1) % 5 : this.customColor;
+
+		const colorList = this.resolveColorList(true) || ["#ffcc00", "#000", "#fff", "#f00", "#00f"];
+		const colorCount = colorList.length;
+
+		const allowedNone = [CellType.Tetris, CellType.TetrisRotated, CellType.TetrisNegative, CellType.TetrisNegativeRotated, CellType.Triangle].includes(this.getBaseMarkType(activeMarkType));
+		let nextColor = isNegativeTetris ? 0 : isSamePlacement ? (cell.color + 1) % colorCount : this.customColor;
+		if (!allowedNone && nextColor === 0) {
+			nextColor = (nextColor + 1) % colorCount;
+		}
+
 		cell.type = activeMarkType;
 		cell.color = nextColor;
 		this.customColor = nextColor;
@@ -1096,30 +1104,35 @@ class WitnessGame {
 	getCustomOverlayToolHeight() {
 		if (!this.customMode) return 1;
 		const rows = this.customTetrisShapeGrid?.length || 4;
-		const cols = this.customTetrisShapeGrid?.[0]?.length || 4;
-		const base = 250;
+		const isCellTool = this.customTool.target === "cell";
+		const isNegativeTetrisMark = this.isNegativeTetrisType(this.customMarkType);
+		const colorList = this.resolveColorList(true) || ["#ffcc00", "#000", "#fff", "#f00", "#00f"];
+		const colorRows = isCellTool ? Math.ceil((isNegativeTetrisMark ? 1 : colorList.length) / 7) : 0;
+
+		const base = 280;
 		const rowCost = Math.max(0, rows - 4) * 18;
-		const colCost = Math.max(0, cols - 4) * 10;
-		return Math.min(900, base + rowCost + colCost);
+		const colorRowCost = Math.max(0, colorRows - 1) * 20;
+		return Math.max(200, base + rowCost + colorRowCost);
 	}
 
 	syncCustomOverlayCanvasSize() {
 		if (!this.customOverlayCanvas || !this.canvas?.getBoundingClientRect) return;
 		const rect = this.canvas.getBoundingClientRect();
 		const width = Math.max(1, Math.round(rect.width));
-		const toolHeight = this.getCustomOverlayToolHeight();
+		const height = this.getCustomOverlayToolHeight();
 		this.customOverlayCanvas.style.width = `${width}px`;
-		this.customOverlayCanvas.style.height = `${toolHeight}px`;
+		this.customOverlayCanvas.style.height = `${height}px`;
 		if (this.customOverlayCanvas.width !== width) this.customOverlayCanvas.width = width;
-		if (this.customOverlayCanvas.height !== toolHeight) this.customOverlayCanvas.height = toolHeight;
+		if (this.customOverlayCanvas.height !== height) this.customOverlayCanvas.height = height;
+
 		if (this.gameContainer?.getBoundingClientRect) {
 			const cRect = this.canvas.getBoundingClientRect();
 			const gRect = this.gameContainer.getBoundingClientRect();
 			const left = `${Math.round(cRect.left - gRect.left)}px`;
-			const top = `${Math.round(cRect.bottom - gRect.top + 10)}px`;
+			const top = `${Math.round(cRect.bottom - gRect.top)}px`;
 			this.customOverlayCanvas.style.left = left;
 			this.customOverlayCanvas.style.top = top;
-			if (this.customMode) this.gameContainer.style.paddingBottom = `${toolHeight + 10}px`;
+			if (this.customMode) this.gameContainer.style.paddingBottom = `${height + 10}px`;
 			else this.gameContainer.style.paddingBottom = "";
 		}
 	}
@@ -1167,6 +1180,7 @@ class WitnessGame {
 		const isNodeTool = this.customTool.target === "node";
 		const isEdgeTool = this.customTool.target === "edge";
 		const isTetrisMark = this.isTetrisMarkType(this.customMarkType);
+		const isNegativeTetrisMark = this.isNegativeTetrisType(this.customMarkType);
 
 		const canvasW = this.customOverlayCanvas.width;
 		const panelW = Math.max(220, Math.min(canvasW - 20, 338));
@@ -1188,7 +1202,9 @@ class WitnessGame {
 		}
 		if (isCellTool) {
 			const markRows = Math.ceil(7 / markCols);
-			panelH = 98 + markRows * 22 + (this.customMarkType === CellType.Triangle ? 22 : 0);
+			const colorList = this.resolveColorList(true) || ["#ffcc00", "#000", "#fff", "#f00", "#00f"];
+			const colorRows = Math.ceil((isNegativeTetrisMark ? 1 : colorList.length) / 7);
+			panelH = 78 + colorRows * 20 + markRows * 22 + (this.customMarkType === CellType.Triangle ? 22 : 0);
 			if (isTetrisMark) panelH += Math.max(64, 26 + tRows * (tCellSize + 2));
 			panelH += 22;
 		}
@@ -1292,7 +1308,6 @@ class WitnessGame {
 		}
 
 		if (isCellTool) {
-			const isNegativeTetrisMark = this.isNegativeTetrisType(this.customMarkType);
 			const eyeX = px + panelW - 94;
 			const eyeY = y;
 			overlayCtx.fillStyle = this.customEyedropper ? "#4db8ff" : "#333";
@@ -1311,10 +1326,12 @@ class WitnessGame {
 				},
 			});
 
-			const colors = isNegativeTetrisMark ? [0] : [0, 1, 2, 3, 4];
+			const colorList = this.resolveColorList(true) || ["#ffcc00", "#000", "#fff", "#f00", "#00f"];
+			const isForbiddenNone = [CellType.Square, CellType.Star, CellType.Eraser].includes(this.getBaseMarkType(this.customMarkType));
+			const colors = isNegativeTetrisMark ? [0] : colorList.map((_, i) => i).filter((i) => !isForbiddenNone || i !== 0);
 			colors.forEach((c, i) => {
-				const bx = px + 6 + i * 32;
-				const by = y;
+				const bx = px + 6 + (i % 7) * 32;
+				const by = y + Math.floor(i / 7) * 20;
 				overlayCtx.fillStyle = this.getCustomPaletteColor(c);
 				overlayCtx.fillRect(bx, by, 24, 16);
 				overlayCtx.strokeStyle = this.customColor === c ? "#4db8ff" : "#888";
@@ -1331,7 +1348,7 @@ class WitnessGame {
 					},
 				});
 			});
-			y += 24;
+			y += Math.ceil(colors.length / 7) * 20 + 4;
 
 			const markTypes = [CellType.None, CellType.Square, CellType.Star, CellType.Triangle, CellType.Tetris, CellType.TetrisNegative, CellType.Eraser];
 			markTypes.forEach((type, i) => {
