@@ -11,6 +11,8 @@ class WitnessGame {
 
 		this.statusMsg = document.getElementById("status-message");
 		this.sizeSelect = document.getElementById("size-select");
+		this.customRowsSelect = document.getElementById("custom-rows-select");
+		this.customColsSelect = document.getElementById("custom-cols-select");
 		this.newPuzzleBtn = document.getElementById("new-puzzle-btn");
 		this.sharePuzzleBtn = document.getElementById("share-puzzle-btn");
 		this.sharePathCheckbox = document.getElementById("share-path");
@@ -52,6 +54,7 @@ class WitnessGame {
 		this.customLongPressTimer = null;
 		this.customPressPoint = null;
 		this.customLongPressed = false;
+		this.customRightClickPicking = false;
 		this.customOverlayCanvas = document.getElementById("custom-overlay-canvas");
 		this.customOverlayCtx = null;
 
@@ -89,10 +92,24 @@ class WitnessGame {
 		this.newPuzzleBtn.addEventListener("click", () => this.startNewGame());
 		this.sharePuzzleBtn.addEventListener("click", () => this.sharePuzzle());
 		document.getElementById("custom-mode-toggle").addEventListener("change", (e) => this.toggleCustomMode(e.target.checked));
+		this.sizeSelect.addEventListener("change", () => {
+			if (this.customRowsSelect) this.customRowsSelect.value = this.sizeSelect.value;
+			if (this.customColsSelect) this.customColsSelect.value = this.sizeSelect.value;
+		});
 		this.canvas.addEventListener("mousedown", (e) => this.onCustomPointerDown(e), true);
 		this.canvas.addEventListener("mouseup", (e) => this.onCustomPointerUp(e), true);
 		this.canvas.addEventListener("touchstart", (e) => this.onCustomPointerDown(e), { capture: true, passive: false });
 		this.canvas.addEventListener("touchend", (e) => this.onCustomPointerUp(e), { capture: true, passive: false });
+		this.customOverlayCanvas.addEventListener("mousedown", (e) => this.onCustomPointerDown(e), true);
+		this.customOverlayCanvas.addEventListener("mouseup", (e) => this.onCustomPointerUp(e), true);
+		this.customOverlayCanvas.addEventListener("touchstart", (e) => this.onCustomPointerDown(e), { capture: true, passive: false });
+		this.customOverlayCanvas.addEventListener("touchend", (e) => this.onCustomPointerUp(e), { capture: true, passive: false });
+		this.canvas.addEventListener("contextmenu", (e) => {
+			if (this.customMode) e.preventDefault();
+		});
+		this.customOverlayCanvas.addEventListener("contextmenu", (e) => {
+			if (this.customMode) e.preventDefault();
+		});
 		window.addEventListener("resize", () => this.syncCustomOverlayCanvasSize());
 		window.addEventListener("scroll", () => this.syncCustomOverlayCanvasSize());
 		document.getElementById("custom-apply-btn").addEventListener("click", () => this.applyCustomPuzzle());
@@ -286,9 +303,7 @@ class WitnessGame {
 	}
 
 	syncOptionsToUI(options) {
-		if (options.rows) {
-			this.sizeSelect.value = options.rows;
-		}
+		if (options.rows) this.sizeSelect.value = options.rows;
 		if (options.rngType != null && options.rngType !== RngType.MathRandom) {
 			document.getElementById("rng-select").value = options.rngType;
 		}
@@ -329,6 +344,8 @@ class WitnessGame {
 
 		// UIのコントロールを更新
 		this.sizeSelect.value = puzzle.rows;
+		if (this.customRowsSelect) this.customRowsSelect.value = puzzle.rows;
+		if (this.customColsSelect) this.customColsSelect.value = puzzle.cols;
 		this.syncOptionsToUI(options);
 
 		const useCustomTheme = !!(options.availableColors && (options.availableColors === true || options.availableColors.length > 0));
@@ -623,6 +640,14 @@ class WitnessGame {
 		return ["#ff0000", "#0000ff", "#00ff00", "#000000", "#ffffff", "#ff00ff", "#00ffff", "#ffff00"];
 	}
 
+	getCustomPaletteColor(colorIndex) {
+		if (colorIndex === 0) return "#000000";
+		const useCustomTheme = !!(this.currentOptions?.availableColors && (this.currentOptions.availableColors === true || this.currentOptions.availableColors.length > 0));
+		const list = this.resolveColorList(useCustomTheme);
+		const fallback = ["#000000", "#000", "#fff", "#d44", "#36f"];
+		return list?.[colorIndex] || fallback[colorIndex] || "#000";
+	}
+
 	buildFilterOptions() {
 		const customColorInput = document.getElementById("filter-custom-color").value;
 		const customColor = this.filterState.customView === "primary" ? "#ffffff" : customColorInput;
@@ -693,6 +718,8 @@ class WitnessGame {
 		}
 		this.customMode = enabled;
 		document.getElementById("custom-create-tools").classList.toggle("hidden", !enabled);
+		if (this.customOverlayCanvas) this.customOverlayCanvas.style.pointerEvents = enabled ? "auto" : "none";
+		this.gameContainer?.classList.toggle("custom-mode-active", enabled);
 		if (enabled) {
 			this.syncCustomEditorFromCurrentPuzzle();
 			this.updateCustomToolIndicator("canvas");
@@ -711,6 +738,13 @@ class WitnessGame {
 		const nodeLabel = this.getNodeTypeLabel(this.customNodeType);
 		const edgeLabel = this.getEdgeTypeLabel(this.customEdgeType);
 		document.getElementById("custom-tool-indicator").textContent = `Edit on canvas: ${mode} | Tool: ${labels[this.customTool.target]} | Node: ${nodeLabel} | Edge: ${edgeLabel} | Mark: ${markLabel} | Color: ${colorName} | Target: ${hitLabel}`;
+	}
+
+	getCustomBoardSize() {
+		const fallback = parseInt(this.sizeSelect.value);
+		const rows = parseInt(this.customRowsSelect?.value ?? this.sizeSelect.value) ?? fallback;
+		const cols = parseInt(this.customColsSelect?.value ?? this.sizeSelect.value) ?? fallback;
+		return { rows, cols };
 	}
 
 	createEmptyPuzzle(rows, cols) {
@@ -791,17 +825,18 @@ class WitnessGame {
 		return out;
 	}
 
+	resizeTetrisShapeGrid(rows, cols) {
+		const maxSize = 4;
+		const nextRows = Math.max(1, Math.min(maxSize, rows));
+		const nextCols = Math.max(1, Math.min(maxSize, cols));
+		const next = Array.from({ length: nextRows }, (_, r) => Array.from({ length: nextCols }, (_, c) => (this.customTetrisShapeGrid?.[r]?.[c] ? 1 : 0)));
+		if (next.flat().every((v) => !v)) next[0][0] = 1;
+		this.customTetrisShapeGrid = next;
+	}
+
 	loadTetrisShapeGridFromShape(shape) {
-		const grid = Array.from({ length: 4 }, () => Array.from({ length: 4 }, () => 0));
 		const src = this.trimTetrisShape(shape);
-		const rowOffset = Math.max(0, Math.floor((4 - src.length) / 2));
-		const colOffset = Math.max(0, Math.floor((4 - src[0].length) / 2));
-		for (let r = 0; r < Math.min(4, src.length); r++) {
-			for (let c = 0; c < Math.min(4, src[r].length); c++) {
-				grid[r + rowOffset][c + colOffset] = src[r][c] ? 1 : 0;
-			}
-		}
-		this.customTetrisShapeGrid = grid;
+		this.customTetrisShapeGrid = src.map((row) => row.map((v) => (v ? 1 : 0)));
 	}
 
 	getCurrentTetrisShapeFromGrid() {
@@ -810,6 +845,30 @@ class WitnessGame {
 
 	isTetrisMarkType(type) {
 		return [CellType.Tetris, CellType.TetrisRotated, CellType.TetrisNegative, CellType.TetrisNegativeRotated].includes(type);
+	}
+
+	shapesEqual(shapeA, shapeB) {
+		const a = this.trimTetrisShape(shapeA || [[1]]);
+		const b = this.trimTetrisShape(shapeB || [[1]]);
+		if (a.length !== b.length) return false;
+		if ((a[0]?.length || 0) !== (b[0]?.length || 0)) return false;
+		for (let r = 0; r < a.length; r++) {
+			for (let c = 0; c < a[r].length; c++) {
+				if (!!a[r][c] !== !!b[r][c]) return false;
+			}
+		}
+		return true;
+	}
+
+	isSameCellPlacement(cell, activeMarkType) {
+		if (!cell || cell.type !== activeMarkType) return false;
+		if (activeMarkType === CellType.Triangle) {
+			return (cell.count || 1) === this.customTriangleCount;
+		}
+		if (this.isTetrisMarkType(activeMarkType)) {
+			return this.shapesEqual(cell.shape, this.getCurrentTetrisShapeFromGrid());
+		}
+		return true;
 	}
 
 	isNegativeTetrisType(type) {
@@ -887,18 +946,32 @@ class WitnessGame {
 	}
 
 	syncCustomEditorFromCurrentPuzzle() {
-		const puzzle = this.puzzle ? structuredClone(this.puzzle) : this.createEmptyPuzzle(parseInt(this.sizeSelect.value), parseInt(this.sizeSelect.value));
+		const customSize = this.getCustomBoardSize();
+		const puzzle = this.puzzle ? structuredClone(this.puzzle) : this.createEmptyPuzzle(customSize.rows, customSize.cols);
 		this.customEditorPuzzle = puzzle;
 		document.getElementById("custom-puzzle-json").value = JSON.stringify(puzzle, null, 2);
 	}
 
 	onCustomPointerDown(event) {
 		if (!this.customMode || !this.ui) return;
+		const isMouseRightClick = event.type === "mousedown" && event.button === 2;
 		if (event.cancelable) event.preventDefault();
 		event.stopImmediatePropagation?.();
 		const p = this.extractClientPoint(event);
+		if (isMouseRightClick) {
+			this.customRightClickPicking = true;
+			if (!this.customEditorPuzzle) this.syncCustomEditorFromCurrentPuzzle();
+			const hit = this.ui.hitTestInput(p.x, p.y);
+			if (hit) {
+				this.syncCustomSelectionFromHit(hit);
+				this.updateCustomToolIndicator(`pick:${hit.kind}`);
+				if (this.ui) this.ui.draw();
+			}
+			return;
+		}
 		this.customPressPoint = p;
 		this.customLongPressed = false;
+		this.customRightClickPicking = false;
 		if (this.customLongPressTimer) clearTimeout(this.customLongPressTimer);
 		this.customLongPressTimer = setTimeout(() => {
 			this.customLongPressed = true;
@@ -910,6 +983,12 @@ class WitnessGame {
 		if (!this.customMode || !this.ui) return;
 		if (event.cancelable) event.preventDefault();
 		event.stopImmediatePropagation?.();
+		if (this.customRightClickPicking) {
+			this.customRightClickPicking = false;
+			if (this.customLongPressTimer) clearTimeout(this.customLongPressTimer);
+			this.customLongPressTimer = null;
+			return;
+		}
 		const p = this.extractClientPoint(event);
 		if (this.customLongPressTimer) clearTimeout(this.customLongPressTimer);
 		this.customLongPressTimer = null;
@@ -998,8 +1077,8 @@ class WitnessGame {
 		const activeMarkType = this.applyRotatableToMarkType(this.customMarkType);
 		this.customMarkType = activeMarkType;
 		const isNegativeTetris = this.isNegativeTetrisType(activeMarkType);
-		const isSameType = cell.type === activeMarkType;
-		const nextColor = isNegativeTetris ? 0 : isSameType ? (cell.color + 1) % 5 : this.customColor;
+		const isSamePlacement = this.isSameCellPlacement(cell, activeMarkType);
+		const nextColor = isNegativeTetris ? 0 : isSamePlacement ? (cell.color + 1) % 5 : this.customColor;
 		cell.type = activeMarkType;
 		cell.color = nextColor;
 		this.customColor = nextColor;
@@ -1014,28 +1093,42 @@ class WitnessGame {
 		this.customTool = { target: "cell", value: cell.type };
 	}
 
+	getCustomOverlayToolHeight() {
+		if (!this.customMode) return 1;
+		const rows = this.customTetrisShapeGrid?.length || 4;
+		const cols = this.customTetrisShapeGrid?.[0]?.length || 4;
+		const base = 250;
+		const rowCost = Math.max(0, rows - 4) * 18;
+		const colCost = Math.max(0, cols - 4) * 10;
+		return Math.min(900, base + rowCost + colCost);
+	}
+
 	syncCustomOverlayCanvasSize() {
 		if (!this.customOverlayCanvas || !this.canvas?.getBoundingClientRect) return;
 		const rect = this.canvas.getBoundingClientRect();
 		const width = Math.max(1, Math.round(rect.width));
-		const height = Math.max(1, Math.round(rect.height));
+		const toolHeight = this.getCustomOverlayToolHeight();
 		this.customOverlayCanvas.style.width = `${width}px`;
-		this.customOverlayCanvas.style.height = `${height}px`;
+		this.customOverlayCanvas.style.height = `${toolHeight}px`;
 		if (this.customOverlayCanvas.width !== width) this.customOverlayCanvas.width = width;
-		if (this.customOverlayCanvas.height !== height) this.customOverlayCanvas.height = height;
+		if (this.customOverlayCanvas.height !== toolHeight) this.customOverlayCanvas.height = toolHeight;
 		if (this.gameContainer?.getBoundingClientRect) {
 			const cRect = this.canvas.getBoundingClientRect();
 			const gRect = this.gameContainer.getBoundingClientRect();
-			this.customOverlayCanvas.style.left = `${Math.round(cRect.left - gRect.left)}px`;
-			this.customOverlayCanvas.style.top = `${Math.round(cRect.top - gRect.top)}px`;
+			const left = `${Math.round(cRect.left - gRect.left)}px`;
+			const top = `${Math.round(cRect.bottom - gRect.top + 10)}px`;
+			this.customOverlayCanvas.style.left = left;
+			this.customOverlayCanvas.style.top = top;
+			if (this.customMode) this.gameContainer.style.paddingBottom = `${toolHeight + 10}px`;
+			else this.gameContainer.style.paddingBottom = "";
 		}
 	}
 
 	clearCustomOverlayCanvas() {
-		if (!this.customOverlayCanvas) return;
-		const ctx = this.customOverlayCanvas.getContext("2d");
-		if (!ctx) return;
-		ctx.clearRect(0, 0, this.customOverlayCanvas.width, this.customOverlayCanvas.height);
+		if (this.customOverlayCanvas) {
+			const overlayCtx = this.customOverlayCanvas.getContext("2d");
+			if (overlayCtx) overlayCtx.clearRect(0, 0, this.customOverlayCanvas.width, this.customOverlayCanvas.height);
+		}
 	}
 
 	getCustomOverlayContext() {
@@ -1082,8 +1175,10 @@ class WitnessGame {
 		const markCols = contentW < 300 ? 3 : 4;
 		const markGap = 6;
 		const markBtnW = Math.floor((contentW - markGap * (markCols - 1)) / markCols);
-		const tCellSize = contentW < 300 ? 14 : 18;
-		const tGridW = tCellSize * 4 + 2 * 3;
+		const tRows = this.customTetrisShapeGrid.length;
+		const tCols = this.customTetrisShapeGrid[0]?.length || 1;
+		const tCellSize = Math.max(8, Math.min(contentW < 300 ? 14 : 18, Math.floor((contentW - 2 * Math.max(0, tCols - 1)) / tCols)));
+		const tGridW = tCellSize * tCols + 2 * (tCols - 1);
 
 		let panelH = 68;
 		if (isNodeTool) panelH = 104;
@@ -1094,10 +1189,10 @@ class WitnessGame {
 		if (isCellTool) {
 			const markRows = Math.ceil(7 / markCols);
 			panelH = 98 + markRows * 22 + (this.customMarkType === CellType.Triangle ? 22 : 0);
-			if (isTetrisMark) panelH += 84;
+			if (isTetrisMark) panelH += Math.max(64, 26 + tRows * (tCellSize + 2));
 			panelH += 22;
 		}
-		const py = Math.max(10, this.customOverlayCanvas.height - panelH - 10);
+		const py = 6;
 
 		const items = [
 			{ key: "node", label: "Node" },
@@ -1106,8 +1201,8 @@ class WitnessGame {
 		];
 		this.customOverlayButtons = [];
 		overlayCtx.save();
-		overlayCtx.globalAlpha = 0.9;
-		overlayCtx.fillStyle = "rgba(10,10,10,0.7)";
+		overlayCtx.globalAlpha = 0.95;
+		overlayCtx.fillStyle = "rgba(10,10,10,0.94)";
 		overlayCtx.fillRect(px, py, panelW, panelH);
 		overlayCtx.font = "12px sans-serif";
 		items.forEach((it, i) => {
@@ -1220,7 +1315,7 @@ class WitnessGame {
 			colors.forEach((c, i) => {
 				const bx = px + 6 + i * 32;
 				const by = y;
-				overlayCtx.fillStyle = ["#000000", "#000", "#fff", "#d44", "#36f"][c] || "#000";
+				overlayCtx.fillStyle = this.getCustomPaletteColor(c);
 				overlayCtx.fillRect(bx, by, 24, 16);
 				overlayCtx.strokeStyle = this.customColor === c ? "#4db8ff" : "#888";
 				overlayCtx.lineWidth = 2;
@@ -1291,13 +1386,33 @@ class WitnessGame {
 					},
 				});
 
+				y += 24;
+				const sizeBtnY = y;
+				const sizeBtnW = 28;
+				const sizeBtns = [
+					{ label: "R+", dx: 0, action: () => this.resizeTetrisShapeGrid(tRows + 1, tCols) },
+					{ label: "R-", dx: 32, action: () => this.resizeTetrisShapeGrid(tRows - 1, tCols) },
+					{ label: "C+", dx: 64, action: () => this.resizeTetrisShapeGrid(tRows, tCols + 1) },
+					{ label: "C-", dx: 96, action: () => this.resizeTetrisShapeGrid(tRows, tCols - 1) },
+				];
+				sizeBtns.forEach((b) => {
+					const bx = px + 6 + b.dx;
+					overlayCtx.fillStyle = "#333";
+					overlayCtx.fillRect(bx, sizeBtnY, sizeBtnW, 18);
+					overlayCtx.fillStyle = "#fff";
+					overlayCtx.fillText(b.label, bx + 6, sizeBtnY + 13);
+					this.customOverlayButtons.push({ x: bx, y: sizeBtnY, w: sizeBtnW, h: 18, action: b.action });
+				});
+				overlayCtx.fillStyle = "#bbb";
+				overlayCtx.fillText(`${tRows}x${tCols}`, px + 138, sizeBtnY + 13);
+
 				const gx = px + Math.max(110, contentW - tGridW);
-				const gy = y;
-				for (let r = 0; r < 4; r++) {
-					for (let c = 0; c < 4; c++) {
+				const gy = y + 22;
+				for (let r = 0; r < tRows; r++) {
+					for (let c = 0; c < tCols; c++) {
 						const bx = gx + c * (tCellSize + 2);
 						const by = gy + r * (tCellSize + 2);
-						overlayCtx.fillStyle = this.customTetrisShapeGrid[r][c] ? "#4db8ff" : "#1a1a1a";
+						overlayCtx.fillStyle = this.customTetrisShapeGrid[r]?.[c] || 0 ? "#4db8ff" : "#1a1a1a";
 						overlayCtx.fillRect(bx, by, tCellSize, tCellSize);
 						overlayCtx.strokeStyle = "#777";
 						overlayCtx.lineWidth = 1;
@@ -1315,7 +1430,7 @@ class WitnessGame {
 						});
 					}
 				}
-				y += tCellSize * 4 + 10;
+				y += 22 + tCellSize * tRows + 10;
 			}
 
 			overlayCtx.fillStyle = "#ddd";
@@ -1326,14 +1441,18 @@ class WitnessGame {
 
 	refreshCustomPuzzle(hitLabel) {
 		document.getElementById("custom-puzzle-json").value = JSON.stringify(this.customEditorPuzzle, null, 2);
-		this.loadPuzzle(structuredClone(this.customEditorPuzzle), this.getOptionsFromUI());
+		const options = this.getOptionsFromUI();
+		options.rows = this.customEditorPuzzle.rows;
+		options.cols = this.customEditorPuzzle.cols;
+		this.loadPuzzle(structuredClone(this.customEditorPuzzle), options);
 		this.updateCustomToolIndicator(hitLabel);
 		if (!this.customMode) this.clearCustomOverlayCanvas();
 	}
 
 	clearCustomBoard() {
 		if (this.customEditorPuzzle) this.pushCustomHistory();
-		this.customEditorPuzzle = this.createEmptyPuzzle(parseInt(this.sizeSelect.value), parseInt(this.sizeSelect.value));
+		const customSize = this.getCustomBoardSize();
+		this.customEditorPuzzle = this.createEmptyPuzzle(customSize.rows, customSize.cols);
 		this.refreshCustomPuzzle("cleared");
 	}
 

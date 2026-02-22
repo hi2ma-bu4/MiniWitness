@@ -3882,8 +3882,8 @@ var WitnessUI = class {
     const nearY = Math.round(gy);
     const dx = Math.abs(gx - nearX);
     const dy = Math.abs(gy - nearY);
-    const nodeThreshold = 0.2;
-    const edgeThreshold = 0.2;
+    const nodeThreshold = 0.15;
+    const edgeThreshold = 0.1;
     if (dx <= nodeThreshold && dy <= nodeThreshold) {
       if (nearX >= 0 && nearX <= this.puzzle.cols && nearY >= 0 && nearY <= this.puzzle.rows) return { kind: "node", x: nearX, y: nearY };
       return null;
