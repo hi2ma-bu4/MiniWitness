@@ -107,7 +107,6 @@ button:hover {
 
 #custom-overlay-canvas {
     left: 0;
-    pointer-events: none;
     position: absolute;
     top: 0;
     z-index: 2;

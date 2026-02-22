@@ -55,6 +55,8 @@ class WitnessGame {
 		this.customPressPoint = null;
 		this.customLongPressed = false;
 		this.customRightClickPicking = false;
+		this.customTouchStartPos = null;
+		this.customIsScrolling = false;
 		this.customOverlayCanvas = document.getElementById("custom-overlay-canvas");
 		this.customOverlayCtx = null;
 
@@ -99,11 +101,15 @@ class WitnessGame {
 		this.canvas.addEventListener("mousedown", (e) => this.onCustomPointerDown(e), true);
 		this.canvas.addEventListener("mouseup", (e) => this.onCustomPointerUp(e), true);
 		this.canvas.addEventListener("touchstart", (e) => this.onCustomPointerDown(e), { capture: true, passive: false });
+		this.canvas.addEventListener("touchmove", (e) => this.onCustomTouchMove(e), { capture: true, passive: true });
 		this.canvas.addEventListener("touchend", (e) => this.onCustomPointerUp(e), { capture: true, passive: false });
+		this.canvas.addEventListener("touchcancel", (e) => this.onCustomTouchCancel(e), { capture: true, passive: true });
 		this.customOverlayCanvas.addEventListener("mousedown", (e) => this.onCustomPointerDown(e), true);
 		this.customOverlayCanvas.addEventListener("mouseup", (e) => this.onCustomPointerUp(e), true);
 		this.customOverlayCanvas.addEventListener("touchstart", (e) => this.onCustomPointerDown(e), { capture: true, passive: false });
+		this.customOverlayCanvas.addEventListener("touchmove", (e) => this.onCustomTouchMove(e), { capture: true, passive: true });
 		this.customOverlayCanvas.addEventListener("touchend", (e) => this.onCustomPointerUp(e), { capture: true, passive: false });
+		this.customOverlayCanvas.addEventListener("touchcancel", (e) => this.onCustomTouchCancel(e), { capture: true, passive: true });
 		this.canvas.addEventListener("contextmenu", (e) => {
 			if (this.customMode) e.preventDefault();
 		});
@@ -953,10 +959,28 @@ class WitnessGame {
 
 	onCustomPointerDown(event) {
 		if (!this.customMode || !this.ui) return;
+		const isTouch = event.type === "touchstart";
 		const isMouseRightClick = event.type === "mousedown" && event.button === 2;
-		if (event.cancelable) event.preventDefault();
-		event.stopImmediatePropagation?.();
+		if (isTouch) {
+			const touch = event.touches[0];
+			this.customTouchStartPos = { x: touch.clientX, y: touch.clientY };
+			this.customIsScrolling = false;
+		} else {
+			this.customTouchStartPos = null;
+			this.customIsScrolling = false;
+		}
 		const p = this.extractClientPoint(event);
+		let shouldPreventDefault = !isTouch;
+
+		// Overlay上のボタンをタッチした場合は即座にスクロールを抑止する
+		if (isTouch && event.currentTarget === this.customOverlayCanvas) {
+			const overP = this.toOverlayPoint(p.x, p.y);
+			const hitButton = this.customOverlayButtons.find((btn) => overP.x >= btn.x && overP.x <= btn.x + btn.w && overP.y >= btn.y && overP.y <= btn.y + btn.h);
+			if (hitButton) shouldPreventDefault = true;
+		}
+
+		if (shouldPreventDefault && event.cancelable) event.preventDefault();
+		event.stopImmediatePropagation?.();
 		if (isMouseRightClick) {
 			this.customRightClickPicking = true;
 			if (!this.customEditorPuzzle) this.syncCustomEditorFromCurrentPuzzle();
@@ -980,6 +1004,10 @@ class WitnessGame {
 
 	onCustomPointerUp(event) {
 		if (!this.customMode || !this.ui) return;
+		if (this.customIsScrolling) {
+			this.customIsScrolling = false;
+			return;
+		}
 		if (event.cancelable) event.preventDefault();
 		event.stopImmediatePropagation?.();
 		if (this.customRightClickPicking) {
@@ -993,6 +1021,28 @@ class WitnessGame {
 		this.customLongPressTimer = null;
 		if (this.customLongPressed) return;
 		this.applyCustomClick(p.x, p.y);
+	}
+
+	onCustomTouchMove(event) {
+		if (!this.customMode || !this.customTouchStartPos) return;
+		const touch = event.touches[0];
+		const dx = touch.clientX - this.customTouchStartPos.x;
+		const dy = touch.clientY - this.customTouchStartPos.y;
+		if (Math.hypot(dx, dy) > 10) {
+			this.customIsScrolling = true;
+			if (this.customLongPressTimer) {
+				clearTimeout(this.customLongPressTimer);
+				this.customLongPressTimer = null;
+			}
+		}
+	}
+
+	onCustomTouchCancel(event) {
+		if (this.customLongPressTimer) {
+			clearTimeout(this.customLongPressTimer);
+			this.customLongPressTimer = null;
+		}
+		this.customIsScrolling = false;
 	}
 
 	extractClientPoint(event) {
