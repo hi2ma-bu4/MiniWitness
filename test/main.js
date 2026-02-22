@@ -34,7 +34,21 @@ class WitnessGame {
 		this.customEditorPuzzle = null;
 		this.customTool = { target: "node", value: 0 };
 		this.customColor = 1;
+		this.customNodeType = null;
+		this.customEdgeType = null;
+		this.customMarkType = CellType.Square;
+		this.customTriangleCount = 1;
+		this.customTetrisRotatable = false;
+		this.customTetrisShapeGrid = [
+			[0, 0, 0, 0],
+			[0, 1, 0, 0],
+			[0, 1, 1, 0],
+			[0, 0, 0, 0],
+		];
 		this.customOverlayButtons = [];
+		this.customHistoryUndo = [];
+		this.customHistoryRedo = [];
+		this.customEyedropper = false;
 		this.customLongPressTimer = null;
 		this.customPressPoint = null;
 		this.customLongPressed = false;
@@ -591,7 +605,7 @@ class WitnessGame {
 			}
 		});
 		this.ui.on("render:after", (event) => {
-			if (this.customMode) this.drawCustomOverlay(event?.ctx);
+			if (this.customMode) this.drawCustomOverlay();
 		});
 	}
 
@@ -693,7 +707,10 @@ class WitnessGame {
 		const labels = { node: "Node", edge: "Edge", cell: "Cell" };
 		const mode = this.customMode ? "ON" : "OFF";
 		const colorName = ["None", "Black", "White", "Red", "Blue"][this.customColor] || this.customColor;
-		document.getElementById("custom-tool-indicator").textContent = `Edit on canvas: ${mode} | Tool: ${labels[this.customTool.target]} | Color: ${colorName} | Target: ${hitLabel}`;
+		const markLabel = this.getCustomMarkTypeLabel(this.customMarkType);
+		const nodeLabel = this.getNodeTypeLabel(this.customNodeType);
+		const edgeLabel = this.getEdgeTypeLabel(this.customEdgeType);
+		document.getElementById("custom-tool-indicator").textContent = `Edit on canvas: ${mode} | Tool: ${labels[this.customTool.target]} | Node: ${nodeLabel} | Edge: ${edgeLabel} | Mark: ${markLabel} | Color: ${colorName} | Target: ${hitLabel}`;
 	}
 
 	createEmptyPuzzle(rows, cols) {
@@ -708,34 +725,165 @@ class WitnessGame {
 		};
 	}
 
-	getTetrisShapePreset(index) {
-		const presets = [
-			[[1]],
-			[[1, 1]],
-			[[1, 1, 1]],
-			[[1, 1, 1, 1]],
-			[
-				[1, 1],
-				[1, 1],
-			],
-			[
-				[1, 0],
-				[1, 1],
-			],
-			[
-				[1, 0, 0],
-				[1, 1, 1],
-			],
-			[
-				[1, 1, 1],
-				[0, 1, 0],
-			],
-			[
-				[0, 1, 1],
-				[1, 1, 0],
-			],
-		];
-		return presets[index % presets.length];
+	getNodeTypeLabel(type) {
+		if (type == null) return "Cycle";
+		return (
+			{
+				[NodeType.Normal]: "Normal",
+				[NodeType.Start]: "Start",
+				[NodeType.End]: "End",
+			}[type] || `Node ${type}`
+		);
+	}
+
+	getEdgeTypeLabel(type) {
+		if (type == null) return "Cycle";
+		return (
+			{
+				[EdgeType.Normal]: "Normal",
+				[EdgeType.Broken]: "Broken",
+				[EdgeType.Absent]: "Absent",
+				[EdgeType.Hexagon]: "Hex",
+				[EdgeType.HexagonMain]: "Hex Main",
+				[EdgeType.HexagonSymmetry]: "Hex Sym",
+			}[type] || `Edge ${type}`
+		);
+	}
+
+	getCustomMarkTypeLabel(type) {
+		return (
+			{
+				[CellType.None]: "None",
+				[CellType.Square]: "Square",
+				[CellType.Star]: "Star",
+				[CellType.Tetris]: "Tetris",
+				[CellType.TetrisRotated]: "Tetris Rot",
+				[CellType.TetrisNegative]: "Tetris-",
+				[CellType.TetrisNegativeRotated]: "Tetris- Rot",
+				[CellType.Eraser]: "Eraser",
+				[CellType.Triangle]: "Triangle",
+			}[type] || `Type ${type}`
+		);
+	}
+
+	trimTetrisShape(shape) {
+		if (!Array.isArray(shape) || shape.length === 0) return [[1]];
+		let minR = Infinity;
+		let maxR = -1;
+		let minC = Infinity;
+		let maxC = -1;
+		for (let r = 0; r < shape.length; r++) {
+			for (let c = 0; c < shape[r].length; c++) {
+				if (!shape[r][c]) continue;
+				minR = Math.min(minR, r);
+				maxR = Math.max(maxR, r);
+				minC = Math.min(minC, c);
+				maxC = Math.max(maxC, c);
+			}
+		}
+		if (maxR < 0) return [[1]];
+		const out = [];
+		for (let r = minR; r <= maxR; r++) {
+			const row = [];
+			for (let c = minC; c <= maxC; c++) row.push(shape[r]?.[c] ? 1 : 0);
+			out.push(row);
+		}
+		return out;
+	}
+
+	loadTetrisShapeGridFromShape(shape) {
+		const grid = Array.from({ length: 4 }, () => Array.from({ length: 4 }, () => 0));
+		const src = this.trimTetrisShape(shape);
+		const rowOffset = Math.max(0, Math.floor((4 - src.length) / 2));
+		const colOffset = Math.max(0, Math.floor((4 - src[0].length) / 2));
+		for (let r = 0; r < Math.min(4, src.length); r++) {
+			for (let c = 0; c < Math.min(4, src[r].length); c++) {
+				grid[r + rowOffset][c + colOffset] = src[r][c] ? 1 : 0;
+			}
+		}
+		this.customTetrisShapeGrid = grid;
+	}
+
+	getCurrentTetrisShapeFromGrid() {
+		return this.trimTetrisShape(this.customTetrisShapeGrid);
+	}
+
+	isTetrisMarkType(type) {
+		return [CellType.Tetris, CellType.TetrisRotated, CellType.TetrisNegative, CellType.TetrisNegativeRotated].includes(type);
+	}
+
+	isNegativeTetrisType(type) {
+		return type === CellType.TetrisNegative || type === CellType.TetrisNegativeRotated;
+	}
+
+	getBaseMarkType(type) {
+		if (type === CellType.TetrisRotated) return CellType.Tetris;
+		if (type === CellType.TetrisNegativeRotated) return CellType.TetrisNegative;
+		return type;
+	}
+
+	applyRotatableToMarkType(type) {
+		if (!this.isTetrisMarkType(type)) return type;
+		const base = this.getBaseMarkType(type);
+		if (base === CellType.TetrisNegative) return this.customTetrisRotatable ? CellType.TetrisNegativeRotated : CellType.TetrisNegative;
+		return this.customTetrisRotatable ? CellType.TetrisRotated : CellType.Tetris;
+	}
+
+	inferCustomTargetFromHit(hit) {
+		if (!hit) return null;
+		if (hit.kind === "node") return "node";
+		if (hit.kind === "hEdge" || hit.kind === "vEdge") return "edge";
+		if (hit.kind === "cell") return "cell";
+		return null;
+	}
+
+	syncCustomSelectionFromHit(hit) {
+		if (!this.customEditorPuzzle || !hit) return;
+		const target = this.inferCustomTargetFromHit(hit);
+		if (!target) return;
+		this.customTool.target = target;
+		const p = this.customEditorPuzzle;
+		if (target === "node") {
+			const t = p.nodes[hit.y][hit.x].type;
+			this.customNodeType = t;
+			this.customTool.value = t;
+			return;
+		}
+		if (target === "edge") {
+			const edge = hit.kind === "hEdge" ? p.hEdges[hit.r][hit.c] : p.vEdges[hit.r][hit.c];
+			this.customEdgeType = edge.type;
+			this.customTool.value = edge.type;
+			return;
+		}
+		const cell = p.cells[hit.r][hit.c];
+		this.customMarkType = cell.type;
+		this.customColor = cell.color ?? 0;
+		if (cell.type === CellType.Triangle) this.customTriangleCount = cell.count || 1;
+		if (this.isTetrisMarkType(cell.type) && cell.shape) this.loadTetrisShapeGridFromShape(cell.shape);
+		if (this.isTetrisMarkType(cell.type)) this.customTetrisRotatable = cell.type === CellType.TetrisRotated || cell.type === CellType.TetrisNegativeRotated;
+		if (this.isNegativeTetrisType(cell.type)) this.customColor = 0;
+		this.customTool.value = cell.type;
+	}
+
+	pushCustomHistory() {
+		if (!this.customEditorPuzzle) return;
+		this.customHistoryUndo.push(structuredClone(this.customEditorPuzzle));
+		if (this.customHistoryUndo.length > 100) this.customHistoryUndo.shift();
+		this.customHistoryRedo = [];
+	}
+
+	undoCustomEdit() {
+		if (!this.customEditorPuzzle || this.customHistoryUndo.length === 0) return;
+		this.customHistoryRedo.push(structuredClone(this.customEditorPuzzle));
+		this.customEditorPuzzle = this.customHistoryUndo.pop();
+		this.refreshCustomPuzzle("undo");
+	}
+
+	redoCustomEdit() {
+		if (!this.customEditorPuzzle || this.customHistoryRedo.length === 0) return;
+		this.customHistoryUndo.push(structuredClone(this.customEditorPuzzle));
+		this.customEditorPuzzle = this.customHistoryRedo.pop();
+		this.refreshCustomPuzzle("redo");
 	}
 
 	syncCustomEditorFromCurrentPuzzle() {
@@ -780,6 +928,23 @@ class WitnessGame {
 		if (this.handleOverlayClick(clientX, clientY)) return;
 		const hit = this.ui.hitTestInput(clientX, clientY);
 		if (!hit) return;
+		const target = this.inferCustomTargetFromHit(hit);
+		if (!target) return;
+
+		if (this.customEyedropper) {
+			this.syncCustomSelectionFromHit(hit);
+			this.updateCustomToolIndicator(`pick:${target}`);
+			if (this.ui) this.ui.draw();
+			return;
+		}
+
+		if (this.customTool.target !== target) {
+			this.syncCustomSelectionFromHit(hit);
+			this.updateCustomToolIndicator(`switch:${target}`);
+			if (this.ui) this.ui.draw();
+			return;
+		}
+		this.pushCustomHistory();
 		this.applyCustomCycle(hit);
 		this.refreshCustomPuzzle(hit.kind);
 	}
@@ -789,6 +954,7 @@ class WitnessGame {
 		if (!this.customEditorPuzzle) return;
 		const hit = this.ui.hitTestInput(clientX, clientY);
 		if (!hit) return;
+		this.pushCustomHistory();
 		const p = this.customEditorPuzzle;
 		if (hit.kind === "node") p.nodes[hit.y][hit.x].type = NodeType.Normal;
 		if (hit.kind === "hEdge") p.hEdges[hit.r][hit.c].type = EdgeType.Normal;
@@ -800,34 +966,50 @@ class WitnessGame {
 	applyCustomCycle(hit) {
 		const p = this.customEditorPuzzle;
 		if (hit.kind === "node") {
-			const order = [NodeType.Normal, NodeType.Start, NodeType.End];
-			const cur = p.nodes[hit.y][hit.x].type;
-			p.nodes[hit.y][hit.x].type = order[(order.indexOf(cur) + 1 + order.length) % order.length];
-			this.customTool = { target: "node", value: p.nodes[hit.y][hit.x].type };
+			if (this.customNodeType == null) {
+				const order = [NodeType.Normal, NodeType.Start, NodeType.End];
+				const cur = p.nodes[hit.y][hit.x].type;
+				p.nodes[hit.y][hit.x].type = order[(order.indexOf(cur) + 1 + order.length) % order.length];
+				this.customTool = { target: "node", value: p.nodes[hit.y][hit.x].type };
+			} else {
+				p.nodes[hit.y][hit.x].type = this.customNodeType;
+				this.customTool = { target: "node", value: this.customNodeType };
+			}
 			return;
 		}
 		if (hit.kind === "hEdge" || hit.kind === "vEdge") {
-			const order = [EdgeType.Normal, EdgeType.Broken, EdgeType.Absent, EdgeType.Hexagon, EdgeType.HexagonMain, EdgeType.HexagonSymmetry];
 			const edge = hit.kind === "hEdge" ? p.hEdges[hit.r][hit.c] : p.vEdges[hit.r][hit.c];
-			edge.type = order[(order.indexOf(edge.type) + 1 + order.length) % order.length];
-			this.customTool = { target: "edge", value: edge.type };
+			if (this.customEdgeType == null) {
+				const order = [EdgeType.Normal, EdgeType.Broken, EdgeType.Absent, EdgeType.Hexagon, EdgeType.HexagonMain, EdgeType.HexagonSymmetry];
+				edge.type = order[(order.indexOf(edge.type) + 1 + order.length) % order.length];
+				this.customTool = { target: "edge", value: edge.type };
+			} else {
+				edge.type = this.customEdgeType;
+				this.customTool = { target: "edge", value: this.customEdgeType };
+			}
 			return;
 		}
 		const cell = p.cells[hit.r][hit.c];
-		if (cell.type === CellType.None) {
-			cell.type = CellType.Square;
-			cell.color = this.customColor;
-		} else {
-			cell.color = (cell.color % 4) + 1;
-			this.customColor = cell.color;
-			if (cell.type === CellType.Triangle) {
-				cell.count = ((cell.count || 1) % 3) + 1;
-			}
-			if ([CellType.Tetris, CellType.TetrisNegative].includes(cell.type)) {
-				const seq = Number(cell.__shapeSeq || 0) + 1;
-				cell.shape = this.getTetrisShapePreset(seq);
-				cell.__shapeSeq = seq;
-			}
+		if (this.customMarkType === CellType.None) {
+			p.cells[hit.r][hit.c] = { type: CellType.None, color: 0 };
+			return;
+		}
+
+		const activeMarkType = this.applyRotatableToMarkType(this.customMarkType);
+		this.customMarkType = activeMarkType;
+		const isNegativeTetris = this.isNegativeTetrisType(activeMarkType);
+		const isSameType = cell.type === activeMarkType;
+		const nextColor = isNegativeTetris ? 0 : isSameType ? (cell.color + 1) % 5 : this.customColor;
+		cell.type = activeMarkType;
+		cell.color = nextColor;
+		this.customColor = nextColor;
+		delete cell.shape;
+		delete cell.count;
+		if (this.isTetrisMarkType(cell.type)) {
+			cell.shape = this.getCurrentTetrisShapeFromGrid();
+		}
+		if (cell.type === CellType.Triangle) {
+			cell.count = this.customTriangleCount;
 		}
 		this.customTool = { target: "cell", value: cell.type };
 	}
@@ -856,8 +1038,7 @@ class WitnessGame {
 		ctx.clearRect(0, 0, this.customOverlayCanvas.width, this.customOverlayCanvas.height);
 	}
 
-	getCustomOverlayContext(ctx) {
-		if (ctx && typeof ctx.save === "function") return ctx;
+	getCustomOverlayContext() {
 		if (!this.customOverlayCanvas) return null;
 		this.syncCustomOverlayCanvasSize();
 		if (!this.customOverlayCtx) this.customOverlayCtx = this.customOverlayCanvas.getContext("2d");
@@ -866,9 +1047,16 @@ class WitnessGame {
 		return this.customOverlayCtx;
 	}
 
+	toOverlayPoint(clientX, clientY) {
+		if (!this.customOverlayCanvas?.getBoundingClientRect) return { x: clientX, y: clientY };
+		const rect = this.customOverlayCanvas.getBoundingClientRect();
+		return { x: clientX - rect.left, y: clientY - rect.top };
+	}
+
 	handleOverlayClick(clientX, clientY) {
+		const p = this.toOverlayPoint(clientX, clientY);
 		for (const btn of this.customOverlayButtons) {
-			if (clientX >= btn.x && clientX <= btn.x + btn.w && clientY >= btn.y && clientY <= btn.y + btn.h) {
+			if (p.x >= btn.x && p.x <= btn.x + btn.w && p.y >= btn.y && p.y <= btn.y + btn.h) {
 				btn.action();
 				if (this.ui) this.ui.draw();
 				return true;
@@ -877,35 +1065,61 @@ class WitnessGame {
 		return false;
 	}
 
-	drawCustomOverlay(ctx) {
+	drawCustomOverlay() {
 		if (!this.customMode || !this.ui || !this.canvas.getBoundingClientRect) return;
-		const overlayCtx = this.getCustomOverlayContext(ctx);
+		const overlayCtx = this.getCustomOverlayContext();
 		if (!overlayCtx) return;
-		const rect = this.canvas.getBoundingClientRect();
-		const x0 = rect.left + 10;
-		const y0 = rect.top + 10;
+
+		const isCellTool = this.customTool.target === "cell";
+		const isNodeTool = this.customTool.target === "node";
+		const isEdgeTool = this.customTool.target === "edge";
+		const isTetrisMark = this.isTetrisMarkType(this.customMarkType);
+
+		const canvasW = this.customOverlayCanvas.width;
+		const panelW = Math.max(220, Math.min(canvasW - 20, 338));
+		const px = 10;
+		const contentW = panelW - 12;
+		const markCols = contentW < 300 ? 3 : 4;
+		const markGap = 6;
+		const markBtnW = Math.floor((contentW - markGap * (markCols - 1)) / markCols);
+		const tCellSize = contentW < 300 ? 14 : 18;
+		const tGridW = tCellSize * 4 + 2 * 3;
+
+		let panelH = 68;
+		if (isNodeTool) panelH = 104;
+		if (isEdgeTool) {
+			const edgeRows = Math.ceil(7 / 3);
+			panelH = 36 + edgeRows * 24 + 28;
+		}
+		if (isCellTool) {
+			const markRows = Math.ceil(7 / markCols);
+			panelH = 98 + markRows * 22 + (this.customMarkType === CellType.Triangle ? 22 : 0);
+			if (isTetrisMark) panelH += 84;
+			panelH += 22;
+		}
+		const py = Math.max(10, this.customOverlayCanvas.height - panelH - 10);
+
 		const items = [
 			{ key: "node", label: "Node" },
 			{ key: "edge", label: "Edge" },
 			{ key: "cell", label: "Cell" },
 		];
-		const colors = [1, 2, 3, 4];
 		this.customOverlayButtons = [];
 		overlayCtx.save();
 		overlayCtx.globalAlpha = 0.9;
 		overlayCtx.fillStyle = "rgba(10,10,10,0.7)";
-		overlayCtx.fillRect(10, 10, 260, 68);
+		overlayCtx.fillRect(px, py, panelW, panelH);
 		overlayCtx.font = "12px sans-serif";
 		items.forEach((it, i) => {
-			const bx = 16 + i * 58;
-			const by = 18;
+			const bx = px + 6 + i * 58;
+			const by = py + 8;
 			overlayCtx.fillStyle = this.customTool.target === it.key ? "#4db8ff" : "#333";
 			overlayCtx.fillRect(bx, by, 52, 20);
 			overlayCtx.fillStyle = "#fff";
 			overlayCtx.fillText(it.label, bx + 10, by + 14);
 			this.customOverlayButtons.push({
-				x: x0 + (bx - 10),
-				y: y0 + (by - 10),
+				x: bx,
+				y: by,
 				w: 52,
 				h: 20,
 				action: () => {
@@ -914,27 +1128,199 @@ class WitnessGame {
 				},
 			});
 		});
-		colors.forEach((c, i) => {
-			const bx = 16 + i * 32;
-			const by = 46;
-			overlayCtx.fillStyle = ["", "#000", "#fff", "#d44", "#36f"][c];
-			overlayCtx.fillRect(bx, by, 24, 16);
-			overlayCtx.strokeStyle = this.customColor === c ? "#4db8ff" : "#888";
-			overlayCtx.lineWidth = 2;
-			overlayCtx.strokeRect(bx, by, 24, 16);
+		const undoW = 44;
+		const undoX = px + panelW - undoW * 2 - 12;
+		const undoY = py + 8;
+		overlayCtx.fillStyle = this.customHistoryUndo.length > 0 ? "#333" : "#222";
+		overlayCtx.fillRect(undoX, undoY, undoW, 20);
+		overlayCtx.fillStyle = "#fff";
+		overlayCtx.fillText("Undo", undoX + 7, undoY + 14);
+		this.customOverlayButtons.push({ x: undoX, y: undoY, w: undoW, h: 20, action: () => this.undoCustomEdit() });
+
+		overlayCtx.fillStyle = this.customHistoryRedo.length > 0 ? "#333" : "#222";
+		overlayCtx.fillRect(undoX + undoW + 4, undoY, undoW, 20);
+		overlayCtx.fillStyle = "#fff";
+		overlayCtx.fillText("Redo", undoX + undoW + 10, undoY + 14);
+		this.customOverlayButtons.push({ x: undoX + undoW + 4, y: undoY, w: undoW, h: 20, action: () => this.redoCustomEdit() });
+
+		let y = py + 36;
+		if (isNodeTool) {
+			const nodeTypes = [null, NodeType.Normal, NodeType.Start, NodeType.End];
+			nodeTypes.forEach((type, i) => {
+				const bw = Math.floor((contentW - 3 * 6) / 4);
+				const bx = px + 6 + i * (bw + 6);
+				overlayCtx.fillStyle = this.customNodeType === type ? "#4db8ff" : "#333";
+				overlayCtx.fillRect(bx, y, bw, 20);
+				overlayCtx.fillStyle = "#fff";
+				overlayCtx.fillText(this.getNodeTypeLabel(type), bx + 6, y + 14);
+				this.customOverlayButtons.push({
+					x: bx,
+					y,
+					w: bw,
+					h: 20,
+					action: () => {
+						this.customNodeType = type;
+						this.customTool = { target: "node", value: type };
+					},
+				});
+			});
+			y += 30;
+			overlayCtx.fillStyle = "#ddd";
+			overlayCtx.fillText("Tap node to place selected type", px + 6, y + 12);
+		}
+
+		if (isEdgeTool) {
+			const edgeTypes = [null, EdgeType.Normal, EdgeType.Broken, EdgeType.Absent, EdgeType.Hexagon, EdgeType.HexagonMain, EdgeType.HexagonSymmetry];
+			const cols = 3;
+			const edgeRows = Math.ceil(edgeTypes.length / cols);
+			const bw = Math.floor((contentW - (cols - 1) * 6) / cols);
+			edgeTypes.forEach((type, i) => {
+				const bx = px + 6 + (i % cols) * (bw + 6);
+				const by = y + Math.floor(i / cols) * 24;
+				overlayCtx.fillStyle = this.customEdgeType === type ? "#4db8ff" : "#333";
+				overlayCtx.fillRect(bx, by, bw, 20);
+				overlayCtx.fillStyle = "#fff";
+				overlayCtx.fillText(this.getEdgeTypeLabel(type), bx + 4, by + 14);
+				this.customOverlayButtons.push({
+					x: bx,
+					y: by,
+					w: bw,
+					h: 20,
+					action: () => {
+						this.customEdgeType = type;
+						this.customTool = { target: "edge", value: type };
+					},
+				});
+			});
+			overlayCtx.fillStyle = "#ddd";
+			overlayCtx.fillText("Tap edge to place selected type", px + 6, y + edgeRows * 24 + 14);
+		}
+
+		if (isCellTool) {
+			const isNegativeTetrisMark = this.isNegativeTetrisType(this.customMarkType);
+			const eyeX = px + panelW - 94;
+			const eyeY = y;
+			overlayCtx.fillStyle = this.customEyedropper ? "#4db8ff" : "#333";
+			overlayCtx.fillRect(eyeX, eyeY, 88, 18);
+			overlayCtx.fillStyle = "#fff";
+			overlayCtx.fillText("Eyedropper", eyeX + 8, eyeY + 13);
 			this.customOverlayButtons.push({
-				x: x0 + (bx - 10),
-				y: y0 + (by - 10),
-				w: 24,
-				h: 16,
+				x: eyeX,
+				y: eyeY,
+				w: 88,
+				h: 18,
 				action: () => {
-					this.customColor = c;
-					this.updateCustomToolIndicator("overlay");
+					this.customEyedropper = !this.customEyedropper;
+					if (this.customEyedropper) this.customTool.target = "cell";
+					this.updateCustomToolIndicator("eyedropper");
 				},
 			});
-		});
-		overlayCtx.fillStyle = "#ddd";
-		overlayCtx.fillText("Tap: cycle / recolor   Hold: clear", 150, 58);
+
+			const colors = isNegativeTetrisMark ? [0] : [0, 1, 2, 3, 4];
+			colors.forEach((c, i) => {
+				const bx = px + 6 + i * 32;
+				const by = y;
+				overlayCtx.fillStyle = ["#000000", "#000", "#fff", "#d44", "#36f"][c] || "#000";
+				overlayCtx.fillRect(bx, by, 24, 16);
+				overlayCtx.strokeStyle = this.customColor === c ? "#4db8ff" : "#888";
+				overlayCtx.lineWidth = 2;
+				overlayCtx.strokeRect(bx, by, 24, 16);
+				this.customOverlayButtons.push({
+					x: bx,
+					y: by,
+					w: 24,
+					h: 16,
+					action: () => {
+						this.customColor = c;
+						this.updateCustomToolIndicator("overlay");
+					},
+				});
+			});
+			y += 24;
+
+			const markTypes = [CellType.None, CellType.Square, CellType.Star, CellType.Triangle, CellType.Tetris, CellType.TetrisNegative, CellType.Eraser];
+			markTypes.forEach((type, i) => {
+				const bx = px + 6 + (i % markCols) * (markBtnW + markGap);
+				const by = y + Math.floor(i / markCols) * 22;
+				overlayCtx.fillStyle = this.getBaseMarkType(this.customMarkType) === this.getBaseMarkType(type) ? "#4db8ff" : "#333";
+				overlayCtx.fillRect(bx, by, markBtnW, 18);
+				overlayCtx.fillStyle = "#fff";
+				overlayCtx.fillText(this.getCustomMarkTypeLabel(type), bx + 4, by + 13);
+				this.customOverlayButtons.push({
+					x: bx,
+					y: by,
+					w: markBtnW,
+					h: 18,
+					action: () => {
+						this.customMarkType = this.applyRotatableToMarkType(type);
+						if (this.isNegativeTetrisType(this.customMarkType)) this.customColor = 0;
+						this.updateCustomToolIndicator("mark");
+					},
+				});
+			});
+			y += Math.ceil(markTypes.length / markCols) * 22;
+
+			if (this.customMarkType === CellType.Triangle) {
+				[1, 2, 3].forEach((count, i) => {
+					const bx = px + 6 + i * 30;
+					const by = y;
+					overlayCtx.fillStyle = this.customTriangleCount === count ? "#4db8ff" : "#333";
+					overlayCtx.fillRect(bx, by, 24, 18);
+					overlayCtx.fillStyle = "#fff";
+					overlayCtx.fillText(String(count), bx + 9, by + 13);
+					this.customOverlayButtons.push({ x: bx, y: by, w: 24, h: 18, action: () => (this.customTriangleCount = count) });
+				});
+				y += 24;
+			}
+
+			if (isTetrisMark) {
+				const rotBx = px + 6;
+				const rotBy = y;
+				overlayCtx.fillStyle = this.customTetrisRotatable ? "#4db8ff" : "#333";
+				overlayCtx.fillRect(rotBx, rotBy, 92, 18);
+				overlayCtx.fillStyle = "#fff";
+				overlayCtx.fillText("Rotatable", rotBx + 12, rotBy + 13);
+				this.customOverlayButtons.push({
+					x: rotBx,
+					y: rotBy,
+					w: 92,
+					h: 18,
+					action: () => {
+						this.customTetrisRotatable = !this.customTetrisRotatable;
+						this.customMarkType = this.applyRotatableToMarkType(this.customMarkType);
+					},
+				});
+
+				const gx = px + Math.max(110, contentW - tGridW);
+				const gy = y;
+				for (let r = 0; r < 4; r++) {
+					for (let c = 0; c < 4; c++) {
+						const bx = gx + c * (tCellSize + 2);
+						const by = gy + r * (tCellSize + 2);
+						overlayCtx.fillStyle = this.customTetrisShapeGrid[r][c] ? "#4db8ff" : "#1a1a1a";
+						overlayCtx.fillRect(bx, by, tCellSize, tCellSize);
+						overlayCtx.strokeStyle = "#777";
+						overlayCtx.lineWidth = 1;
+						overlayCtx.strokeRect(bx, by, tCellSize, tCellSize);
+						this.customOverlayButtons.push({
+							x: bx,
+							y: by,
+							w: tCellSize,
+							h: tCellSize,
+							action: () => {
+								this.customTetrisShapeGrid[r][c] = this.customTetrisShapeGrid[r][c] ? 0 : 1;
+								const activeCount = this.customTetrisShapeGrid.flat().reduce((a, b) => a + b, 0);
+								if (activeCount === 0) this.customTetrisShapeGrid[r][c] = 1;
+							},
+						});
+					}
+				}
+				y += tCellSize * 4 + 10;
+			}
+
+			overlayCtx.fillStyle = "#ddd";
+			overlayCtx.fillText("Tap: place selected mark / Hold: clear", px + 6, py + panelH - 8);
+		}
 		overlayCtx.restore();
 	}
 
@@ -946,6 +1332,7 @@ class WitnessGame {
 	}
 
 	clearCustomBoard() {
+		if (this.customEditorPuzzle) this.pushCustomHistory();
 		this.customEditorPuzzle = this.createEmptyPuzzle(parseInt(this.sizeSelect.value), parseInt(this.sizeSelect.value));
 		this.refreshCustomPuzzle("cleared");
 	}
@@ -955,6 +1342,8 @@ class WitnessGame {
 			const advancedJson = document.getElementById("custom-puzzle-json").value.trim();
 			if (advancedJson) this.customEditorPuzzle = JSON.parse(advancedJson);
 			if (!this.customEditorPuzzle) this.clearCustomBoard();
+			this.customHistoryUndo = [];
+			this.customHistoryRedo = [];
 			this.refreshCustomPuzzle("applied");
 			this.updateStatus("Custom puzzle applied.", "#4f4");
 		} catch (error) {
@@ -983,6 +1372,8 @@ class WitnessGame {
 			const data = await PuzzleSerializer.deserialize(shareCode);
 			if (!data.puzzle) throw new Error("No puzzle data in code");
 			this.customEditorPuzzle = data.puzzle;
+			this.customHistoryUndo = [];
+			this.customHistoryRedo = [];
 			this.refreshCustomPuzzle("loaded");
 			this.updateStatus("Custom share code loaded.", "#4f4");
 		} catch (error) {
