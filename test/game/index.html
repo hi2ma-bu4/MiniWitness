@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+	<title>Mini Witness Game</title>
+	<link rel="stylesheet" href="style.css">
+	<script type="module" src="main.js"></script>
+</head>
+<body>
+	<div id="game-container">
+		<div class="canvas-container" id="main-ui-container">
+			<canvas id="game-canvas"></canvas>
+		</div>
+	</div>
+
+	<div id="menu-trigger-container" class="hidden">
+		<div id="menu-trigger-label">PAUSE</div>
+		<canvas id="menu-trigger-canvas"></canvas>
+	</div>
+
+	<div id="menu-container" class="hidden">
+		<div id="menu-box">
+			<div id="menu-header">
+				<div id="menu-title">PAUSED</div>
+			</div>
+			<div id="menu-canvas-wrapper">
+				<canvas id="menu-canvas"></canvas>
+			</div>
+			<div id="menu-footer">
+				<div class="menu-hint">← RESUME | BACK TO MAP →</div>
+			</div>
+		</div>
+	</div>
+
+	<div id="status-overlay" class="hidden">
+		<div id="status-text"></div>
+	</div>
+</body>
+</html>

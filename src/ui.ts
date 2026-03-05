@@ -1136,14 +1136,14 @@ export class WitnessUI {
 		return -1;
 	}
 
-	private getStartNodeMetaFromPath(): { x: number; y: number; index: number } | null {
+	public getStartNodeMetaFromPath(): { x: number; y: number; index: number } | null {
 		if (this.activeStartNode) return this.activeStartNode;
 		if (!this.path.length) return null;
 		const start = this.path[0];
 		return { x: start.x, y: start.y, index: this.getNodeIndexByType(NodeType.Start, start.x, start.y) };
 	}
 
-	private getEndNodeMetaFromPath(): { x: number; y: number; index: number } | null {
+	public getEndNodeMetaFromPath(): { x: number; y: number; index: number } | null {
 		if (!this.path.length) return null;
 		const end = this.path[this.path.length - 1];
 		if (!this.puzzle || this.puzzle.nodes[end.y]?.[end.x]?.type !== NodeType.End) return null;

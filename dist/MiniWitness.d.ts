@@ -799,8 +799,16 @@ export declare class WitnessUI {
 		clientY: number;
 	}, source?: "mouse" | "touch"): boolean;
 	private getNodeIndexByType;
-	private getStartNodeMetaFromPath;
-	private getEndNodeMetaFromPath;
+	getStartNodeMetaFromPath(): {
+		x: number;
+		y: number;
+		index: number;
+	} | null;
+	getEndNodeMetaFromPath(): {
+		x: number;
+		y: number;
+		index: number;
+	} | null;
 	/**
 	 * 二点間のエッジタイプを取得する
 	 * @param p1 点1
