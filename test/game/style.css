@@ -1,1 +1,274 @@
+:root {
+	--bg-0: #070b10;
+	--bg-1: #131c27;
+	--line: rgba(176, 210, 232, 0.35);
+	--text: #e5f0fb;
+}
 
+* {
+	box-sizing: border-box;
+}
+
+html,
+body {
+	width: 100%;
+	height: 100%;
+	margin: 0;
+	overflow: hidden;
+}
+
+body {
+	font-family: "Segoe UI", "Noto Sans JP", sans-serif;
+	background: radial-gradient(circle at 15% 10%, #1f3244, var(--bg-0) 52%), linear-gradient(160deg, var(--bg-1), var(--bg-0));
+	color: var(--text);
+}
+
+#app {
+	position: relative;
+	width: 100%;
+	height: 100dvh;
+	overflow: hidden;
+}
+
+#board-viewport {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	overflow: hidden;
+}
+
+#board-shell {
+	transform-origin: center center;
+	will-change: transform;
+	transition: filter 200ms ease, opacity 200ms ease;
+}
+
+#game-canvas {
+	display: block;
+	touch-action: none;
+	filter: drop-shadow(0 20px 30px rgba(0, 0, 0, 0.38));
+}
+
+.edge-btn {
+	position: absolute;
+	z-index: 40;
+	width: 42px;
+	height: 42px;
+	border: 1px solid var(--line);
+	border-radius: 999px;
+	background: rgba(10, 18, 28, 0.72);
+	backdrop-filter: blur(8px);
+	color: #e1efff;
+	font-size: 15px;
+	line-height: 1;
+	padding: 0;
+	cursor: pointer;
+}
+
+#route-toggle {
+	left: 10px;
+	top: 10px;
+	width: 54px;
+	font-size: 12px;
+}
+
+#menu-toggle {
+	right: 10px;
+	top: 10px;
+}
+
+.hidden-ui {
+	opacity: 0;
+	pointer-events: none;
+}
+
+#menu-overlay {
+	position: absolute;
+	inset: 0;
+	z-index: 50;
+	display: grid;
+	place-items: center;
+	background: rgba(4, 7, 12, 0.55);
+	backdrop-filter: blur(4px);
+}
+
+#menu-panel {
+	position: relative;
+	width: min(92vw, 520px);
+	height: min(60vh, 380px);
+	border: 1px solid var(--line);
+	border-radius: 16px;
+	background: rgba(8, 12, 18, 0.86);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	overflow: hidden;
+}
+
+#menu-close {
+	position: absolute;
+	top: 8px;
+	right: 8px;
+	width: 34px;
+	height: 34px;
+	border-radius: 999px;
+	border: 1px solid var(--line);
+	background: rgba(18, 27, 39, 0.85);
+	color: #cde4ff;
+	cursor: pointer;
+	font-size: 14px;
+}
+
+#menu-viewport {
+	width: calc(100% - 24px);
+	height: calc(100% - 24px);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	overflow: hidden;
+}
+
+#menu-viewport.disabled {
+	opacity: 0.5;
+}
+
+#menu-shell {
+	transform-origin: center center;
+}
+
+#menu-canvas {
+	display: block;
+	touch-action: none;
+}
+
+#pause-overlay {
+	position: absolute;
+	inset: 0;
+	z-index: 35;
+	display: grid;
+	place-items: center;
+	background: rgba(5, 10, 16, 0.4);
+	backdrop-filter: blur(2px);
+}
+
+#pause-icon {
+	font-size: 52px;
+	color: rgba(220, 236, 255, 0.82);
+	text-shadow: 0 0 16px rgba(130, 190, 255, 0.35);
+}
+
+#status-pill {
+	position: absolute;
+	left: 50%;
+	bottom: 14px;
+	transform: translateX(-50%);
+	z-index: 45;
+	padding: 7px 14px;
+	border-radius: 999px;
+	font-size: 12px;
+	font-weight: 700;
+	letter-spacing: 0.08em;
+	background: rgba(8, 14, 21, 0.84);
+	border: 1px solid var(--line);
+	color: #d9ecff;
+	transition: opacity 140ms ease;
+}
+
+#status-pill.tone-neutral {
+	color: #d9ecff;
+}
+
+#status-pill.tone-good {
+	color: #9cffc8;
+}
+
+#status-pill.tone-bad {
+	color: #ff92a1;
+}
+
+#scene-banner {
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	transform: translate(-50%, -50%);
+	z-index: 55;
+	padding: 10px 16px;
+	border-radius: 999px;
+	border: 1px solid var(--line);
+	background: rgba(5, 8, 13, 0.78);
+	font-size: 13px;
+	font-weight: 700;
+	letter-spacing: 0.08em;
+}
+
+#flash-layer {
+	position: absolute;
+	inset: 0;
+	z-index: 60;
+	pointer-events: none;
+	opacity: 0;
+	background: radial-gradient(circle at center, rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0));
+}
+
+#flash-layer.run {
+	animation: clearFlash 680ms ease-out;
+}
+
+.hidden {
+	opacity: 0;
+	pointer-events: none;
+}
+
+.scene-exit #board-shell {
+	filter: blur(5px) brightness(0.82);
+	opacity: 0.28;
+}
+
+.scene-enter #board-shell {
+	animation: sceneIn 220ms ease;
+}
+
+@keyframes sceneIn {
+	0% {
+		opacity: 0.3;
+		filter: blur(5px);
+	}
+
+	100% {
+		opacity: 1;
+		filter: blur(0);
+	}
+}
+
+@keyframes clearFlash {
+	0% {
+		opacity: 0;
+	}
+
+	35% {
+		opacity: 1;
+	}
+
+	100% {
+		opacity: 0;
+	}
+}
+
+@media (max-width: 720px) {
+	.edge-btn {
+		width: 38px;
+		height: 38px;
+	}
+
+	#route-toggle {
+		width: 48px;
+		font-size: 11px;
+	}
+
+	#menu-panel {
+		height: min(64vh, 340px);
+		width: min(94vw, 480px);
+	}
+}
