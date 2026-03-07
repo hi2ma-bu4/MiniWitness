@@ -312,7 +312,7 @@ export class WitnessUI {
 			inputMode: options.inputMode ?? this.options?.inputMode ?? "drag",
 			gridPadding: options.gridPadding ?? this.options?.gridPadding ?? 60,
 			cellSize: options.cellSize ?? this.options?.cellSize ?? 80,
-			nodeRadius: options.nodeRadius ?? this.options?.nodeRadius ?? 6,
+			nodeRadius: options.nodeRadius ?? this.options?.nodeRadius ?? 5,
 			startNodeRadius: options.startNodeRadius ?? this.options?.startNodeRadius ?? 22,
 			pathWidth: options.pathWidth ?? this.options?.pathWidth ?? 18,
 			exitLength: options.exitLength ?? this.options?.exitLength ?? 25,
@@ -2326,4 +2326,3 @@ export class WitnessUI {
 		return { canvas: this.offscreenCanvas, ctx: this.offscreenCtx };
 	}
 }
-

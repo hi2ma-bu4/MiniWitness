@@ -1,7 +1,7 @@
 :root {
 	--bg-0: #070b10;
 	--bg-1: #131c27;
-	--line: rgba(176, 210, 232, 0.35);
+	--line: rgba(176, 210, 232, .35);
 	--text: #e5f0fb;
 }
 
@@ -9,62 +9,61 @@
 	box-sizing: border-box;
 }
 
-html,
-body {
-	width: 100%;
+html, body {
 	height: 100%;
 	margin: 0;
 	overflow: hidden;
+	width: 100%;
 }
 
 body {
-	font-family: "Segoe UI", "Noto Sans JP", sans-serif;
 	background: radial-gradient(circle at 15% 10%, #1f3244, var(--bg-0) 52%), linear-gradient(160deg, var(--bg-1), var(--bg-0));
 	color: var(--text);
+	font-family: "Segoe UI", "Noto Sans JP", sans-serif;
 }
 
 #app {
-	position: relative;
-	width: 100%;
 	height: 100dvh;
 	overflow: hidden;
+	position: relative;
+	width: 100%;
 }
 
 #board-viewport {
-	position: absolute;
-	inset: 0;
-	display: flex;
 	align-items: center;
+	display: flex;
+	inset: 0;
 	justify-content: center;
 	overflow: hidden;
+	position: absolute;
 }
 
 #board-shell {
 	transform-origin: center center;
-	will-change: transform;
 	transition: filter 200ms ease, opacity 200ms ease;
+	will-change: transform;
 }
 
 #game-canvas {
 	display: block;
+	filter: drop-shadow(0 20px 30px rgba(0, 0, 0, .38));
 	touch-action: none;
-	filter: drop-shadow(0 20px 30px rgba(0, 0, 0, 0.38));
 }
 
 .edge-btn {
-	position: absolute;
-	z-index: 40;
-	width: 42px;
-	height: 42px;
+	backdrop-filter: blur(8px);
+	background: rgba(10, 18, 28, .72);
 	border: 1px solid var(--line);
 	border-radius: 999px;
-	background: rgba(10, 18, 28, 0.72);
-	backdrop-filter: blur(8px);
 	color: #e1efff;
+	cursor: pointer;
 	font-size: 15px;
+	height: 42px;
 	line-height: 1;
 	padding: 0;
-	cursor: pointer;
+	position: absolute;
+	width: 42px;
+	z-index: 40;
 }
 
 #menu-toggle {
@@ -78,66 +77,55 @@ body {
 }
 
 #menu-overlay {
-	position: absolute;
-	inset: 0;
-	z-index: 50;
-	display: grid;
-	place-items: center;
-	background: rgba(4, 7, 12, 0.55);
 	backdrop-filter: blur(4px);
+	background: rgba(4, 7, 12, .55);
+	display: grid;
+	inset: 0;
+	place-items: center;
+	position: absolute;
+	z-index: 50;
 }
 
 #menu-panel {
-	position: relative;
-	width: min(92vw, 520px);
-	height: min(62vh, 410px);
+	align-items: stretch;
+	background: rgba(8, 12, 18, .86);
 	border: 1px solid var(--line);
 	border-radius: 16px;
-	background: rgba(8, 12, 18, 0.86);
 	display: flex;
 	flex-direction: column;
-	align-items: stretch;
+	height: min(62vh, 410px);
 	justify-content: flex-start;
-	padding: 44px 12px 12px;
 	overflow: hidden;
+	padding: 44px 12px 12px;
+	position: relative;
+	width: min(92vw, 520px);
 }
 
 #menu-close {
-	position: absolute;
-	top: 8px;
-	right: 8px;
-	width: 34px;
-	height: 34px;
-	border-radius: 999px;
+	background: rgba(18, 27, 39, .85);
 	border: 1px solid var(--line);
-	background: rgba(18, 27, 39, 0.85);
+	border-radius: 999px;
 	color: #cde4ff;
 	cursor: pointer;
 	font-size: 14px;
-}
-
-#menu-help {
-	min-height: 22px;
-	padding: 0 36px 8px 8px;
-	font-size: 12px;
-	letter-spacing: 0.03em;
-	color: #cde8ff;
-	white-space: nowrap;
-	text-overflow: ellipsis;
-	overflow: hidden;
+	height: 34px;
+	position: absolute;
+	right: 8px;
+	top: 8px;
+	width: 34px;
 }
 
 #menu-viewport {
-	width: 100%;
-	height: calc(100% - 8px);
-	display: flex;
 	align-items: center;
+	display: flex;
+	height: calc(100% - 8px);
 	justify-content: center;
 	overflow: hidden;
+	width: 100%;
 }
 
 #menu-viewport.disabled {
-	opacity: 0.5;
+	opacity: .5;
 }
 
 #menu-shell {
@@ -150,60 +138,60 @@ body {
 }
 
 #hud {
-	position: absolute;
-	left: 12px;
-	top: 12px;
-	z-index: 42;
-	min-width: min(56vw, 340px);
-	padding: 10px 12px;
-	border-radius: 12px;
-	border: 1px solid var(--line);
-	background: rgba(7, 13, 20, 0.8);
 	backdrop-filter: blur(6px);
+	background: rgba(7, 13, 20, .8);
+	border: 1px solid var(--line);
+	border-radius: 12px;
 	display: grid;
 	gap: 4px;
+	left: 12px;
+	min-width: min(56vw, 340px);
+	padding: 10px 12px;
+	position: absolute;
+	top: 12px;
+	z-index: 42;
 }
 
 #hud-title {
+	color: #e4f2ff;
 	font-size: 13px;
 	font-weight: 700;
-	letter-spacing: 0.06em;
-	color: #e4f2ff;
+	letter-spacing: .06em;
 }
 
 #hud-detail {
-	font-size: 12px;
 	color: #b8d2eb;
+	font-size: 12px;
 }
 
 #hud-progress-label {
-	font-size: 11px;
 	color: #b6d4ef;
 	display: flex;
+	font-size: 11px;
 	justify-content: space-between;
 }
 
 #hud-progress {
-	width: 100%;
 	height: 10px;
+	width: 100%;
 }
 
 #filter-panel {
-	position: absolute;
-	right: 12px;
-	bottom: 14px;
-	z-index: 44;
-	padding: 10px 12px;
-	border-radius: 12px;
+	background: rgba(8, 14, 21, .86);
 	border: 1px solid var(--line);
-	background: rgba(8, 14, 21, 0.86);
+	border-radius: 12px;
+	bottom: 14px;
 	display: grid;
 	gap: 8px;
+	padding: 10px 12px;
+	position: absolute;
+	right: 12px;
+	z-index: 44;
 }
 
 #filter-info {
-	font-size: 12px;
 	color: #d8edff;
+	font-size: 12px;
 }
 
 #filter-buttons {
@@ -212,41 +200,41 @@ body {
 }
 
 .filter-btn {
-	width: 34px;
-	height: 30px;
-	border-radius: 8px;
+	background: rgba(28, 42, 58, .8);
 	border: 1px solid var(--line);
-	background: rgba(28, 42, 58, 0.8);
+	border-radius: 8px;
 	color: #d7e9ff;
-	font-weight: 700;
 	cursor: pointer;
+	font-weight: 700;
+	height: 30px;
+	width: 34px;
 }
 
 .filter-btn.active {
+	background: rgba(85, 127, 170, .85);
 	border-color: #dff2ff;
-	background: rgba(85, 127, 170, 0.85);
 }
 
 .filter-btn.used:not(.active) {
-	background: rgba(36, 75, 62, 0.82);
-	border-color: rgba(130, 235, 186, 0.65);
+	background: rgba(36, 75, 62, .82);
+	border-color: rgba(130, 235, 186, .65);
 }
 
 #status-pill {
-	position: absolute;
-	left: 50%;
-	bottom: 14px;
-	transform: translateX(-50%);
-	z-index: 45;
-	padding: 7px 14px;
+	background: rgba(8, 14, 21, .84);
+	border: 1px solid var(--line);
 	border-radius: 999px;
+	bottom: 14px;
+	color: #d9ecff;
 	font-size: 12px;
 	font-weight: 700;
-	letter-spacing: 0.08em;
-	background: rgba(8, 14, 21, 0.84);
-	border: 1px solid var(--line);
-	color: #d9ecff;
+	left: 50%;
+	letter-spacing: .08em;
+	padding: 7px 14px;
+	position: absolute;
+	transform: translateX(-50%);
 	transition: opacity 140ms ease;
+	z-index: 45;
 }
 
 #status-pill.tone-neutral {
@@ -266,12 +254,12 @@ body {
 }
 
 #flash-layer {
-	position: absolute;
+	background: radial-gradient(circle at center, rgba(255, 255, 255, .3), rgba(255, 255, 255, 0));
 	inset: 0;
-	z-index: 60;
-	pointer-events: none;
 	opacity: 0;
-	background: radial-gradient(circle at center, rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0));
+	pointer-events: none;
+	position: absolute;
+	z-index: 60;
 }
 
 #flash-layer.run {
@@ -287,14 +275,13 @@ body {
 	display: none;
 }
 
-#menu-overlay.hidden,
-#filter-panel.hidden {
+#menu-overlay.hidden, #filter-panel.hidden {
 	display: none;
 }
 
 .scene-exit #board-shell {
-	filter: blur(5px) brightness(0.82);
-	opacity: 0.28;
+	filter: blur(5px) brightness(.82);
+	opacity: .28;
 }
 
 .scene-enter #board-shell {
@@ -303,13 +290,13 @@ body {
 
 @keyframes sceneIn {
 	0% {
-		opacity: 0.3;
 		filter: blur(5px);
+		opacity: .3;
 	}
 
 	100% {
-		opacity: 1;
 		filter: blur(0);
+		opacity: 1;
 	}
 }
 
@@ -329,8 +316,8 @@ body {
 
 @media (max-width: 720px) {
 	.edge-btn {
-		width: 38px;
 		height: 38px;
+		width: 38px;
 	}
 
 	#menu-panel {
@@ -339,17 +326,13 @@ body {
 	}
 
 	#hud {
-		min-width: min(80vw, 320px);
 		left: 8px;
+		min-width: min(80vw, 320px);
 		top: 8px;
 	}
 
 	#filter-panel {
-		right: 8px;
 		bottom: 8px;
+		right: 8px;
 	}
 }
-
-
-
-

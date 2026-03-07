@@ -1,8 +1,6 @@
 import { CellType, EdgeType, NodeType, PuzzleSerializer, WitnessCore, WitnessUI } from "../../dist/MiniWitness.js";
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const MAP_GRID_ROWS = 7;
-const MAP_GRID_COLS = 5;
 const MAP_STAGE_CAPACITY = 20;
 const FILTER_RGB_COLORS = ["#ff5f66", "#67ef86", "#64a7ff"];
 
@@ -118,7 +116,6 @@ class WitnessGamePage {
 		this.statusPill = document.getElementById("status-pill");
 		this.sceneBanner = document.getElementById("scene-banner");
 		this.flashLayer = document.getElementById("flash-layer");
-		this.menuHelp = document.getElementById("menu-help");
 		this.hudTitle = document.getElementById("hud-title");
 		this.hudDetail = document.getElementById("hud-detail");
 		this.hudProgress = document.getElementById("hud-progress");
@@ -132,22 +129,39 @@ class WitnessGamePage {
 			cellSize: 80,
 			gridPadding: 60,
 			exitLength: 25,
+			nodeRadius: 5,
+			startNodeRadius: 22,
+			pathWidth: 18,
 		};
+		const mapScale = 1.3;
 		this.mapRender = {
 			pixelRatio: this.mainRender.pixelRatio,
-			cellSize: 34,
-			gridPadding: 28,
-			exitLength: 14,
+			cellSize: this.mainRender.cellSize / mapScale,
+			gridPadding: this.mainRender.gridPadding / mapScale,
+			nodeRadius: this.mainRender.nodeRadius / mapScale,
+			startNodeRadius: this.mainRender.startNodeRadius / mapScale,
+			pathWidth: this.mainRender.pathWidth / mapScale,
+			exitLength: this.mainRender.exitLength / mapScale,
 		};
+		const menuScale = 1.1;
 		this.menuRender = {
 			pixelRatio: this.mainRender.pixelRatio,
-			cellSize: 44,
-			gridPadding: 24,
-			exitLength: 16,
+			cellSize: this.mainRender.cellSize / menuScale,
+			gridPadding: this.mainRender.gridPadding / menuScale,
+			nodeRadius: this.mainRender.nodeRadius / menuScale,
+			startNodeRadius: this.mainRender.startNodeRadius / menuScale,
+			pathWidth: this.mainRender.pathWidth / menuScale,
+			exitLength: this.mainRender.exitLength / menuScale,
 		};
 
 		this.ui = new WitnessUI(this.gameCanvas, undefined, {
 			pixelRatio: this.mainRender.pixelRatio,
+			cellSize: this.mainRender.cellSize,
+			gridPadding: this.mainRender.gridPadding,
+			nodeRadius: this.mainRender.nodeRadius,
+			startNodeRadius: this.mainRender.startNodeRadius,
+			pathWidth: this.mainRender.pathWidth,
+			exitLength: this.mainRender.exitLength,
 			blinkMarksOnError: true,
 			stayPathOnError: true,
 		});
@@ -156,9 +170,9 @@ class WitnessGamePage {
 			pixelRatio: this.menuRender.pixelRatio,
 			cellSize: this.menuRender.cellSize,
 			gridPadding: this.menuRender.gridPadding,
-			nodeRadius: 4,
-			startNodeRadius: 12,
-			pathWidth: 10,
+			nodeRadius: this.menuRender.nodeRadius,
+			startNodeRadius: this.menuRender.startNodeRadius,
+			pathWidth: this.menuRender.pathWidth,
 			exitLength: this.menuRender.exitLength,
 			blinkMarksOnError: false,
 			stayPathOnError: true,
@@ -169,7 +183,7 @@ class WitnessGamePage {
 			},
 			colors: {
 				grid: "#4b6375",
-				node: "#d7e7f4",
+				node: "#4b6375",
 				path: "#ffdd75",
 				error: "#ff7587",
 				success: "#a6ffbf",
@@ -320,8 +334,9 @@ class WitnessGamePage {
 	}
 
 	createMapPuzzle(packId, stageCount) {
-		const rows = MAP_GRID_ROWS;
-		const cols = MAP_GRID_COLS;
+		const usableCount = Math.min(stageCount, MAP_STAGE_CAPACITY);
+		const rows = 1;
+		const cols = Math.max(1, Math.ceil(usableCount / 2) + 1);
 		const puzzle = this.createEmptyPuzzle(rows, cols);
 
 		for (let r = 0; r <= rows; r++) {
@@ -341,8 +356,9 @@ class WitnessGamePage {
 		}
 
 		const startNode = { x: 0, y: rows };
+		const routePrevNode = { x: 0, y: 0 };
 		const routeNextNode = { x: cols, y: 0 };
-		const routePrevNode = { x: cols, y: rows };
+		const routeExtraNode = { x: cols, y: rows };
 		puzzle.nodes[startNode.y][startNode.x].type = NodeType.Start;
 
 		const routeByNode = new Map();
@@ -351,15 +367,19 @@ class WitnessGamePage {
 		puzzle.nodes[routePrevNode.y][routePrevNode.x].type = NodeType.End;
 		routeByNode.set(`${routePrevNode.x},${routePrevNode.y}`, -1);
 
-		const blocked = new Set([`${startNode.x},${startNode.y}`, `${routeNextNode.x},${routeNextNode.y}`, `${routePrevNode.x},${routePrevNode.y}`]);
-		const stageSlots = this.getPerimeterNodes(rows, cols).filter((node) => !blocked.has(`${node.x},${node.y}`));
-
 		const stageByNode = new Map();
-		const usableCount = Math.min(stageCount, MAP_STAGE_CAPACITY, stageSlots.length);
 		for (let index = 0; index < usableCount; index++) {
-			const node = stageSlots[index];
-			puzzle.nodes[node.y][node.x].type = NodeType.End;
-			stageByNode.set(`${node.x},${node.y}`, index);
+			let node;
+			const colIndex = Math.floor(index / 2) + 1;
+			if (index % 2 === 0) {
+				node = { x: colIndex, y: rows };
+			} else {
+				node = { x: colIndex, y: 0 };
+			}
+			if (node.x < cols || (node.x === cols && node.y !== 0 && node.y !== rows)) {
+				puzzle.nodes[node.y][node.x].type = NodeType.End;
+				stageByNode.set(`${node.x},${node.y}`, index);
+			}
 		}
 
 		return { packId, puzzle, stageByNode, routeByNode };
@@ -399,9 +419,9 @@ class WitnessGamePage {
 				cellSize: this.mapRender.cellSize,
 				gridPadding: this.mapRender.gridPadding,
 				exitLength: this.mapRender.exitLength,
-				pathWidth: 10,
-				nodeRadius: 4,
-				startNodeRadius: 10,
+				pathWidth: this.mapRender.pathWidth,
+				nodeRadius: this.mapRender.nodeRadius,
+				startNodeRadius: this.mapRender.startNodeRadius,
 				inputMode: "drag",
 				layout: {
 					margin: { top: 48, right: 56, bottom: 48, left: 56 },
@@ -411,7 +431,7 @@ class WitnessGamePage {
 				},
 				colors: {
 					grid: "#60768a",
-					node: "#d6e6f6",
+					node: "#60768a",
 					path: "#7bdfff",
 					error: "#ff7086",
 					success: "#9bffbf",
@@ -430,9 +450,9 @@ class WitnessGamePage {
 			cellSize: this.mainRender.cellSize,
 			gridPadding: this.mainRender.gridPadding,
 			exitLength: this.mainRender.exitLength,
-			pathWidth: 18,
-			nodeRadius: 6,
-			startNodeRadius: 22,
+			pathWidth: this.mainRender.pathWidth,
+			nodeRadius: this.mainRender.nodeRadius,
+			startNodeRadius: this.mainRender.startNodeRadius,
 			inputMode: "drag",
 			layout: {
 				margin: 0,
@@ -442,7 +462,7 @@ class WitnessGamePage {
 			},
 			colors: {
 				grid: "#5f6573",
-				node: "#d9d7e8",
+				node: "#5f6573",
 				path: "#ffdd72",
 				error: "#ff6e81",
 				success: "#9dffb0",
@@ -601,8 +621,8 @@ class WitnessGamePage {
 			const dir = this.getExitDirection(puzzle, sx, sy);
 			if (!dir) continue;
 			const nodePos = this.ui.getGridCanvasCoords(sx, sy);
-			const rawX = nodePos.x + dir.x * (this.mapRender.exitLength + 34);
-			const rawY = nodePos.y + dir.y * (this.mapRender.exitLength + 24);
+			const rawX = nodePos.x + dir.x * (this.mapRender.exitLength + 24);
+			const rawY = nodePos.y + dir.y * (this.mapRender.exitLength + 14);
 			const pos = clamp(rawX, rawY);
 			const backEnabled = routeDelta > 0 || this.isBackRouteEnabled();
 			const text = routeDelta > 0 ? ">" : backEnabled ? "<" : "X";
@@ -631,9 +651,6 @@ class WitnessGamePage {
 		this.menuActions = actions.map((action, index) => ({ ...action, index }));
 		this.menuActionByIndex = new Map(this.menuActions.map((action) => [action.index, action]));
 		this.menuPuzzle = this.createMenuPuzzle();
-		if (this.menuHelp) {
-			this.menuHelp.textContent = this.scene === "stage" ? "左:MAP / 右:CLOSE" : "右:CLOSE";
-		}
 		this.menuUI.setPuzzle(clonePuzzle(this.menuPuzzle));
 	}
 
@@ -648,7 +665,7 @@ class WitnessGamePage {
 			const dir = this.getExitDirection(this.menuPuzzle, x, y);
 			if (!dir) continue;
 			const nodePos = this.menuUI.getGridCanvasCoords(x, y);
-			const rawX = nodePos.x + dir.x * (this.menuRender.exitLength + 30);
+			const rawX = nodePos.x + dir.x * (this.menuRender.exitLength + 40);
 			const rawY = nodePos.y + dir.y * (this.menuRender.exitLength + 22);
 			const pos = clamp(rawX, rawY);
 			this.drawGoalTag(ctx, pos.x, pos.y, action.label, action.accent);
@@ -919,13 +936,6 @@ class WitnessGamePage {
 			return;
 		}
 
-		if (this.isFilterStage(pack, stage) && !this.isFilterChallengeComplete(pack, stage)) {
-			this.setStatus("SWITCH R/G/B", "bad", 1400);
-			this.ui.setPuzzle(clonePuzzle(this.currentStagePuzzle));
-			this.updateHud();
-			return;
-		}
-
 		this.clearedStageIds.add(this.getStageClearKey(pack, stage));
 		this.updateHud();
 
@@ -1052,7 +1062,8 @@ class WitnessGamePage {
 
 		const baseW = Math.max(1, Math.round(canvas.width / pixelRatio));
 		const baseH = Math.max(1, Math.round(canvas.height / pixelRatio));
-		const availW = Math.max(1, viewport.clientWidth - margin * 2);
+		const maxWidth = 800;
+		const availW = Math.max(1, Math.min(maxWidth, viewport.clientWidth) - margin * 2);
 		const availH = Math.max(1, viewport.clientHeight - margin * 2);
 		let scale = Math.min(availW / baseW, availH / baseH);
 		if (!Number.isFinite(scale) || scale <= 0) scale = 1;
@@ -1114,7 +1125,6 @@ class WitnessGamePage {
 
 	syncFilterUi() {
 		const challenge = this.filterChallenge;
-		const usedCount = challenge ? challenge.used.size : 0;
 		this.filterButtons.forEach((button) => {
 			const index = Number(button.dataset.filterIndex);
 			const active = challenge && index === challenge.activeIndex;
@@ -1123,14 +1133,8 @@ class WitnessGamePage {
 			button.classList.toggle("used", !!used);
 		});
 		if (this.filterInfo) {
-			this.filterInfo.textContent = challenge ? `RGB usage ${usedCount}/3` : "";
+			this.filterInfo.textContent = challenge ? "RGB Filter" : "";
 		}
-	}
-
-	isFilterChallengeComplete(pack, stage) {
-		if (!this.isFilterStage(pack, stage)) return true;
-		if (!this.filterChallenge) return false;
-		return this.filterChallenge.packId === pack.id && this.filterChallenge.stageId === stage.id && this.filterChallenge.used.size >= 3;
 	}
 
 	updateHud() {
@@ -1159,5 +1163,3 @@ if (typeof window !== "undefined") {
 		void game.init();
 	});
 }
-
-
