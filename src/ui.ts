@@ -83,6 +83,17 @@ export interface WitnessUIOptions {
 	};
 	/** 高解像度ディスプレイ(Retina等)に対応させるためのピクセル比。省略時はwindow.devicePixelRatioが使用されます。 */
 	pixelRatio?: number;
+	/** レイアウト補正 */
+	layout?: {
+		/** キャンバス外側マージン */
+		margin?: number | { top?: number; right?: number; bottom?: number; left?: number };
+		/** グリッド周囲に追加する内側余白 */
+		padding?: number | { top?: number; right?: number; bottom?: number; left?: number };
+		/** 描画位置Xオフセット */
+		offsetX?: number;
+		/** 描画位置Yオフセット */
+		offsetY?: number;
+	};
 }
 
 /**
@@ -290,6 +301,13 @@ export class WitnessUI {
 			colorList: options.colors?.colorList ?? this.options?.colors?.colorList,
 		};
 
+		const layout = {
+			margin: options.layout?.margin ?? this.options?.layout?.margin ?? 0,
+			padding: options.layout?.padding ?? this.options?.layout?.padding ?? 0,
+			offsetX: options.layout?.offsetX ?? this.options?.layout?.offsetX ?? 0,
+			offsetY: options.layout?.offsetY ?? this.options?.layout?.offsetY ?? 0,
+		};
+
 		return {
 			inputMode: options.inputMode ?? this.options?.inputMode ?? "drag",
 			gridPadding: options.gridPadding ?? this.options?.gridPadding ?? 60,
@@ -315,6 +333,7 @@ export class WitnessUI {
 				threshold: options.filter?.threshold ?? this.options?.filter?.threshold ?? 128,
 			},
 			pixelRatio: options.pixelRatio ?? this.options?.pixelRatio ?? (typeof window !== "undefined" ? window.devicePixelRatio : 1),
+			layout,
 		};
 	}
 
@@ -520,8 +539,9 @@ export class WitnessUI {
 	 */
 	private resizeCanvas() {
 		if (!this.puzzle || !this.canvas) return;
-		const w = this.puzzle.cols * this.options.cellSize + this.options.gridPadding * 2;
-		const h = this.puzzle.rows * this.options.cellSize + this.options.gridPadding * 2;
+		const size = this.getCanvasLogicalSize();
+		const w = size.width;
+		const h = size.height;
 
 		const dpr = this.options.pixelRatio;
 
@@ -699,10 +719,18 @@ export class WitnessUI {
 	 * @returns Canvas座標
 	 */
 	private getCanvasCoords(gridX: number, gridY: number): Point {
+		const origin = this.getGridOrigin();
 		return {
-			x: this.options.gridPadding + gridX * this.options.cellSize,
-			y: this.options.gridPadding + gridY * this.options.cellSize,
+			x: origin.x + gridX * this.options.cellSize,
+			y: origin.y + gridY * this.options.cellSize,
 		};
+	}
+
+	/**
+	 * グリッド座標を現在のUIレイアウトに基づくCanvas座標で取得する
+	 */
+	public getGridCanvasCoords(gridX: number, gridY: number): Point {
+		return this.getCanvasCoords(gridX, gridY);
 	}
 
 	/**
@@ -723,8 +751,9 @@ export class WitnessUI {
 	public hitTestInput(clientX: number, clientY: number): WitnessHitTarget | null {
 		if (!this.puzzle) return null;
 		const p = this.toCanvasPoint(clientX, clientY);
-		const gx = (p.x - this.options.gridPadding) / this.options.cellSize;
-		const gy = (p.y - this.options.gridPadding) / this.options.cellSize;
+		const origin = this.getGridOrigin();
+		const gx = (p.x - origin.x) / this.options.cellSize;
+		const gy = (p.y - origin.y) / this.options.cellSize;
 		const nearX = Math.round(gx);
 		const nearY = Math.round(gy);
 		const dx = Math.abs(gx - nearX);
@@ -750,6 +779,53 @@ export class WitnessUI {
 		const r = Math.floor(gy);
 		if (c >= 0 && c < this.puzzle.cols && r >= 0 && r < this.puzzle.rows) return { kind: "cell", r, c };
 		return null;
+	}
+
+	private resolveSpacing(value?: number | { top?: number; right?: number; bottom?: number; left?: number }) {
+		if (typeof value === "number") {
+			const n = Number.isFinite(value) ? Math.max(0, value) : 0;
+			return { top: n, right: n, bottom: n, left: n };
+		}
+		const spacing = value ?? {};
+		return {
+			top: Number.isFinite(spacing.top) ? Math.max(0, spacing.top as number) : 0,
+			right: Number.isFinite(spacing.right) ? Math.max(0, spacing.right as number) : 0,
+			bottom: Number.isFinite(spacing.bottom) ? Math.max(0, spacing.bottom as number) : 0,
+			left: Number.isFinite(spacing.left) ? Math.max(0, spacing.left as number) : 0,
+		};
+	}
+
+	private getLayoutMetrics() {
+		const margin = this.resolveSpacing(this.options.layout?.margin);
+		const padding = this.resolveSpacing(this.options.layout?.padding);
+		const offsetX = Number.isFinite(this.options.layout?.offsetX) ? (this.options.layout?.offsetX as number) : 0;
+		const offsetY = Number.isFinite(this.options.layout?.offsetY) ? (this.options.layout?.offsetY as number) : 0;
+		const offsetPadX = Math.abs(offsetX);
+		const offsetPadY = Math.abs(offsetY);
+		const cols = this.puzzle?.cols ?? 0;
+		const rows = this.puzzle?.rows ?? 0;
+		const baseWidth = cols * this.options.cellSize + this.options.gridPadding * 2;
+		const baseHeight = rows * this.options.cellSize + this.options.gridPadding * 2;
+
+		return {
+			originX: margin.left + padding.left + this.options.gridPadding + offsetPadX + offsetX,
+			originY: margin.top + padding.top + this.options.gridPadding + offsetPadY + offsetY,
+			canvasWidth: margin.left + margin.right + padding.left + padding.right + baseWidth + offsetPadX * 2,
+			canvasHeight: margin.top + margin.bottom + padding.top + padding.bottom + baseHeight + offsetPadY * 2,
+		};
+	}
+
+	private getGridOrigin() {
+		const metrics = this.getLayoutMetrics();
+		return { x: metrics.originX, y: metrics.originY };
+	}
+
+	private getCanvasLogicalSize() {
+		const metrics = this.getLayoutMetrics();
+		return {
+			width: Math.max(1, Math.round(metrics.canvasWidth)),
+			height: Math.max(1, Math.round(metrics.canvasHeight)),
+		};
 	}
 
 	/**
@@ -2250,3 +2326,4 @@ export class WitnessUI {
 		return { canvas: this.offscreenCanvas, ctx: this.offscreenCtx };
 	}
 }
+

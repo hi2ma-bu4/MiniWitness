@@ -527,6 +527,27 @@ export interface WitnessUIOptions {
 	};
 	/** 高解像度ディスプレイ(Retina等)に対応させるためのピクセル比。省略時はwindow.devicePixelRatioが使用されます。 */
 	pixelRatio?: number;
+	/** レイアウト補正 */
+	layout?: {
+		/** キャンバス外側マージン */
+		margin?: number | {
+			top?: number;
+			right?: number;
+			bottom?: number;
+			left?: number;
+		};
+		/** グリッド周囲に追加する内側余白 */
+		padding?: number | {
+			top?: number;
+			right?: number;
+			bottom?: number;
+			left?: number;
+		};
+		/** 描画位置Xオフセット */
+		offsetX?: number;
+		/** 描画位置Yオフセット */
+		offsetY?: number;
+	};
 }
 /**
  * WitnessUIが発行するイベントのマップ
@@ -768,6 +789,10 @@ export declare class WitnessUI {
 	 */
 	private getCanvasCoords;
 	/**
+	 * グリッド座標を現在のUIレイアウトに基づくCanvas座標で取得する
+	 */
+	getGridCanvasCoords(gridX: number, gridY: number): Point;
+	/**
 	 * 画面座標をCanvas上の論理座標に変換する
 	 */
 	private toCanvasPoint;
@@ -775,6 +800,10 @@ export declare class WitnessUI {
 	 * 入力座標がノード/エッジ/セルのどこに当たっているか判定する
 	 */
 	hitTestInput(clientX: number, clientY: number): WitnessHitTarget | null;
+	private resolveSpacing;
+	private getLayoutMetrics;
+	private getGridOrigin;
+	private getCanvasLogicalSize;
 	/**
 	 * 指定されたノードが出口の場合、その出っ張りの方向ベクトルを返す
 	 * @param x グリッドX

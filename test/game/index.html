@@ -5,6 +5,7 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 	<title>Mini Witness Game</title>
 	<link rel="stylesheet" href="style.css">
+	<link rel="icon" href="data:,">
 	<script type="module" src="main.js"></script>
 </head>
 <body>
@@ -13,17 +14,14 @@
 			<div id="board-shell">
 				<canvas id="game-canvas" aria-label="Main puzzle board"></canvas>
 			</div>
-			<div id="pause-overlay" class="hidden" aria-hidden="true">
-				<div id="pause-icon" aria-hidden="true">❚❚</div>
-			</div>
 		</main>
 
-		<button id="route-toggle" class="edge-btn" type="button" aria-label="Switch route">⟲</button>
 		<button id="menu-toggle" class="edge-btn" type="button" aria-label="Open menu">◎</button>
 
 		<div id="menu-overlay" class="hidden" aria-hidden="true">
 			<div id="menu-panel">
 				<button id="menu-close" type="button" aria-label="Close menu">✕</button>
+				<div id="menu-help">右:CLOSE</div>
 				<div id="menu-viewport">
 					<div id="menu-shell">
 						<canvas id="menu-canvas" aria-label="Puzzle menu"></canvas>
@@ -32,9 +30,26 @@
 			</div>
 		</div>
 
+		<section id="hud" class="hidden" aria-live="polite">
+			<div id="hud-title">MAP</div>
+			<div id="hud-detail">Progress</div>
+			<label id="hud-progress-label" for="hud-progress">Progress <span id="hud-progress-text">0%</span></label>
+			<progress id="hud-progress" max="100" value="0">0%</progress>
+		</section>
+
+		<section id="filter-panel" class="hidden" aria-hidden="true" aria-label="RGB filter controls">
+			<div id="filter-info">RGB usage 0/3</div>
+			<div id="filter-buttons">
+				<button type="button" class="filter-btn" data-filter-index="0">R</button>
+				<button type="button" class="filter-btn" data-filter-index="1">G</button>
+				<button type="button" class="filter-btn" data-filter-index="2">B</button>
+			</div>
+		</section>
+
 		<div id="status-pill" class="hidden" aria-live="polite"></div>
 		<div id="scene-banner" class="hidden" aria-live="polite"></div>
 		<div id="flash-layer" aria-hidden="true"></div>
 	</div>
 </body>
 </html>
+

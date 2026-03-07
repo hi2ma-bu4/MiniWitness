@@ -3506,6 +3506,12 @@ var WitnessUI = class {
       },
       colorList: options.colors?.colorList ?? this.options?.colors?.colorList
     };
+    const layout = {
+      margin: options.layout?.margin ?? this.options?.layout?.margin ?? 0,
+      padding: options.layout?.padding ?? this.options?.layout?.padding ?? 0,
+      offsetX: options.layout?.offsetX ?? this.options?.layout?.offsetX ?? 0,
+      offsetY: options.layout?.offsetY ?? this.options?.layout?.offsetY ?? 0
+    };
     return {
       inputMode: options.inputMode ?? this.options?.inputMode ?? "drag",
       gridPadding: options.gridPadding ?? this.options?.gridPadding ?? 60,
@@ -3530,7 +3536,8 @@ var WitnessUI = class {
         rgbIndex: options.filter?.rgbIndex ?? this.options?.filter?.rgbIndex ?? 0,
         threshold: options.filter?.threshold ?? this.options?.filter?.threshold ?? 128
       },
-      pixelRatio: options.pixelRatio ?? this.options?.pixelRatio ?? (typeof window !== "undefined" ? window.devicePixelRatio : 1)
+      pixelRatio: options.pixelRatio ?? this.options?.pixelRatio ?? (typeof window !== "undefined" ? window.devicePixelRatio : 1),
+      layout
     };
   }
   /**
@@ -3709,8 +3716,9 @@ var WitnessUI = class {
    */
   resizeCanvas() {
     if (!this.puzzle || !this.canvas) return;
-    const w = this.puzzle.cols * this.options.cellSize + this.options.gridPadding * 2;
-    const h = this.puzzle.rows * this.options.cellSize + this.options.gridPadding * 2;
+    const size = this.getCanvasLogicalSize();
+    const w = size.width;
+    const h = size.height;
     const dpr = this.options.pixelRatio;
     if (typeof HTMLCanvasElement !== "undefined" && this.canvas instanceof HTMLCanvasElement) {
       try {
@@ -3862,10 +3870,17 @@ var WitnessUI = class {
    * @returns Canvas座標
    */
   getCanvasCoords(gridX, gridY) {
+    const origin = this.getGridOrigin();
     return {
-      x: this.options.gridPadding + gridX * this.options.cellSize,
-      y: this.options.gridPadding + gridY * this.options.cellSize
+      x: origin.x + gridX * this.options.cellSize,
+      y: origin.y + gridY * this.options.cellSize
     };
+  }
+  /**
+   * グリッド座標を現在のUIレイアウトに基づくCanvas座標で取得する
+   */
+  getGridCanvasCoords(gridX, gridY) {
+    return this.getCanvasCoords(gridX, gridY);
   }
   /**
    * 画面座標をCanvas上の論理座標に変換する
@@ -3884,8 +3899,9 @@ var WitnessUI = class {
   hitTestInput(clientX, clientY) {
     if (!this.puzzle) return null;
     const p = this.toCanvasPoint(clientX, clientY);
-    const gx = (p.x - this.options.gridPadding) / this.options.cellSize;
-    const gy = (p.y - this.options.gridPadding) / this.options.cellSize;
+    const origin = this.getGridOrigin();
+    const gx = (p.x - origin.x) / this.options.cellSize;
+    const gy = (p.y - origin.y) / this.options.cellSize;
     const nearX = Math.round(gx);
     const nearY = Math.round(gy);
     const dx = Math.abs(gx - nearX);
@@ -3908,6 +3924,48 @@ var WitnessUI = class {
     const r = Math.floor(gy);
     if (c >= 0 && c < this.puzzle.cols && r >= 0 && r < this.puzzle.rows) return { kind: "cell", r, c };
     return null;
+  }
+  resolveSpacing(value) {
+    if (typeof value === "number") {
+      const n = Number.isFinite(value) ? Math.max(0, value) : 0;
+      return { top: n, right: n, bottom: n, left: n };
+    }
+    const spacing = value ?? {};
+    return {
+      top: Number.isFinite(spacing.top) ? Math.max(0, spacing.top) : 0,
+      right: Number.isFinite(spacing.right) ? Math.max(0, spacing.right) : 0,
+      bottom: Number.isFinite(spacing.bottom) ? Math.max(0, spacing.bottom) : 0,
+      left: Number.isFinite(spacing.left) ? Math.max(0, spacing.left) : 0
+    };
+  }
+  getLayoutMetrics() {
+    const margin = this.resolveSpacing(this.options.layout?.margin);
+    const padding = this.resolveSpacing(this.options.layout?.padding);
+    const offsetX = Number.isFinite(this.options.layout?.offsetX) ? this.options.layout?.offsetX : 0;
+    const offsetY = Number.isFinite(this.options.layout?.offsetY) ? this.options.layout?.offsetY : 0;
+    const offsetPadX = Math.abs(offsetX);
+    const offsetPadY = Math.abs(offsetY);
+    const cols = this.puzzle?.cols ?? 0;
+    const rows = this.puzzle?.rows ?? 0;
+    const baseWidth = cols * this.options.cellSize + this.options.gridPadding * 2;
+    const baseHeight = rows * this.options.cellSize + this.options.gridPadding * 2;
+    return {
+      originX: margin.left + padding.left + this.options.gridPadding + offsetPadX + offsetX,
+      originY: margin.top + padding.top + this.options.gridPadding + offsetPadY + offsetY,
+      canvasWidth: margin.left + margin.right + padding.left + padding.right + baseWidth + offsetPadX * 2,
+      canvasHeight: margin.top + margin.bottom + padding.top + padding.bottom + baseHeight + offsetPadY * 2
+    };
+  }
+  getGridOrigin() {
+    const metrics = this.getLayoutMetrics();
+    return { x: metrics.originX, y: metrics.originY };
+  }
+  getCanvasLogicalSize() {
+    const metrics = this.getLayoutMetrics();
+    return {
+      width: Math.max(1, Math.round(metrics.canvasWidth)),
+      height: Math.max(1, Math.round(metrics.canvasHeight))
+    };
   }
   /**
    * 指定されたノードが出口の場合、その出っ張りの方向ベクトルを返す

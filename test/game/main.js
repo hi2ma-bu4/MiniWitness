@@ -1,11 +1,88 @@
 import { CellType, EdgeType, NodeType, PuzzleSerializer, WitnessCore, WitnessUI } from "../../dist/MiniWitness.js";
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const MAP_GRID_ROWS = 7;
+const MAP_GRID_COLS = 5;
+const MAP_STAGE_CAPACITY = 20;
+const FILTER_RGB_COLORS = ["#ff5f66", "#67ef86", "#64a7ff"];
 
 const clonePuzzle = (puzzle) => {
 	if (typeof structuredClone === "function") return structuredClone(puzzle);
 	return JSON.parse(JSON.stringify(puzzle));
 };
+
+const STAGE_PACK_BLUEPRINTS = [
+	{
+		id: "linear",
+		name: "Route A",
+		bossFeatures: {
+			useHexagons: true,
+			useSquares: true,
+			useStars: true,
+			useTetris: false,
+			useTetrisNegative: false,
+			useEraser: false,
+			useTriangles: true,
+			useBrokenEdges: true,
+		},
+		stages: [
+			{ id: "L1", label: "L1", goalType: "line", kind: "fixed", rows: 2, cols: 2, code: "AAGCAAAAAAAAAAAAAAAEIACn" },
+			{ id: "L2", label: "L2", goalType: "hex", kind: "fixed", rows: 3, cols: 3, code: "AAHDAAAAAAAAAAAAAACwAQAAAAMAAAAAQAAAAAEAMQ" },
+			{ id: "L3", label: "L3", goalType: "broken", kind: "fixed", rows: 3, cols: 3, code: "AAHDAAAAAAAAAAAAAAAAAAAADBgGAAAEQAAAAAEAlQ" },
+			{ id: "L4", label: "L4", goalType: "triangle", kind: "fixed", rows: 4, cols: 4, code: "AR-LCAAAAAAAAApjZGFkgAABJgYGBicGOGBDMBlYwCQTAwCpU9EwLgAAAL4" },
+			{
+				id: "LB",
+				label: "BOSS",
+				goalType: "boss",
+				kind: "boss",
+				boss: {
+					rounds: 3,
+					rows: 5,
+					cols: 5,
+					baseComplexity: 0.66,
+					baseDifficulty: 0.64,
+					basePathLength: 0.58,
+					symmetryModes: [0],
+				},
+			},
+		],
+	},
+	{
+		id: "symbol",
+		name: "Route B",
+		bossFeatures: {
+			useHexagons: true,
+			useSquares: true,
+			useStars: true,
+			useTetris: true,
+			useTetrisNegative: true,
+			useEraser: false,
+			useTriangles: true,
+			useBrokenEdges: false,
+		},
+		stages: [
+			{ id: "S1", label: "S1", goalType: "star", kind: "fixed", rows: 3, cols: 3, code: "AAHDAAAQJIgQIQAiRIgAAAAAAAAwAAAAQAAAAAEA0A" },
+			{ id: "S2", label: "S2", goalType: "sym", kind: "fixed", rows: 4, cols: 4, code: "AR-LCAAAAAAAAApjZBFkwAJEGBgEICxtEIsRxGpg4AAAYubwyy4AAAAz" },
+			{ id: "S3", label: "S3", goalType: "tetris", kind: "fixed", rows: 4, cols: 4, code: "AR-LCAAAAAAAAApjZHHs4GBgaGhkYGBgYGZkQAY8SGwOMMnCwAAA0dx8KDEAAABI" },
+			{ id: "SF", label: "FILTER", goalType: "filter", kind: "filter", rows: 3, cols: 3, code: "AAHDAAAQJIgQIQAiRIgAAAAAAAAwAAAAQAAAAAEA0A" },
+			{
+				id: "SB",
+				label: "BOSS",
+				goalType: "boss",
+				kind: "boss",
+				boss: {
+					rounds: 3,
+					rows: 5,
+					cols: 5,
+					baseComplexity: 0.7,
+					baseDifficulty: 0.68,
+					basePathLength: 0.6,
+					symmetryModes: [0, 1],
+				},
+			},
+		],
+	},
+];
 
 function drawRoundedRect(ctx, x, y, width, height, radius) {
 	ctx.beginPath();
@@ -30,7 +107,6 @@ class WitnessGamePage {
 		this.boardShell = document.getElementById("board-shell");
 		this.gameCanvas = document.getElementById("game-canvas");
 
-		this.routeToggleBtn = document.getElementById("route-toggle");
 		this.menuToggleBtn = document.getElementById("menu-toggle");
 		this.menuCloseBtn = document.getElementById("menu-close");
 
@@ -39,19 +115,32 @@ class WitnessGamePage {
 		this.menuShell = document.getElementById("menu-shell");
 		this.menuCanvas = document.getElementById("menu-canvas");
 
-		this.pauseOverlay = document.getElementById("pause-overlay");
 		this.statusPill = document.getElementById("status-pill");
 		this.sceneBanner = document.getElementById("scene-banner");
 		this.flashLayer = document.getElementById("flash-layer");
+		this.menuHelp = document.getElementById("menu-help");
+		this.hudTitle = document.getElementById("hud-title");
+		this.hudDetail = document.getElementById("hud-detail");
+		this.hudProgress = document.getElementById("hud-progress");
+		this.hudProgressText = document.getElementById("hud-progress-text");
+		this.filterPanel = document.getElementById("filter-panel");
+		this.filterInfo = document.getElementById("filter-info");
+		this.filterButtons = Array.from(document.querySelectorAll("[data-filter-index]"));
 
 		this.mainRender = {
-			pixelRatio: 1,
+			pixelRatio: typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1,
 			cellSize: 80,
 			gridPadding: 60,
 			exitLength: 25,
 		};
+		this.mapRender = {
+			pixelRatio: this.mainRender.pixelRatio,
+			cellSize: 34,
+			gridPadding: 28,
+			exitLength: 14,
+		};
 		this.menuRender = {
-			pixelRatio: 1,
+			pixelRatio: this.mainRender.pixelRatio,
 			cellSize: 44,
 			gridPadding: 24,
 			exitLength: 16,
@@ -73,6 +162,11 @@ class WitnessGamePage {
 			exitLength: this.menuRender.exitLength,
 			blinkMarksOnError: false,
 			stayPathOnError: true,
+			layout: {
+				margin: { top: 20, right: 78, bottom: 22, left: 78 },
+				padding: { top: 8, right: 14, bottom: 8, left: 14 },
+				offsetY: 2,
+			},
 			colors: {
 				grid: "#4b6375",
 				node: "#d7e7f4",
@@ -90,9 +184,12 @@ class WitnessGamePage {
 		this.currentMapInfo = null;
 		this.currentStagePuzzle = null;
 		this.menuPuzzle = null;
+		this.menuActions = [];
+		this.menuActionByIndex = new Map();
+		this.bossRun = null;
+		this.filterChallenge = null;
 
 		this.inputLocked = false;
-		this.paused = false;
 		this.menuOpen = false;
 		this.pendingLayout = 0;
 		this.statusTimer = 0;
@@ -105,8 +202,7 @@ class WitnessGamePage {
 
 		try {
 			await this.prepareStagePacks();
-			this.menuPuzzle = this.createMenuPuzzle();
-			this.menuUI.setPuzzle(clonePuzzle(this.menuPuzzle));
+			this.refreshMenuPuzzle();
 			await this.openMapScene("", false);
 		} catch (error) {
 			console.error(error);
@@ -139,9 +235,11 @@ class WitnessGamePage {
 		this.menuOverlay.addEventListener("click", (event) => {
 			if (event.target === this.menuOverlay) this.setMenuOpen(false);
 		});
-
-		this.routeToggleBtn.addEventListener("click", () => {
-			void this.cyclePack(1);
+		this.filterButtons.forEach((button) => {
+			button.addEventListener("click", () => {
+				const index = Number(button.dataset.filterIndex);
+				this.setFilterIndex(index);
+			});
 		});
 
 		const requestLayout = () => this.requestLayout();
@@ -157,80 +255,28 @@ class WitnessGamePage {
 	}
 
 	async prepareStagePacks() {
-		const blueprints = this.createStagePackBlueprints();
-		const packs = [];
-
-		for (const pack of blueprints) {
-			const stages = [];
-			for (const stage of pack.stages) {
-				let puzzle;
-				try {
-					puzzle = this.core.createPuzzle(stage.rows, stage.cols, { ...stage.options });
-				} catch (error) {
-					console.warn("Stage generation failed, using fallback:", stage.id, error);
-					puzzle = this.core.createPuzzle(stage.rows, stage.cols, this.defaultStageOptions(stage.seed));
-				}
-
-				const code = await PuzzleSerializer.serialize({ puzzle });
-				stages.push({ ...stage, code });
-			}
-
-			packs.push({
-				id: pack.id,
-				name: pack.name,
-				stages,
-				map: this.createMapPuzzle(stages.length),
-			});
-		}
-
-		this.stagePacks = packs;
+		this.stagePacks = this.createStagePackBlueprints().map((pack) => ({
+			...pack,
+			stages: pack.stages.map((stage) => ({ ...stage })),
+			map: this.createMapPuzzle(pack.id, pack.stages.length),
+		}));
 	}
 
 	createStagePackBlueprints() {
-		return [
-			{
-				id: "linear",
-				name: "Route A",
-				stages: [
-					{ id: "L1", label: "L1", goalType: "line", seed: "a101", rows: 2, cols: 2, options: this.defaultStageOptions("a101", { pathLength: 0.2, difficulty: 0.2, useHexagons: false }) },
-					{ id: "L2", label: "L2", goalType: "hex", seed: "a102", rows: 3, cols: 3, options: this.defaultStageOptions("a102", { useHexagons: true, pathLength: 0.35, difficulty: 0.35 }) },
-					{ id: "L3", label: "L3", goalType: "broken", seed: "a103", rows: 3, cols: 3, options: this.defaultStageOptions("a103", { useBrokenEdges: true, complexity: 0.5, difficulty: 0.4 }) },
-					{ id: "L4", label: "L4", goalType: "triangle", seed: "a104", rows: 4, cols: 4, options: this.defaultStageOptions("a104", { useTriangles: true, complexity: 0.55, difficulty: 0.45 }) },
-					{ id: "L5", label: "L5", goalType: "mix", seed: "a105", rows: 4, cols: 4, options: this.defaultStageOptions("a105", { useSquares: true, useStars: true, complexity: 0.6, difficulty: 0.55 }) },
-				],
-			},
-			{
-				id: "symbol",
-				name: "Route B",
-				stages: [
-					{ id: "S1", label: "S1", goalType: "star", seed: "b201", rows: 3, cols: 3, options: this.defaultStageOptions("b201", { useSquares: true, useStars: true, difficulty: 0.4, complexity: 0.45 }) },
-					{ id: "S2", label: "S2", goalType: "sym", seed: "b202", rows: 4, cols: 4, options: this.defaultStageOptions("b202", { symmetry: 1, useHexagons: true, difficulty: 0.45, pathLength: 0.45 }) },
-					{ id: "S3", label: "S3", goalType: "tetris", seed: "b203", rows: 4, cols: 4, options: this.defaultStageOptions("b203", { useTetris: true, complexity: 0.55, difficulty: 0.55, pathLength: 0.5 }) },
-					{
-						id: "S4",
-						label: "S4",
-						goalType: "neg",
-						seed: "b204",
-						rows: 5,
-						cols: 4,
-						options: this.defaultStageOptions("b204", {
-							useTetris: true,
-							useTetrisNegative: true,
-							useTriangles: true,
-							complexity: 0.65,
-							difficulty: 0.65,
-							pathLength: 0.55,
-						}),
-					},
-				],
-			},
-		];
+		return STAGE_PACK_BLUEPRINTS.map((pack) => ({
+			...pack,
+			bossFeatures: { ...pack.bossFeatures },
+			stages: pack.stages.map((stage) => ({
+				...stage,
+				boss: stage.boss ? { ...stage.boss, symmetryModes: [...(stage.boss.symmetryModes ?? [0])] } : undefined,
+			})),
+		}));
 	}
 
-	defaultStageOptions(seed, overrides = {}) {
+	defaultStageOptions(overrides = {}) {
 		return {
-			seed,
-			useHexagons: true,
+			seed: this.createRandomSeed(),
+			useHexagons: false,
 			useSquares: false,
 			useStars: false,
 			useTetris: false,
@@ -238,11 +284,27 @@ class WitnessGamePage {
 			useEraser: false,
 			useTriangles: false,
 			useBrokenEdges: false,
+			symmetry: 0,
 			complexity: 0.4,
 			difficulty: 0.4,
 			pathLength: 0.45,
 			...overrides,
 		};
+	}
+
+	createRandomSeed() {
+		const a = Math.floor(Math.random() * 0xffffffff)
+			.toString(16)
+			.padStart(8, "0");
+		const b = Math.floor(Math.random() * 0xffffffff)
+			.toString(16)
+			.padStart(8, "0");
+		return `${a}${b}`;
+	}
+
+	jitter(base, delta, min = 0.1, max = 0.95) {
+		const value = base + (Math.random() * 2 - 1) * delta;
+		return Math.max(min, Math.min(max, value));
 	}
 
 	createEmptyPuzzle(rows, cols) {
@@ -257,27 +319,67 @@ class WitnessGamePage {
 		};
 	}
 
-	createMapPuzzle(stageCount) {
-		const rows = Math.max(1, stageCount);
-		const cols = 0;
+	createMapPuzzle(packId, stageCount) {
+		const rows = MAP_GRID_ROWS;
+		const cols = MAP_GRID_COLS;
 		const puzzle = this.createEmptyPuzzle(rows, cols);
 
-		puzzle.nodes[rows][0].type = NodeType.Start;
+		for (let r = 0; r <= rows; r++) {
+			for (let c = 0; c < cols; c++) puzzle.hEdges[r][c].type = EdgeType.Absent;
+		}
+		for (let r = 0; r < rows; r++) {
+			for (let c = 0; c <= cols; c++) puzzle.vEdges[r][c].type = EdgeType.Absent;
+		}
+
+		for (let c = 0; c < cols; c++) {
+			puzzle.hEdges[0][c].type = EdgeType.Normal;
+			puzzle.hEdges[rows][c].type = EdgeType.Normal;
+		}
+		for (let r = 0; r < rows; r++) {
+			puzzle.vEdges[r][0].type = EdgeType.Normal;
+			puzzle.vEdges[r][cols].type = EdgeType.Normal;
+		}
+
+		const startNode = { x: 0, y: rows };
+		const routeNextNode = { x: cols, y: 0 };
+		const routePrevNode = { x: cols, y: rows };
+		puzzle.nodes[startNode.y][startNode.x].type = NodeType.Start;
+
+		const routeByNode = new Map();
+		puzzle.nodes[routeNextNode.y][routeNextNode.x].type = NodeType.End;
+		routeByNode.set(`${routeNextNode.x},${routeNextNode.y}`, 1);
+		puzzle.nodes[routePrevNode.y][routePrevNode.x].type = NodeType.End;
+		routeByNode.set(`${routePrevNode.x},${routePrevNode.y}`, -1);
+
+		const blocked = new Set([`${startNode.x},${startNode.y}`, `${routeNextNode.x},${routeNextNode.y}`, `${routePrevNode.x},${routePrevNode.y}`]);
+		const stageSlots = this.getPerimeterNodes(rows, cols).filter((node) => !blocked.has(`${node.x},${node.y}`));
 
 		const stageByNode = new Map();
-		for (let index = 0; index < stageCount; index++) {
-			const y = rows - 1 - index;
-			puzzle.nodes[y][0].type = NodeType.End;
-			stageByNode.set(`0,${y}`, index);
+		const usableCount = Math.min(stageCount, MAP_STAGE_CAPACITY, stageSlots.length);
+		for (let index = 0; index < usableCount; index++) {
+			const node = stageSlots[index];
+			puzzle.nodes[node.y][node.x].type = NodeType.End;
+			stageByNode.set(`${node.x},${node.y}`, index);
 		}
-		return { puzzle, stageByNode };
+
+		return { packId, puzzle, stageByNode, routeByNode };
+	}
+
+	getPerimeterNodes(rows, cols) {
+		const nodes = [];
+		for (let x = 0; x <= cols; x++) nodes.push({ x, y: 0 });
+		for (let y = 1; y <= rows; y++) nodes.push({ x: cols, y });
+		for (let x = cols - 1; x >= 0; x--) nodes.push({ x, y: rows });
+		for (let y = rows - 1; y >= 1; y--) nodes.push({ x: 0, y });
+		return nodes;
 	}
 
 	createMenuPuzzle() {
-		const puzzle = this.createEmptyPuzzle(1, 2);
-		puzzle.nodes[1][0].type = NodeType.Start;
+		const rows = 0;
+		const cols = 2;
+		const puzzle = this.createEmptyPuzzle(rows, cols);
+		puzzle.nodes[0][1].type = NodeType.Start;
 		puzzle.nodes[0][0].type = NodeType.End;
-		puzzle.nodes[0][1].type = NodeType.End;
 		puzzle.nodes[0][2].type = NodeType.End;
 		return puzzle;
 	}
@@ -293,8 +395,20 @@ class WitnessGamePage {
 
 		if (targetScene === "map") {
 			return {
-				pixelRatio: this.mainRender.pixelRatio,
+				pixelRatio: this.mapRender.pixelRatio,
+				cellSize: this.mapRender.cellSize,
+				gridPadding: this.mapRender.gridPadding,
+				exitLength: this.mapRender.exitLength,
+				pathWidth: 10,
+				nodeRadius: 4,
+				startNodeRadius: 10,
 				inputMode: "drag",
+				layout: {
+					margin: { top: 48, right: 56, bottom: 48, left: 56 },
+					padding: { top: 6, right: 8, bottom: 6, left: 8 },
+					offsetX: 0,
+					offsetY: 0,
+				},
 				colors: {
 					grid: "#60768a",
 					node: "#d6e6f6",
@@ -307,12 +421,25 @@ class WitnessGamePage {
 					hexagonSymmetry: "#ff9bcf",
 					colorMap: highContrastColorMap,
 				},
+				filter: { enabled: false },
 			};
 		}
 
 		return {
 			pixelRatio: this.mainRender.pixelRatio,
+			cellSize: this.mainRender.cellSize,
+			gridPadding: this.mainRender.gridPadding,
+			exitLength: this.mainRender.exitLength,
+			pathWidth: 18,
+			nodeRadius: 6,
+			startNodeRadius: 22,
 			inputMode: "drag",
+			layout: {
+				margin: 0,
+				padding: 0,
+				offsetX: 0,
+				offsetY: 0,
+			},
 			colors: {
 				grid: "#5f6573",
 				node: "#d9d7e8",
@@ -325,13 +452,7 @@ class WitnessGamePage {
 				hexagonSymmetry: "#ff9fd2",
 				colorMap: highContrastColorMap,
 			},
-		};
-	}
-
-	gridPointToCanvas(x, y, metrics) {
-		return {
-			x: metrics.gridPadding + x * metrics.cellSize,
-			y: metrics.gridPadding + y * metrics.cellSize,
+			filter: { enabled: false },
 		};
 	}
 
@@ -355,7 +476,7 @@ class WitnessGamePage {
 		return null;
 	}
 
-	drawGoalTag(ctx, x, y, text, accent = "#dfefff") {
+	drawGoalTag(ctx, x, y, text, accent = "#dfefff", fill = "rgba(8, 14, 21, 0.82)", border = "rgba(180, 215, 238, 0.45)") {
 		ctx.save();
 		ctx.font = "700 12px 'Segoe UI', sans-serif";
 		ctx.textAlign = "center";
@@ -365,9 +486,9 @@ class WitnessGamePage {
 		const height = 20;
 
 		drawRoundedRect(ctx, x - width / 2, y - height / 2, width, height, 8);
-		ctx.fillStyle = "rgba(8, 14, 21, 0.82)";
+		ctx.fillStyle = fill;
 		ctx.fill();
-		ctx.strokeStyle = "rgba(180, 215, 238, 0.45)";
+		ctx.strokeStyle = border;
 		ctx.lineWidth = 1;
 		ctx.stroke();
 
@@ -379,49 +500,158 @@ class WitnessGamePage {
 		ctx.restore();
 	}
 
+	clampLabelPosition(x, y, canvas, pixelRatio, padding = 16) {
+		const width = Math.max(1, Math.round(canvas.width / pixelRatio));
+		const height = Math.max(1, Math.round(canvas.height / pixelRatio));
+		return {
+			x: Math.max(padding, Math.min(width - padding, x)),
+			y: Math.max(padding, Math.min(height - padding, y)),
+		};
+	}
+
+	getMapPackForRender() {
+		if (this.currentMapInfo?.packId) {
+			const byId = this.stagePacks.find((pack) => pack.id === this.currentMapInfo.packId);
+			if (byId) return byId;
+		}
+		return this.stagePacks[this.packIndex] ?? null;
+	}
+
+	getStageClearKey(pack, stage) {
+		if (!pack || !stage) return null;
+		return `${pack.id}:${stage.id}`;
+	}
+
+	isStageCleared(pack, stage) {
+		const key = this.getStageClearKey(pack, stage);
+		if (!key) return false;
+		return this.clearedStageIds.has(key);
+	}
+
+	getPackClearedCount(pack) {
+		let count = 0;
+		for (const stage of pack.stages) {
+			if (this.isStageCleared(pack, stage)) count++;
+		}
+		return count;
+	}
+
+	getHighestClearedStageIndex(pack) {
+		let highest = -1;
+		for (let index = 0; index < pack.stages.length; index++) {
+			if (this.isStageCleared(pack, pack.stages[index])) highest = index;
+		}
+		return highest;
+	}
+
+	getUnlockedStageMaxIndex(pack) {
+		return Math.min(pack.stages.length - 1, this.getHighestClearedStageIndex(pack) + 2);
+	}
+
+	isStageUnlocked(pack, stageIndex) {
+		if (stageIndex < 0 || stageIndex >= pack.stages.length) return false;
+		if (stageIndex <= this.getUnlockedStageMaxIndex(pack)) return true;
+		return this.isStageCleared(pack, pack.stages[stageIndex]);
+	}
+
+	getStageBadgeInfo(stage, stageIndex, unlocked, cleared) {
+		if (stage.kind === "boss") {
+			if (!unlocked) return { text: "B", accent: "#9aa4b2", fill: "rgba(48, 53, 63, 0.92)" };
+			if (cleared) return { text: "B", accent: "#92ffd0", fill: "rgba(21, 56, 44, 0.92)" };
+			return { text: "B", accent: "#ffe59b", fill: "rgba(69, 57, 26, 0.92)" };
+		}
+		const base = String(stageIndex + 1);
+		if (!unlocked) return { text: base, accent: "#8f9aa8", fill: "rgba(47, 52, 62, 0.92)" };
+		if (cleared) return { text: base, accent: "#90ffc8", fill: "rgba(20, 58, 44, 0.92)" };
+		return { text: base, accent: "#8deeff", fill: "rgba(16, 38, 52, 0.92)" };
+	}
+
+	isBackRouteEnabled() {
+		return this.packIndex > 0;
+	}
+
 	onMainRenderAfter(ctx) {
 		if (this.scene !== "map" || !this.currentMapInfo) return;
 
+		const pack = this.getMapPackForRender();
+		if (!pack) return;
+
 		const puzzle = this.currentMapInfo.puzzle;
+		const clamp = (x, y) => this.clampLabelPosition(x, y, this.gameCanvas, this.mapRender.pixelRatio, 16);
+
 		for (const [key, stageIndex] of this.currentMapInfo.stageByNode.entries()) {
 			const [sx, sy] = key.split(",").map(Number);
 			const dir = this.getExitDirection(puzzle, sx, sy);
 			if (!dir) continue;
-			const nodePos = this.gridPointToCanvas(sx, sy, this.mainRender);
-			const labelX = nodePos.x + dir.x * (this.mainRender.exitLength + 24);
-			const labelY = nodePos.y + dir.y * (this.mainRender.exitLength + 24);
-			this.drawGoalTag(ctx, labelX, labelY, String(stageIndex + 1), "#8df1ff");
+
+			const stage = pack.stages[stageIndex];
+			if (!stage) continue;
+			const unlocked = this.isStageUnlocked(pack, stageIndex);
+			const cleared = this.isStageCleared(pack, stage);
+			const nodePos = this.ui.getGridCanvasCoords(sx, sy);
+			const rawX = nodePos.x + dir.x * (this.mapRender.exitLength + 30);
+			const rawY = nodePos.y + dir.y * (this.mapRender.exitLength + 24);
+			const pos = clamp(rawX, rawY);
+			const badge = this.getStageBadgeInfo(stage, stageIndex, unlocked, cleared);
+			this.drawGoalTag(ctx, pos.x, pos.y, badge.text, badge.accent, badge.fill);
+		}
+
+		for (const [key, routeDelta] of this.currentMapInfo.routeByNode.entries()) {
+			const [sx, sy] = key.split(",").map(Number);
+			const dir = this.getExitDirection(puzzle, sx, sy);
+			if (!dir) continue;
+			const nodePos = this.ui.getGridCanvasCoords(sx, sy);
+			const rawX = nodePos.x + dir.x * (this.mapRender.exitLength + 34);
+			const rawY = nodePos.y + dir.y * (this.mapRender.exitLength + 24);
+			const pos = clamp(rawX, rawY);
+			const backEnabled = routeDelta > 0 || this.isBackRouteEnabled();
+			const text = routeDelta > 0 ? ">" : backEnabled ? "<" : "X";
+			const accent = routeDelta > 0 ? "#9ce1ff" : backEnabled ? "#ffcf8d" : "#9ca8b5";
+			const fill = routeDelta > 0 ? "rgba(18, 40, 56, 0.92)" : backEnabled ? "rgba(64, 44, 24, 0.92)" : "rgba(45, 50, 60, 0.92)";
+			this.drawGoalTag(ctx, pos.x, pos.y, text, accent, fill);
 		}
 	}
 
 	getMenuActions() {
 		if (this.scene === "stage") {
 			return [
-				{ index: 0, label: this.paused ? "PLAY" : "PAUSE", accent: "#8fffd0" },
-				{ index: 1, label: "RETRY", accent: "#ffe081" },
-				{ index: 2, label: "MAP", accent: "#95c5ff" },
+				{ id: "map", label: "MAP", accent: "#95c5ff", nodeX: 0 },
+				{ id: "close", label: "CLOSE", accent: "#d5dfff", nodeX: 2 },
 			];
 		}
+
 		return [
-			{ index: 0, label: "ROUTE-", accent: "#ffcf8d" },
-			{ index: 1, label: "ROUTE+", accent: "#9ce1ff" },
-			{ index: 2, label: "CLOSE", accent: "#d5dfff" },
+			{ id: "noop", label: "", accent: "#8898ac", nodeX: 0 },
+			{ id: "close", label: "CLOSE", accent: "#d5dfff", nodeX: 2 },
 		];
+	}
+
+	refreshMenuPuzzle() {
+		const actions = this.getMenuActions();
+		this.menuActions = actions.map((action, index) => ({ ...action, index }));
+		this.menuActionByIndex = new Map(this.menuActions.map((action) => [action.index, action]));
+		this.menuPuzzle = this.createMenuPuzzle();
+		if (this.menuHelp) {
+			this.menuHelp.textContent = this.scene === "stage" ? "左:MAP / 右:CLOSE" : "右:CLOSE";
+		}
+		this.menuUI.setPuzzle(clonePuzzle(this.menuPuzzle));
 	}
 
 	onMenuRenderAfter(ctx) {
 		if (!this.menuOpen || !this.menuPuzzle) return;
+		const clamp = (x, y) => this.clampLabelPosition(x, y, this.menuCanvas, this.menuRender.pixelRatio, 14);
 
-		const actions = this.getMenuActions();
-		for (const action of actions) {
-			const x = action.index;
+		for (const action of this.menuActions) {
+			if (!action.label) continue;
+			const x = action.nodeX;
 			const y = 0;
 			const dir = this.getExitDirection(this.menuPuzzle, x, y);
 			if (!dir) continue;
-			const nodePos = this.gridPointToCanvas(x, y, this.menuRender);
-			const labelX = nodePos.x + dir.x * (this.menuRender.exitLength + 32);
-			const labelY = nodePos.y + dir.y * (this.menuRender.exitLength + 22);
-			this.drawGoalTag(ctx, labelX, labelY, action.label, action.accent);
+			const nodePos = this.menuUI.getGridCanvasCoords(x, y);
+			const rawX = nodePos.x + dir.x * (this.menuRender.exitLength + 30);
+			const rawY = nodePos.y + dir.y * (this.menuRender.exitLength + 22);
+			const pos = clamp(rawX, rawY);
+			this.drawGoalTag(ctx, pos.x, pos.y, action.label, action.accent);
 		}
 	}
 
@@ -429,7 +659,6 @@ class WitnessGamePage {
 		if (animated) {
 			this.inputLocked = true;
 			this.setMainInputEnabled();
-			this.showBanner(bannerText);
 			this.app.classList.add("scene-exit");
 			await wait(200);
 		}
@@ -448,7 +677,6 @@ class WitnessGamePage {
 				this.app.classList.add("scene-enter");
 				await wait(220);
 				this.app.classList.remove("scene-enter");
-				this.hideBanner();
 				this.inputLocked = false;
 				this.setMainInputEnabled();
 			}
@@ -462,14 +690,99 @@ class WitnessGamePage {
 			async () => {
 				this.stageIndex = null;
 				this.currentStagePuzzle = null;
-				this.paused = false;
+				this.bossRun = null;
+				this.filterChallenge = null;
+				this.setFilterPanelVisible(false);
 				this.currentMapInfo = this.stagePacks[this.packIndex].map;
 				this.ui.setOptions(this.getMainSceneOptions("map"));
 				this.ui.setPuzzle(clonePuzzle(this.currentMapInfo.puzzle));
+				this.updateHud();
 				if (status) this.setStatus(status, "good", 1200);
 			},
 			animated,
 		);
+	}
+
+	createBossRun(pack, stage) {
+		return {
+			packId: pack.id,
+			stageId: stage.id,
+			totalRounds: stage.boss?.rounds ?? 3,
+			nextRoundToGenerate: 1,
+			currentRound: 0,
+			queue: [],
+			prefetchPromise: null,
+		};
+	}
+
+	pickRandom(items, fallback) {
+		if (!Array.isArray(items) || items.length === 0) return fallback;
+		return items[Math.floor(Math.random() * items.length)];
+	}
+
+	buildBossGenerationOptions(pack, stage) {
+		const boss = stage.boss ?? {};
+		const symmetry = this.pickRandom(boss.symmetryModes ?? [0], 0);
+		return this.defaultStageOptions({
+			seed: this.createRandomSeed(),
+			...pack.bossFeatures,
+			symmetry,
+			complexity: this.jitter(boss.baseComplexity ?? 0.65, 0.12),
+			difficulty: this.jitter(boss.baseDifficulty ?? 0.65, 0.12),
+			pathLength: this.jitter(boss.basePathLength ?? 0.55, 0.1),
+		});
+	}
+
+	async generateBossPuzzle(pack, stage) {
+		await wait(0);
+		const boss = stage.boss;
+		if (!boss) throw new Error(`Boss stage config missing: ${pack.id}:${stage.id}`);
+
+		try {
+			return this.core.createPuzzle(boss.rows, boss.cols, this.buildBossGenerationOptions(pack, stage));
+		} catch (error) {
+			console.warn("Boss generation failed, using fallback:", `${pack.id}:${stage.id}`, error);
+			const fallback = this.defaultStageOptions({
+				seed: this.createRandomSeed(),
+				...pack.bossFeatures,
+				symmetry: 0,
+				complexity: 0.45,
+				difficulty: 0.45,
+				pathLength: 0.45,
+			});
+			return this.core.createPuzzle(boss.rows, boss.cols, fallback);
+		}
+	}
+
+	async prefetchBossRound(run, pack, stage) {
+		if (run.prefetchPromise) return run.prefetchPromise;
+		if (run.nextRoundToGenerate > run.totalRounds) return;
+
+		run.prefetchPromise = (async () => {
+			while (run.queue.length < 1 && run.nextRoundToGenerate <= run.totalRounds) {
+				const round = run.nextRoundToGenerate++;
+				const puzzle = await this.generateBossPuzzle(pack, stage);
+				run.queue.push({ round, puzzle });
+			}
+		})().finally(() => {
+			if (this.bossRun === run) run.prefetchPromise = null;
+		});
+
+		return run.prefetchPromise;
+	}
+
+	async consumeNextBossPuzzle(run, pack, stage) {
+		while (run.queue.length === 0) {
+			await this.prefetchBossRound(run, pack, stage);
+			if (run.queue.length === 0 && run.nextRoundToGenerate > run.totalRounds) {
+				throw new Error(`Boss queue underflow: ${pack.id}:${stage.id}`);
+			}
+		}
+
+		const next = run.queue.shift();
+		run.currentRound = next.round;
+		void this.prefetchBossRound(run, pack, stage);
+		return next.puzzle;
 	}
 
 	async openStageScene(stageIndex, status = "", animated = true) {
@@ -478,15 +791,36 @@ class WitnessGamePage {
 
 		await this.changeScene(
 			"stage",
-			`STAGE ${stageIndex + 1}`,
+			stage.kind === "boss" ? "BOSS" : `STAGE ${stageIndex + 1}`,
 			async () => {
-				this.paused = false;
 				this.stageIndex = stageIndex;
+				this.ui.setOptions(this.getMainSceneOptions("stage"));
+				this.filterChallenge = null;
+				this.setFilterPanelVisible(false);
+
+				if (stage.kind === "boss") {
+					this.bossRun = this.createBossRun(pack, stage);
+					const puzzle = await this.consumeNextBossPuzzle(this.bossRun, pack, stage);
+					this.currentStagePuzzle = puzzle;
+					this.ui.setPuzzle(clonePuzzle(this.currentStagePuzzle));
+					this.updateHud();
+					if (status) {
+						this.setStatus(status, "good", 1200);
+					} else {
+						this.setStatus(`BOSS ${this.bossRun.currentRound}/${this.bossRun.totalRounds}`, "neutral", 1200);
+					}
+					return;
+				}
+
+				this.bossRun = null;
 				const data = await PuzzleSerializer.deserialize(stage.code);
 				if (!data.puzzle) throw new Error(`Stage decode failed: ${stage.id}`);
 				this.currentStagePuzzle = data.puzzle;
-				this.ui.setOptions(this.getMainSceneOptions("stage"));
+				if (this.isFilterStage(pack, stage)) {
+					this.setupFilterChallenge(pack, stage);
+				}
 				this.ui.setPuzzle(clonePuzzle(this.currentStagePuzzle));
+				this.updateHud();
 				if (status) this.setStatus(status, "good", 1200);
 			},
 			animated,
@@ -497,13 +831,17 @@ class WitnessGamePage {
 		if (this.inputLocked) return;
 		if (this.scene !== "map") return;
 		const count = this.stagePacks.length;
-		this.packIndex = (this.packIndex + delta + count) % count;
+		const next = this.packIndex + delta;
+		if (next < 0 || next >= count) {
+			this.setStatus("NO ROUTE", "bad", 1000);
+			return;
+		}
+		this.packIndex = next;
 		await this.openMapScene(`ROUTE ${this.packIndex + 1}`, true);
 	}
 
 	async handleMainPathComplete(event) {
 		if (this.inputLocked) return;
-		if (this.scene === "stage" && this.paused) return;
 
 		const puzzle = this.scene === "map" ? this.currentMapInfo?.puzzle : this.currentStagePuzzle;
 		if (!puzzle) return;
@@ -525,9 +863,50 @@ class WitnessGamePage {
 
 	async onMapSolved(endNode) {
 		if (!endNode || !this.currentMapInfo) return;
-		const stageIndex = this.currentMapInfo.stageByNode.get(`${endNode.x},${endNode.y}`);
+		const key = `${endNode.x},${endNode.y}`;
+
+		const routeDelta = this.currentMapInfo.routeByNode.get(key);
+		if (routeDelta) {
+			await this.cyclePack(routeDelta);
+			return;
+		}
+
+		const stageIndex = this.currentMapInfo.stageByNode.get(key);
 		if (stageIndex == null) return;
+
+		const pack = this.stagePacks[this.packIndex];
+		if (!this.isStageUnlocked(pack, stageIndex)) {
+			this.setStatus("LOCKED", "bad", 900);
+			return;
+		}
+
 		await this.openStageScene(stageIndex, "", true);
+	}
+
+	async onBossStageSolved(pack, stage) {
+		const run = this.bossRun;
+		if (!run) return;
+
+		const clearedRound = run.currentRound;
+		this.playClearFlash();
+
+		if (clearedRound < run.totalRounds) {
+			this.setStatus(`ROUND ${clearedRound} CLEAR`, "good", 900);
+			await wait(900);
+			const nextPuzzle = await this.consumeNextBossPuzzle(run, pack, stage);
+			this.currentStagePuzzle = nextPuzzle;
+			this.ui.setPuzzle(clonePuzzle(this.currentStagePuzzle));
+			this.updateHud();
+			this.setStatus(`BOSS ${run.currentRound}/${run.totalRounds}`, "neutral", 1200);
+			return;
+		}
+
+		this.clearedStageIds.add(this.getStageClearKey(pack, stage));
+		this.bossRun = null;
+		this.updateHud();
+		this.setStatus("BOSS CLEAR", "good", 1200);
+		await wait(900);
+		await this.openMapScene("MAP RETURN", true);
 	}
 
 	async onStageSolved() {
@@ -535,7 +914,20 @@ class WitnessGamePage {
 
 		const pack = this.stagePacks[this.packIndex];
 		const stage = pack.stages[this.stageIndex];
-		this.clearedStageIds.add(`${pack.id}:${stage.id}`);
+		if (stage.kind === "boss") {
+			await this.onBossStageSolved(pack, stage);
+			return;
+		}
+
+		if (this.isFilterStage(pack, stage) && !this.isFilterChallengeComplete(pack, stage)) {
+			this.setStatus("SWITCH R/G/B", "bad", 1400);
+			this.ui.setPuzzle(clonePuzzle(this.currentStagePuzzle));
+			this.updateHud();
+			return;
+		}
+
+		this.clearedStageIds.add(this.getStageClearKey(pack, stage));
+		this.updateHud();
 
 		this.playClearFlash();
 		this.setStatus("CLEAR", "good", 900);
@@ -559,28 +951,14 @@ class WitnessGamePage {
 		if (!result.isValid) return;
 
 		const actionIndex = event.endNode?.index ?? -1;
+		const action = this.menuActionByIndex.get(actionIndex);
+		if (!action) return;
 
-		if (this.scene === "stage") {
-			if (actionIndex === 0) {
-				this.togglePause();
-				this.setMenuOpen(false);
-			} else if (actionIndex === 1) {
-				this.setMenuOpen(false);
-				await this.restartStage();
-			} else if (actionIndex === 2) {
-				this.setMenuOpen(false);
-				await this.openMapScene("", true);
-			}
-		} else {
-			if (actionIndex === 0) {
-				this.setMenuOpen(false);
-				await this.cyclePack(-1);
-			} else if (actionIndex === 1) {
-				this.setMenuOpen(false);
-				await this.cyclePack(1);
-			} else if (actionIndex === 2) {
-				this.setMenuOpen(false);
-			}
+		if (action.id === "close") {
+			this.setMenuOpen(false);
+		} else if (action.id === "map") {
+			this.setMenuOpen(false);
+			await this.openMapScene("", true);
 		}
 
 		setTimeout(() => {
@@ -588,25 +966,17 @@ class WitnessGamePage {
 		}, 20);
 	}
 
-	togglePause(forceState = null) {
-		if (this.scene !== "stage") return;
-		this.paused = forceState == null ? !this.paused : !!forceState;
-		this.pauseOverlay.classList.toggle("hidden", !this.paused);
-		this.setMainInputEnabled();
-	}
-
-	async restartStage() {
-		if (this.scene !== "stage" || this.stageIndex == null) return;
-		await this.openStageScene(this.stageIndex, "RETRY", true);
-	}
-
 	setMenuOpen(open) {
 		this.menuOpen = !!open;
+		if (!this.menuOpen && typeof document !== "undefined") {
+			const focused = document.activeElement;
+			if (focused instanceof HTMLElement && this.menuOverlay?.contains(focused)) focused.blur();
+		}
 		this.menuOverlay.classList.toggle("hidden", !this.menuOpen);
 		this.menuOverlay.setAttribute("aria-hidden", this.menuOpen ? "false" : "true");
 
-		if (this.menuOpen && this.menuPuzzle) {
-			this.menuUI.setPuzzle(clonePuzzle(this.menuPuzzle));
+		if (this.menuOpen) {
+			this.refreshMenuPuzzle();
 			this.requestLayout();
 		}
 		this.setMainInputEnabled();
@@ -647,15 +1017,13 @@ class WitnessGamePage {
 		this.app.classList.toggle("scene-map", this.scene === "map");
 		this.app.classList.toggle("scene-stage", this.scene === "stage");
 		this.app.classList.toggle("menu-open", this.menuOpen);
-		this.pauseOverlay.classList.toggle("hidden", !(this.scene === "stage" && this.paused));
-
-		this.routeToggleBtn.classList.toggle("hidden-ui", this.scene !== "map");
-		this.routeToggleBtn.textContent = `⟲ ${this.packIndex + 1}`;
+		this.refreshMenuPuzzle();
+		this.updateHud();
 		this.setMainInputEnabled();
 	}
 
 	setMainInputEnabled() {
-		const mainEnabled = !this.inputLocked && !this.menuOpen && !(this.scene === "stage" && this.paused);
+		const mainEnabled = !this.inputLocked && !this.menuOpen;
 		this.gameCanvas.style.pointerEvents = mainEnabled ? "auto" : "none";
 
 		const menuEnabled = !this.inputLocked && this.menuOpen;
@@ -663,7 +1031,6 @@ class WitnessGamePage {
 		this.menuViewport.classList.toggle("disabled", !menuEnabled);
 
 		this.menuToggleBtn.disabled = this.inputLocked;
-		this.routeToggleBtn.disabled = this.inputLocked || this.scene !== "map";
 	}
 
 	requestLayout() {
@@ -697,8 +1064,94 @@ class WitnessGamePage {
 		canvas.style.width = `${baseW}px`;
 		canvas.style.height = `${baseH}px`;
 	}
-}
 
+	setFilterPanelVisible(visible) {
+		if (!this.filterPanel) return;
+		this.filterPanel.classList.toggle("hidden", !visible);
+		this.filterPanel.setAttribute("aria-hidden", visible ? "false" : "true");
+	}
+
+	isFilterStage(pack, stage) {
+		return pack?.id === "symbol" && stage?.kind === "filter";
+	}
+
+	setupFilterChallenge(pack, stage) {
+		this.filterChallenge = {
+			packId: pack.id,
+			stageId: stage.id,
+			activeIndex: 0,
+			used: new Set([0]),
+		};
+		this.ui.setOptions({
+			filter: {
+				enabled: true,
+				mode: "rgb",
+				rgbColors: FILTER_RGB_COLORS,
+				rgbIndex: 0,
+			},
+		});
+		this.setFilterPanelVisible(true);
+		this.syncFilterUi();
+	}
+
+	setFilterIndex(index) {
+		const challenge = this.filterChallenge;
+		if (!challenge) return;
+		if (!Number.isFinite(index) || index < 0 || index > 2) return;
+		challenge.activeIndex = index;
+		challenge.used.add(index);
+		this.ui.setOptions({
+			filter: {
+				enabled: true,
+				mode: "rgb",
+				rgbColors: FILTER_RGB_COLORS,
+				rgbIndex: index,
+			},
+		});
+		this.syncFilterUi();
+		this.updateHud();
+	}
+
+	syncFilterUi() {
+		const challenge = this.filterChallenge;
+		const usedCount = challenge ? challenge.used.size : 0;
+		this.filterButtons.forEach((button) => {
+			const index = Number(button.dataset.filterIndex);
+			const active = challenge && index === challenge.activeIndex;
+			const used = challenge && challenge.used.has(index);
+			button.classList.toggle("active", !!active);
+			button.classList.toggle("used", !!used);
+		});
+		if (this.filterInfo) {
+			this.filterInfo.textContent = challenge ? `RGB usage ${usedCount}/3` : "";
+		}
+	}
+
+	isFilterChallengeComplete(pack, stage) {
+		if (!this.isFilterStage(pack, stage)) return true;
+		if (!this.filterChallenge) return false;
+		return this.filterChallenge.packId === pack.id && this.filterChallenge.stageId === stage.id && this.filterChallenge.used.size >= 3;
+	}
+
+	updateHud() {
+		if (!this.hud || !this.hudTitle || !this.hudDetail || !this.hudProgress || !this.hudProgressText) return;
+		const pack = this.stagePacks[this.packIndex];
+		const stage = this.stageIndex != null && pack ? pack.stages[this.stageIndex] : null;
+		const isBossScene = this.scene === "stage" && stage?.kind === "boss" && !!this.bossRun;
+
+		this.hud.classList.toggle("hidden", !isBossScene);
+		if (!isBossScene) return;
+
+		const total = Math.max(1, this.bossRun.totalRounds);
+		const clearedRounds = Math.max(0, this.bossRun.currentRound - 1);
+		const percent = Math.max(0, Math.min(100, Math.round((clearedRounds / total) * 100)));
+
+		this.hudTitle.textContent = `BOSS ${this.bossRun.currentRound}/${this.bossRun.totalRounds}`;
+		this.hudDetail.textContent = `Cleared ${clearedRounds}/${this.bossRun.totalRounds}`;
+		this.hudProgress.value = percent;
+		this.hudProgressText.textContent = `${percent}%`;
+	}
+}
 if (typeof window !== "undefined") {
 	window.addEventListener("DOMContentLoaded", () => {
 		const game = new WitnessGamePage();
@@ -706,3 +1159,5 @@ if (typeof window !== "undefined") {
 		void game.init();
 	});
 }
+
+
