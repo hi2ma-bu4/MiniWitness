@@ -288,9 +288,7 @@ describe("Generator", { concurrency: true }, () => {
 	test("Absent edges should not be adjacent to marks", () => {
 		const generator = new PuzzleGenerator();
 		const options = {
-			useHexagons: true,
-			useSquares: true,
-			useStars: true,
+			ratios: { hexagonEdge: 0.1, square: 0.1, star: 0.1 },
 			useBrokenEdges: true,
 			difficulty: 0.5,
 			complexity: 0.8,
@@ -322,8 +320,7 @@ describe("Generator", { concurrency: true }, () => {
 	test("square color rule with stars", () => {
 		const generator = new PuzzleGenerator();
 		const options = {
-			useSquares: true,
-			useStars: true,
+			ratios: { square: 0.2, star: 0.2 },
 			complexity: 0.5,
 		};
 
@@ -351,7 +348,7 @@ describe("Generator", { concurrency: true }, () => {
 		const generator = new PuzzleGenerator();
 		const options = {
 			symmetry: SymmetryType.Rotational,
-			useHexagons: true,
+			ratios: { hexagonEdge: 0.2 },
 			difficulty: 0.5,
 			complexity: 0.5,
 		};
@@ -370,9 +367,7 @@ describe("Generator", { concurrency: true }, () => {
 	test("should not produce isolated marks", () => {
 		const generator = new PuzzleGenerator();
 		const options = {
-			useHexagons: true,
-			useSquares: true,
-			useStars: true,
+			ratios: { hexagonEdge: 0.1, square: 0.1, star: 0.1 },
 			useBrokenEdges: true,
 			complexity: 1.0,
 		};
@@ -395,9 +390,7 @@ describe("Generator", { concurrency: true }, () => {
 	test("all requested constraints should be present", () => {
 		const generator = new PuzzleGenerator();
 		const options = {
-			useHexagons: true,
-			useSquares: true,
-			useStars: true,
+			ratios: { hexagonEdge: 0.1, square: 0.1, star: 0.1 },
 			difficulty: 0.5,
 			complexity: 0.5,
 		};
@@ -440,8 +433,7 @@ describe("Generator", { concurrency: true }, () => {
 	test("should produce at least 2 square colors when stars are absent", () => {
 		const generator = new PuzzleGenerator();
 		const options = {
-			useSquares: true,
-			useStars: false,
+			ratios: { square: 0.5 },
 			complexity: 0.5,
 		};
 

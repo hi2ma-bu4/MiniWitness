@@ -1,5 +1,5 @@
 /*!
- * MiniWitness 1.4.12
+ * MiniWitness 1.4.13
  * Copyright 2026 hi2ma-bu4
  * Licensed under the Apache License, Version 2.0
  * http://www.apache.org/licenses/LICENSE-2.0
@@ -2401,15 +2401,42 @@ var PuzzleGenerator = class {
    * @param precalculatedRegions 事前計算された区画
    * @param precalculatedBoundaryEdges 事前計算された境界エッジ
    */
+  getNormalizedRatios(ratios) {
+    const cellMarks = ["square", "star", "tetris", "tetrisNegative", "eraser", "triangle"];
+    const edgeMarks = ["hexagonEdge", "hexagonMainEdge", "hexagonSymmetryEdge"];
+    const nodeMarks = ["hexagonNode", "hexagonMainNode", "hexagonSymmetryNode"];
+    const normalize = (marks) => {
+      let sum = 0;
+      for (const k of marks) sum += ratios[k] ?? 0;
+      const factor = sum > 1 ? 1 / sum : 1;
+      const res = {};
+      for (const k of marks) {
+        res[k] = (ratios[k] ?? 0) * factor;
+      }
+      res._sum = sum * factor;
+      return res;
+    };
+    return {
+      cell: normalize(cellMarks),
+      edge: normalize(edgeMarks),
+      node: normalize(nodeMarks)
+    };
+  }
   applyConstraintsBasedOnPath(grid, path, options, symPath = [], precalculatedRegions, precalculatedBoundaryEdges) {
     const complexity = options.complexity ?? 0.5;
-    const useHexagons = options.useHexagons ?? true;
-    const useSquares = options.useSquares ?? true;
-    const useStars = options.useStars ?? true;
-    const useTetris = options.useTetris ?? false;
-    const useTetrisNegative = options.useTetrisNegative ?? false;
-    const useEraser = options.useEraser ?? false;
-    const useTriangles = options.useTriangles ?? false;
+    const ratios = options.ratios || {
+      hexagonEdge: 0.1 + complexity * 0.2,
+      square: 0.1 + complexity * 0.2,
+      star: 0.1 + complexity * 0.2
+    };
+    const norm = this.getNormalizedRatios(ratios);
+    const useHexagons = norm.edge._sum > 0 || norm.node._sum > 0;
+    const useSquares = norm.cell.square > 0;
+    const useStars = norm.cell.star > 0;
+    const useTetris = norm.cell.tetris > 0;
+    const useTetrisNegative = norm.cell.tetrisNegative > 0;
+    const useEraser = norm.cell.eraser > 0;
+    const useTriangles = norm.cell.triangle > 0;
     let hexagonsPlaced = 0;
     let squaresPlaced = 0;
     let starsPlaced = 0;
@@ -2418,63 +2445,71 @@ var PuzzleGenerator = class {
     let totalTetrisArea = 0;
     const maxTotalTetrisArea = Math.floor(grid.rows * grid.cols * 0.6);
     if (useHexagons) {
-      const targetDifficulty = options.difficulty ?? 0.5;
       const symmetry = options.symmetry || 0 /* None */;
-      for (let i = 0; i < path.length - 1; i++) {
-        const neighbors = this.getValidNeighbors(grid, path[i]);
-        const isBranching = neighbors.length > 2;
-        let prob = complexity * (targetDifficulty < 0.4 ? 0.6 : 0.3);
-        if (isBranching) prob = targetDifficulty < 0.4 ? prob * 1 : prob * 0.5;
-        if (this.rng.next() < prob) {
-          let type = 3 /* Hexagon */;
-          let p1 = path[i];
-          let p2 = path[i + 1];
-          if (symmetry !== 0 /* None */) {
-            const r = this.rng.next();
-            if (r < 0.3) type = 4 /* HexagonMain */;
-            else if (r < 0.6) {
+      const edgeProb = norm.edge._sum;
+      if (edgeProb > 0) {
+        for (let i = 0; i < path.length - 1; i++) {
+          if (this.rng.next() < edgeProb) {
+            let r = this.rng.next() * edgeProb;
+            let type = 3 /* Hexagon */;
+            let p1 = path[i];
+            let p2 = path[i + 1];
+            if (r < norm.edge.hexagonEdge) {
+              type = 3 /* Hexagon */;
+            } else if (r < norm.edge.hexagonEdge + norm.edge.hexagonMainEdge) {
+              type = 4 /* HexagonMain */;
+            } else {
               type = 5 /* HexagonSymmetry */;
-              p1 = this.getSymmetricalPoint(grid, path[i], symmetry);
-              p2 = this.getSymmetricalPoint(grid, path[i + 1], symmetry);
+              if (symmetry !== 0 /* None */) {
+                p1 = this.getSymmetricalPoint(grid, path[i], symmetry);
+                p2 = this.getSymmetricalPoint(grid, path[i + 1], symmetry);
+              }
             }
+            this.setEdgeHexagon(grid, p1, p2, type);
+            hexagonsPlaced++;
           }
-          this.setEdgeHexagon(grid, p1, p2, type);
-          hexagonsPlaced++;
         }
       }
-      for (let i = 0; i < path.length; i++) {
-        const node = path[i];
-        if (grid.nodes[node.y][node.x].type !== 0 /* Normal */) continue;
-        if (this.hasIncidentHexagonEdge(grid, node)) continue;
-        let prob = complexity * (targetDifficulty > 0.6 ? 0.15 : 0.05);
-        if (this.rng.next() < prob) {
-          let type = 3 /* Hexagon */;
-          let targetNode = node;
-          if (symmetry !== 0 /* None */) {
-            const r = this.rng.next();
-            if (r < 0.3) type = 4 /* HexagonMain */;
-            else if (r < 0.6) {
+      const nodeProb = norm.node._sum;
+      if (nodeProb > 0) {
+        for (let i = 0; i < path.length; i++) {
+          const node = path[i];
+          if (grid.nodes[node.y][node.x].type !== 0 /* Normal */) continue;
+          if (this.hasIncidentHexagonEdge(grid, node)) continue;
+          if (this.rng.next() < nodeProb) {
+            let r = this.rng.next() * nodeProb;
+            let type = 3 /* Hexagon */;
+            let targetNode = node;
+            if (r < norm.node.hexagonNode) {
+              type = 3 /* Hexagon */;
+            } else if (r < norm.node.hexagonNode + norm.node.hexagonMainNode) {
+              type = 4 /* HexagonMain */;
+            } else {
               type = 5 /* HexagonSymmetry */;
-              targetNode = this.getSymmetricalPoint(grid, node, symmetry);
+              if (symmetry !== 0 /* None */) {
+                targetNode = this.getSymmetricalPoint(grid, node, symmetry);
+              }
             }
+            grid.nodes[targetNode.y][targetNode.x].type = type;
+            hexagonsPlaced++;
           }
-          grid.nodes[targetNode.y][targetNode.x].type = type;
-          hexagonsPlaced++;
         }
       }
-      if (hexagonsPlaced === 0 && path.length >= 2) {
+      if (hexagonsPlaced === 0 && path.length >= 2 && norm.edge._sum > 0) {
         const idx = Math.floor(this.rng.next() * (path.length - 1));
-        const symmetry2 = options.symmetry || 0 /* None */;
+        let r = this.rng.next() * norm.edge._sum;
         let type = 3 /* Hexagon */;
         let p1 = path[idx];
         let p2 = path[idx + 1];
-        if (symmetry2 !== 0 /* None */) {
-          const r = this.rng.next();
-          if (r < 0.3) type = 4 /* HexagonMain */;
-          else if (r < 0.6) {
-            type = 5 /* HexagonSymmetry */;
-            p1 = this.getSymmetricalPoint(grid, path[idx], symmetry2);
-            p2 = this.getSymmetricalPoint(grid, path[idx + 1], symmetry2);
+        if (r < norm.edge.hexagonEdge) {
+          type = 3 /* Hexagon */;
+        } else if (r < norm.edge.hexagonEdge + norm.edge.hexagonMainEdge) {
+          type = 4 /* HexagonMain */;
+        } else {
+          type = 5 /* HexagonSymmetry */;
+          if (symmetry !== 0 /* None */) {
+            p1 = this.getSymmetricalPoint(grid, path[idx], symmetry);
+            p2 = this.getSymmetricalPoint(grid, path[idx + 1], symmetry);
           }
         }
         this.setEdgeHexagon(grid, p1, p2, type);
@@ -2508,12 +2543,14 @@ var PuzzleGenerator = class {
       const pathEdges = /* @__PURE__ */ new Set();
       for (let i = 0; i < path.length - 1; i++) pathEdges.add(this.getEdgeKey(path[i], path[i + 1]));
       for (let i = 0; i < symPath.length - 1; i++) pathEdges.add(this.getEdgeKey(symPath[i], symPath[i + 1]));
+      const totalCellsCount = grid.rows * grid.cols;
+      const cellRatios = norm.cell;
       for (let rIdx = 0; rIdx < regionIndices.length; rIdx++) {
         const idx = regionIndices[rIdx];
         const region = regions[idx];
         const remainingRegions = regionIndices.length - rIdx;
         const forceOne = needs.square && squaresPlaced === 0 || needs.star && starsPlaced === 0 || needs.tetris && tetrisPlaced === 0 || needs.tetrisNegative && tetrisNegativePlaced === 0 || needs.eraser && erasersPlaced === 0 || needs.triangle && trianglesPlaced === 0;
-        let placementProb = 0.2 + complexity * 0.6;
+        let placementProb = cellRatios._sum > 0 ? cellRatios._sum : 0.2 + complexity * 0.6;
         if (forceOne && remainingRegions <= 3) placementProb = 1;
         else if (forceOne && remainingRegions <= 6) placementProb = 0.7;
         if (this.rng.next() > placementProb) continue;
@@ -2529,12 +2566,14 @@ var PuzzleGenerator = class {
             squareColor = unusedColors[Math.floor(this.rng.next() * unusedColors.length)];
           }
         }
-        let shouldPlaceSquare = useSquares && this.rng.next() < 0.5 + complexity * 0.3;
+        const probSquare = cellRatios.square / cellRatios._sum || 0;
+        let shouldPlaceSquare = useSquares && this.rng.next() < probSquare;
         if (useSquares && squaresPlaced === 0 && remainingRegions <= 2) shouldPlaceSquare = true;
         if (useSquares && !useStars && remainingRegions <= 2 && squareColorsUsed.size < 2 && squaresPlaced > 0) shouldPlaceSquare = true;
         if (shouldPlaceSquare && potentialCells.length > 0) {
-          const maxSquares = Math.min(potentialCells.length, Math.max(4, Math.floor(region.length / 4)));
-          const numSquares = Math.floor(this.rng.next() * (maxSquares / 2)) + Math.ceil(maxSquares / 2);
+          const maxSquaresInRegion = Math.min(potentialCells.length, Math.max(4, Math.floor(region.length / 4)));
+          const targetTotalSquares = Math.ceil(totalCellsCount * cellRatios.square);
+          const numSquares = ratios.square === 1 ? potentialCells.length : Math.min(potentialCells.length, Math.max(1, Math.min(maxSquaresInRegion, targetTotalSquares - squaresPlaced)));
           for (let i = 0; i < numSquares; i++) {
             if (potentialCells.length === 0) break;
             const cell = potentialCells.pop();
@@ -2546,10 +2585,11 @@ var PuzzleGenerator = class {
           }
         }
         if (useTetris || useTetrisNegative) {
-          let shouldPlaceTetris = this.rng.next() < 0.1 + complexity * 0.4;
+          const probTetris = (cellRatios.tetris + cellRatios.tetrisNegative) / cellRatios._sum || 0;
+          let shouldPlaceTetris = this.rng.next() < probTetris;
           if (tetrisPlaced === 0 && remainingRegions <= 3) shouldPlaceTetris = true;
           if (useTetrisNegative && tetrisNegativePlaced === 0 && remainingRegions <= 2) shouldPlaceTetris = true;
-          const maxTetrisPerRegion = tetrisPlaced === 0 && remainingRegions <= 2 ? 6 : 4;
+          const maxTetrisPerRegion = ratios.tetris === 1 || ratios.tetrisNegative === 1 ? potentialCells.length : tetrisPlaced === 0 && remainingRegions <= 2 ? 6 : 4;
           const isAreaOk = totalTetrisArea + region.length <= maxTotalTetrisArea || forceOne && useTetris && tetrisPlaced === 0 && region.length <= 30 || forceOne && useTetrisNegative && tetrisNegativePlaced === 0 && region.length <= 30;
           if (shouldPlaceTetris && potentialCells.length > 0 && isAreaOk) {
             let tiledPieces = region.length <= 25 ? this.generateTiling(region, maxTetrisPerRegion, options) : null;
@@ -2666,11 +2706,13 @@ var PuzzleGenerator = class {
           }
         }
         if (useTriangles) {
-          let shouldPlaceTriangle = this.rng.next() < 0.2 + complexity * 0.5;
+          const probTriangle = cellRatios.triangle / cellRatios._sum || 0;
+          let shouldPlaceTriangle = this.rng.next() < probTriangle;
           if (trianglesPlaced === 0 && remainingRegions <= 2) shouldPlaceTriangle = true;
           if (shouldPlaceTriangle && potentialCells.length > 0) {
             this.shuffleArray(potentialCells);
-            const numToTry = Math.min(potentialCells.length, Math.max(1, Math.floor(region.length / 3)));
+            const targetTotalTriangles = Math.ceil(totalCellsCount * cellRatios.triangle);
+            const numToTry = ratios.triangle === 1 ? potentialCells.length : Math.min(potentialCells.length, Math.max(1, Math.min(Math.floor(region.length / 3), targetTotalTriangles - trianglesPlaced)));
             let placedInRegion = 0;
             for (let i = 0; i < potentialCells.length && placedInRegion < numToTry; i++) {
               const cell = potentialCells[i];
@@ -2700,9 +2742,9 @@ var PuzzleGenerator = class {
             }
           }
         }
-        if (useEraser && erasersPlaced < 1) {
-          const prob = 0.05 + complexity * 0.2;
-          let shouldPlaceEraser = this.rng.next() < prob;
+        if (useEraser && (ratios.eraser === 1 || erasersPlaced < 1)) {
+          const probEraser = cellRatios.eraser / cellRatios._sum || 0;
+          let shouldPlaceEraser = this.rng.next() < probEraser;
           if (remainingRegions <= 2) shouldPlaceEraser = true;
           if (shouldPlaceEraser && potentialCells.length >= 1) {
             let errorTypes = [];
@@ -2825,6 +2867,7 @@ var PuzzleGenerator = class {
           }
         }
         if (useStars) {
+          const probStar = cellRatios.star / cellRatios._sum || 0;
           const nonNoneColors2 = availableColors.filter((c) => c !== 0);
           const safeColors2 = nonNoneColors2.length > 0 ? nonNoneColors2 : [Color.Black];
           for (const color of availableColors) {
@@ -2838,12 +2881,14 @@ var PuzzleGenerator = class {
               starsPlaced++;
             }
           }
-          const maxPairs = Math.max(1, Math.floor(region.length / 8));
-          for (let p = 0; p < maxPairs; p++) {
+          const targetTotalStars = Math.ceil(totalCellsCount * cellRatios.star);
+          const maxPairsInRegion = ratios.star === 1 ? Math.floor(potentialCells.length / 2) : Math.max(1, Math.floor(region.length / 8));
+          const numPairsToPlace = Math.min(maxPairsInRegion, Math.floor((targetTotalStars - starsPlaced) / 2));
+          for (let p = 0; p < numPairsToPlace; p++) {
             if (potentialCells.length < 2) break;
             for (const color of safeColors2) {
               if (potentialCells.length < 2) break;
-              if (this.rng.next() > 0.3 + complexity * 0.4) continue;
+              if (ratios.star !== 1 && this.rng.next() > 0.3 + complexity * 0.4) continue;
               const colorCount = region.filter((p2) => grid.cells[p2.y][p2.x].color === color).length;
               if (colorCount === 0) {
                 for (let i = 0; i < 2; i++) {
@@ -2852,6 +2897,7 @@ var PuzzleGenerator = class {
                   grid.cells[cell.y][cell.x].color = color;
                   starsPlaced++;
                 }
+                break;
               }
             }
           }
@@ -3043,13 +3089,14 @@ var PuzzleGenerator = class {
    * @returns 全ての要求された制約が含まれているか
    */
   checkAllRequestedConstraintsPresent(grid, options) {
-    const useHexagons = options.useHexagons ?? true;
-    const useSquares = options.useSquares ?? true;
-    const useStars = options.useStars ?? true;
-    const useTetris = options.useTetris ?? false;
-    const useTetrisNegative = options.useTetrisNegative ?? false;
-    const useEraser = options.useEraser ?? false;
-    const useTriangles = options.useTriangles ?? false;
+    const norm = this.getNormalizedRatios(options.ratios || {});
+    const useHexagons = norm.edge._sum > 0 || norm.node._sum > 0;
+    const useSquares = norm.cell.square > 0;
+    const useStars = norm.cell.star > 0;
+    const useTetris = norm.cell.tetris > 0;
+    const useTetrisNegative = norm.cell.tetrisNegative > 0;
+    const useEraser = norm.cell.eraser > 0;
+    const useTriangles = norm.cell.triangle > 0;
     const useBrokenEdges = options.useBrokenEdges ?? false;
     if (useBrokenEdges) {
       let found = false;
@@ -5730,15 +5777,17 @@ var PuzzleSerializer = class {
   static writeOptions(bw, options) {
     bw.write(options.rows ?? 0, 6);
     bw.write(options.cols ?? 0, 6);
-    bw.write(+!!options.useHexagons, 1);
-    bw.write(+!!options.useSquares, 1);
-    bw.write(+!!options.useStars, 1);
-    bw.write(+!!options.useTetris, 1);
-    bw.write(+!!options.useTetrisNegative, 1);
-    bw.write(+!!options.useEraser, 1);
-    bw.write(+!!options.useTriangles, 1);
     bw.write(+!!options.useBrokenEdges, 1);
     bw.write(options.symmetry ?? 0, 2);
+    if (options.ratios) {
+      bw.write(1, 1);
+      const keys = ["square", "star", "tetris", "tetrisNegative", "eraser", "triangle", "hexagonEdge", "hexagonMainEdge", "hexagonSymmetryEdge", "hexagonNode", "hexagonMainNode", "hexagonSymmetryNode"];
+      for (const k of keys) {
+        bw.write(Math.round((options.ratios[k] ?? 0) * 254), 8);
+      }
+    } else {
+      bw.write(0, 1);
+    }
     bw.write(Math.round((options.complexity ?? 0) * 254), 8);
     bw.write(Math.round((options.difficulty ?? 0) * 254), 8);
     bw.write(Math.round((options.pathLength ?? 0) * 254), 8);
@@ -5767,16 +5816,16 @@ var PuzzleSerializer = class {
     const cols = br.read(6);
     if (rows > 0) options.rows = rows;
     if (cols > 0) options.cols = cols;
-    if (br.read(1)) options.useHexagons = true;
-    if (br.read(1)) options.useSquares = true;
-    if (br.read(1)) options.useStars = true;
-    if (br.read(1)) options.useTetris = true;
-    if (br.read(1)) options.useTetrisNegative = true;
-    if (br.read(1)) options.useEraser = true;
-    if (br.read(1)) options.useTriangles = true;
     if (br.read(1)) options.useBrokenEdges = true;
     options.symmetry = br.read(2);
     const readRatio = () => Math.round(br.read(8) / 254 * 1e3) / 1e3;
+    if (br.read(1)) {
+      options.ratios = {};
+      const keys = ["square", "star", "tetris", "tetrisNegative", "eraser", "triangle", "hexagonEdge", "hexagonMainEdge", "hexagonSymmetryEdge", "hexagonNode", "hexagonMainNode", "hexagonSymmetryNode"];
+      for (const k of keys) {
+        options.ratios[k] = readRatio();
+      }
+    }
     options.complexity = readRatio();
     options.difficulty = readRatio();
     options.pathLength = readRatio();

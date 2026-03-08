@@ -8,10 +8,12 @@ const generator = new PuzzleGenerator();
 describe("Large grid (8x8)", { concurrency: true }, async () => {
 	test("generation distribution", (t) => {
 		const options = {
-			useHexagons: true,
-			useSquares: true,
-			useStars: true,
-			useTetris: true,
+			ratios: {
+				hexagonEdge: 0.2,
+				square: 0.2,
+				star: 0.2,
+				tetris: 0.2,
+			},
 			complexity: 0.8,
 			difficulty: 0.5,
 		};

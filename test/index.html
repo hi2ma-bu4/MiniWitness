@@ -30,13 +30,54 @@
 				</select>
 			</div>
 			<div class="control-group">
-				<label><input type="checkbox" id="use-hexagons"> Hexagons</label>
-				<label><input type="checkbox" id="use-squares" checked> Squares</label>
-				<label><input type="checkbox" id="use-stars" checked> Stars</label>
-				<label><input type="checkbox" id="use-tetris" checked> Tetris</label>
-				<label><input type="checkbox" id="use-tetris-negative"> Tetris-</label>
-				<label><input type="checkbox" id="use-eraser"> Erasers</label>
-				<label><input type="checkbox" id="use-triangles"> Triangles</label>
+				<div class="mark-toggle-group">
+					<label><input type="checkbox" id="use-hexagons"> Hex (Edge)</label>
+					<input type="range" id="ratio-hexagon-edge" class="ratio-slider hidden" min="0" max="1" step="0.05" value="0.2">
+				</div>
+				<div class="mark-toggle-group">
+					<label><input type="checkbox" id="use-hexagons-main"> HexMain (Edge)</label>
+					<input type="range" id="ratio-hexagon-main-edge" class="ratio-slider hidden" min="0" max="1" step="0.05" value="0.1">
+				</div>
+				<div class="mark-toggle-group">
+					<label><input type="checkbox" id="use-hexagons-sym"> HexSym (Edge)</label>
+					<input type="range" id="ratio-hexagon-sym-edge" class="ratio-slider hidden" min="0" max="1" step="0.05" value="0.1">
+				</div>
+				<div class="mark-toggle-group">
+					<label><input type="checkbox" id="use-hexagons-node"> Hex (Node)</label>
+					<input type="range" id="ratio-hexagon-node" class="ratio-slider hidden" min="0" max="1" step="0.05" value="0.1">
+				</div>
+				<div class="mark-toggle-group">
+					<label><input type="checkbox" id="use-hexagons-main-node"> HexMain (Node)</label>
+					<input type="range" id="ratio-hexagon-main-node" class="ratio-slider hidden" min="0" max="1" step="0.05" value="0.05">
+				</div>
+				<div class="mark-toggle-group">
+					<label><input type="checkbox" id="use-hexagons-sym-node"> HexSym (Node)</label>
+					<input type="range" id="ratio-hexagon-sym-node" class="ratio-slider hidden" min="0" max="1" step="0.05" value="0.05">
+				</div>
+				<div class="mark-toggle-group">
+					<label><input type="checkbox" id="use-squares" checked> Squares</label>
+					<input type="range" id="ratio-square" class="ratio-slider" min="0" max="1" step="0.05" value="0.2">
+				</div>
+				<div class="mark-toggle-group">
+					<label><input type="checkbox" id="use-stars" checked> Stars</label>
+					<input type="range" id="ratio-star" class="ratio-slider" min="0" max="1" step="0.05" value="0.2">
+				</div>
+				<div class="mark-toggle-group">
+					<label><input type="checkbox" id="use-tetris" checked> Tetris</label>
+					<input type="range" id="ratio-tetris" class="ratio-slider" min="0" max="1" step="0.05" value="0.2">
+				</div>
+				<div class="mark-toggle-group">
+					<label><input type="checkbox" id="use-tetris-negative"> Tetris-</label>
+					<input type="range" id="ratio-tetris-negative" class="ratio-slider hidden" min="0" max="1" step="0.05" value="0.2">
+				</div>
+				<div class="mark-toggle-group">
+					<label><input type="checkbox" id="use-eraser"> Erasers</label>
+					<input type="range" id="ratio-eraser" class="ratio-slider hidden" min="0" max="1" step="0.05" value="0.1">
+				</div>
+				<div class="mark-toggle-group">
+					<label><input type="checkbox" id="use-triangles"> Triangles</label>
+					<input type="range" id="ratio-triangle" class="ratio-slider hidden" min="0" max="1" step="0.05" value="0.2">
+				</div>
 				<label><input type="checkbox" id="use-broken-edges"> Cuts</label>
 			</div>
 			<div class="control-group">

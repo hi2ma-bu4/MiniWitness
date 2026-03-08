@@ -105,16 +105,12 @@ describe("Difficulty rules for Hexagons", { concurrency: true }, () => {
 
 		const gridEasy = generator.generate(4, 4, {
 			difficulty: 0.1,
-			useHexagons: true,
-			useSquares: false,
-			useStars: false,
+			ratios: { hexagonEdge: 0.2 },
 		});
 
 		const gridHard = generator.generate(4, 4, {
 			difficulty: 0.9,
-			useHexagons: true,
-			useSquares: false,
-			useStars: false,
+			ratios: { hexagonNode: 0.2 },
 		});
 
 		const count = (grid: any) => {
@@ -155,7 +151,7 @@ describe("Non-adjacency between Edge and Node Hexagons", { concurrency: true }, 
 
 		for (let i = 0; i < 50; i++) {
 			const grid = generator.generate(4, 4, {
-				useHexagons: true,
+				ratios: { hexagonEdge: 0.2, hexagonNode: 0.2 },
 				difficulty: 0.5,
 				complexity: 1.0,
 			});

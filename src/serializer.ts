@@ -1,4 +1,4 @@
-import { CellType, RngType, type CellConstraint, type DeserializedData, type GenerationOptions, type Point, type PuzzleData, type SerializationOptions, type SolutionPath } from "./types";
+import { CellType, RngType, type CellConstraint, type DeserializedData, type GenerationOptions, type MarkRatios, type Point, type PuzzleData, type SerializationOptions, type SolutionPath } from "./types";
 
 /* ================= Bit IO ================= */
 
@@ -547,15 +547,19 @@ export class PuzzleSerializer {
 	private static writeOptions(bw: BitWriter, options: GenerationOptions) {
 		bw.write(options.rows ?? 0, 6);
 		bw.write(options.cols ?? 0, 6);
-		bw.write(+!!options.useHexagons, 1);
-		bw.write(+!!options.useSquares, 1);
-		bw.write(+!!options.useStars, 1);
-		bw.write(+!!options.useTetris, 1);
-		bw.write(+!!options.useTetrisNegative, 1);
-		bw.write(+!!options.useEraser, 1);
-		bw.write(+!!options.useTriangles, 1);
 		bw.write(+!!options.useBrokenEdges, 1);
 		bw.write(options.symmetry ?? 0, 2);
+
+		if (options.ratios) {
+			bw.write(1, 1);
+			const keys: (keyof MarkRatios)[] = ["square", "star", "tetris", "tetrisNegative", "eraser", "triangle", "hexagonEdge", "hexagonMainEdge", "hexagonSymmetryEdge", "hexagonNode", "hexagonMainNode", "hexagonSymmetryNode"];
+			for (const k of keys) {
+				bw.write(Math.round(((options.ratios as any)[k] ?? 0) * 254), 8);
+			}
+		} else {
+			bw.write(0, 1);
+		}
+
 		bw.write(Math.round((options.complexity ?? 0) * 254), 8);
 		bw.write(Math.round((options.difficulty ?? 0) * 254), 8);
 		bw.write(Math.round((options.pathLength ?? 0) * 254), 8);
@@ -588,17 +592,19 @@ export class PuzzleSerializer {
 		if (rows > 0) options.rows = rows;
 		if (cols > 0) options.cols = cols;
 
-		if (br.read(1)) options.useHexagons = true;
-		if (br.read(1)) options.useSquares = true;
-		if (br.read(1)) options.useStars = true;
-		if (br.read(1)) options.useTetris = true;
-		if (br.read(1)) options.useTetrisNegative = true;
-		if (br.read(1)) options.useEraser = true;
-		if (br.read(1)) options.useTriangles = true;
 		if (br.read(1)) options.useBrokenEdges = true;
 		options.symmetry = br.read(2);
 
 		const readRatio = () => Math.round((br.read(8) / 254) * 1000) / 1000;
+
+		if (br.read(1)) {
+			options.ratios = {};
+			const keys: (keyof MarkRatios)[] = ["square", "star", "tetris", "tetrisNegative", "eraser", "triangle", "hexagonEdge", "hexagonMainEdge", "hexagonSymmetryEdge", "hexagonNode", "hexagonMainNode", "hexagonSymmetryNode"];
+			for (const k of keys) {
+				(options.ratios as any)[k] = readRatio();
+			}
+		}
+
 		options.complexity = readRatio();
 		options.difficulty = readRatio();
 		options.pathLength = readRatio();

@@ -126,18 +126,42 @@ export interface ValidationResult {
 	regions?: Point[][];
 }
 /**
+ * パズル出現割合の設定
+ */
+export interface MarkRatios {
+	/** 四角形 (0.0 - 1.0) */
+	square?: number;
+	/** 星 (0.0 - 1.0) */
+	star?: number;
+	/** テトリス (0.0 - 1.0) */
+	tetris?: number;
+	/** 減算テトリス (0.0 - 1.0) */
+	tetrisNegative?: number;
+	/** エラー削除 (0.0 - 1.0) */
+	eraser?: number;
+	/** 三角形 (0.0 - 1.0) */
+	triangle?: number;
+	/** 六角形 (エッジ) (0.0 - 1.0) */
+	hexagonEdge?: number;
+	/** 六角形 (メインエッジ) (0.0 - 1.0) */
+	hexagonMainEdge?: number;
+	/** 六角形 (対称エッジ) (0.0 - 1.0) */
+	hexagonSymmetryEdge?: number;
+	/** 六角形 (ノード) (0.0 - 1.0) */
+	hexagonNode?: number;
+	/** 六角形 (メインノード) (0.0 - 1.0) */
+	hexagonMainNode?: number;
+	/** 六角形 (対称ノード) (0.0 - 1.0) */
+	hexagonSymmetryNode?: number;
+}
+/**
  * パズル生成のオプション
  */
 export interface GenerationOptions {
 	rows?: number;
 	cols?: number;
-	useHexagons?: boolean;
-	useSquares?: boolean;
-	useStars?: boolean;
-	useTetris?: boolean;
-	useTetrisNegative?: boolean;
-	useEraser?: boolean;
-	useTriangles?: boolean;
+	/** 各マークの出現割合 */
+	ratios?: MarkRatios;
 	useBrokenEdges?: boolean;
 	complexity?: number;
 	difficulty?: number;
@@ -346,6 +370,7 @@ export declare class PuzzleGenerator {
 	 * @param precalculatedRegions 事前計算された区画
 	 * @param precalculatedBoundaryEdges 事前計算された境界エッジ
 	 */
+	private getNormalizedRatios;
 	private applyConstraintsBasedOnPath;
 	/**
 	 * 区画分けを行う

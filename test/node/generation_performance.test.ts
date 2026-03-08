@@ -5,13 +5,16 @@ import { PuzzleGenerator } from "../../dist/MiniWitness.js";
 const generator = new PuzzleGenerator();
 
 const allConstraints = {
-	useHexagons: true,
-	useSquares: true,
-	useStars: true,
-	useTetris: true,
-	useTetrisNegative: true,
-	useEraser: true,
-	useTriangles: true,
+	ratios: {
+		hexagonEdge: 0.1,
+		hexagonNode: 0.1,
+		square: 0.1,
+		star: 0.1,
+		tetris: 0.1,
+		tetrisNegative: 0.1,
+		eraser: 0.1,
+		triangle: 0.1,
+	},
 	useBrokenEdges: true,
 	complexity: 1,
 	difficulty: 1,

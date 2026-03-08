@@ -177,11 +177,7 @@ describe("Generation independence", { concurrency: true }, () => {
 	test("Tetris and Eraser without Squares/Stars", () => {
 		const generator = new PuzzleGenerator();
 		const grid = generator.generate(4, 4, {
-			useHexagons: false,
-			useSquares: false,
-			useStars: false,
-			useTetris: true,
-			useEraser: true,
+			ratios: { tetris: 0.5, eraser: 0.1 },
 			complexity: 1.0,
 		});
 

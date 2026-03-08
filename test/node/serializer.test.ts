@@ -35,7 +35,7 @@ describe("PuzzleSerializer", { concurrency: true }, () => {
 
 	test("serialize and deserialize", async () => {
 		const options = {
-			useSquares: true,
+			ratios: { square: 0.1 },
 			difficulty: 0.5,
 			symmetry: 0,
 		};
@@ -44,7 +44,7 @@ describe("PuzzleSerializer", { concurrency: true }, () => {
 
 		const deserialized = await PuzzleSerializer.deserialize(serialized);
 		assert.ok(deserialized.puzzle);
-		assert.strictEqual(deserialized.options?.useSquares, true);
+		assert.strictEqual(deserialized.options?.ratios?.square, 0.098);
 		assert.strictEqual(deserialized.options?.difficulty, 0.5);
 	});
 
@@ -98,7 +98,7 @@ describe("PuzzleSerializer", { concurrency: true }, () => {
 
 	test("serialize all components", async () => {
 		const seed = { type: RngType.Mulberry32, value: "abcdef1234567890" };
-		const options = { rows: 5, cols: 5, useHexagons: true, complexity: 0.5 };
+		const options = { rows: 5, cols: 5, ratios: { hexagonEdge: 0.1 }, complexity: 0.5 };
 		const path = {
 			points: [
 				{ x: 0, y: 0 },
@@ -114,7 +114,7 @@ describe("PuzzleSerializer", { concurrency: true }, () => {
 		assert.deepStrictEqual(deserialized.seed, seed);
 		assert.strictEqual(deserialized.options?.rows, 5);
 		assert.strictEqual(deserialized.options?.cols, 5);
-		assert.strictEqual(deserialized.options?.useHexagons, true);
+		assert.strictEqual(deserialized.options?.ratios?.hexagonEdge, 0.098);
 		assert.strictEqual(deserialized.options?.complexity, 0.5);
 		assert.deepStrictEqual(deserialized.path, path);
 	});
@@ -165,7 +165,7 @@ describe("PuzzleSerializer", { concurrency: true }, () => {
 	test("recovery mode can restore even if 5 chars are deleted", async () => {
 		const serialized = await PuzzleSerializer.serialize({
 			puzzle: mockPuzzle as any,
-			options: { rows: 4, cols: 4, useSquares: true, difficulty: 0.7 },
+			options: { rows: 4, cols: 4, ratios: { square: 0.1 }, difficulty: 0.7 },
 			filter: { enabled: true, mode: "rgb", rgbIndex: 1, customColor: "#abcdef", rgbColors: ["#111111", "#222222", "#333333"], threshold: 100 },
 			parityMode: "recovery",
 		});

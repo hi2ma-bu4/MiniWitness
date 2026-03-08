@@ -8,8 +8,7 @@ describe("PuzzleGenerator Seed Tests", { concurrency: true }, () => {
 		const options = {
 			seed: "abcd1234",
 			rngType: RngType.Mulberry32,
-			useSquares: true,
-			useStars: true,
+			ratios: { square: 0.2, star: 0.2 },
 		};
 
 		const grid1 = generator.generate(4, 4, options);
@@ -23,8 +22,7 @@ describe("PuzzleGenerator Seed Tests", { concurrency: true }, () => {
 		const options = {
 			seed: "deadbeef",
 			rngType: RngType.XorShift128Plus,
-			useSquares: true,
-			useStars: true,
+			ratios: { square: 0.2, star: 0.2 },
 		};
 
 		const grid1 = generator.generate(4, 4, options);
@@ -38,12 +36,12 @@ describe("PuzzleGenerator Seed Tests", { concurrency: true }, () => {
 		const options1 = {
 			seed: "1111",
 			rngType: RngType.Mulberry32,
-			useSquares: true,
+			ratios: { square: 0.2 },
 		};
 		const options2 = {
 			seed: "2222",
 			rngType: RngType.Mulberry32,
-			useSquares: true,
+			ratios: { square: 0.2 },
 		};
 
 		const grid1 = generator.generate(4, 4, options1);
@@ -78,8 +76,7 @@ describe("PuzzleGenerator Seed Tests", { concurrency: true }, () => {
 		const options1 = {
 			seed: initialSeed,
 			rngType: RngType.Mulberry32,
-			useSquares: true,
-			useStars: true,
+			ratios: { square: 0.2, star: 0.2 },
 		};
 		const grid1 = generator.generate(4, 4, options1);
 		const reportedSeed = grid1.seed;
@@ -88,8 +85,7 @@ describe("PuzzleGenerator Seed Tests", { concurrency: true }, () => {
 		const options2 = {
 			seed: reportedSeed,
 			rngType: RngType.Mulberry32,
-			useSquares: true,
-			useStars: true,
+			ratios: { square: 0.2, star: 0.2 },
 		};
 		const grid2 = generator.generate(4, 4, options2);
 
@@ -106,8 +102,7 @@ describe("PuzzleGenerator Seed Tests", { concurrency: true }, () => {
 		const options1 = {
 			seed: initialSeed,
 			rngType: RngType.Mulberry32,
-			useSquares: true,
-			useStars: true,
+			ratios: { square: 0.2, star: 0.2 },
 		};
 		const grid1 = generator.generate(4, 4, options1);
 		const reportedSeed = grid1.seed;
@@ -116,8 +111,7 @@ describe("PuzzleGenerator Seed Tests", { concurrency: true }, () => {
 		const options2 = {
 			seed: reportedSeed,
 			rngType: RngType.Mulberry32,
-			useSquares: true,
-			useStars: true,
+			ratios: { square: 0.2, star: 0.2 },
 		};
 		const grid2 = generator.generate(4, 4, options2);
 
@@ -130,11 +124,13 @@ describe("PuzzleGenerator Seed Tests", { concurrency: true }, () => {
 		const generator = new PuzzleGenerator();
 		const validator = new PuzzleValidator();
 		const coreOptions = {
-			useSquares: true,
-			useStars: true,
-			useTetris: true,
-			useTetrisNegative: true,
-			useEraser: true,
+			ratios: {
+				square: 0.1,
+				star: 0.1,
+				tetris: 0.1,
+				tetrisNegative: 0.1,
+				eraser: 0.1,
+			},
 			difficulty: 0.5,
 			complexity: 0.5,
 		};

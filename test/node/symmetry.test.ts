@@ -165,7 +165,7 @@ describe("Generator - symmetry solvability", { concurrency: true }, () => {
 
 		const options = {
 			symmetry: SymmetryType.Horizontal,
-			useSquares: true,
+			ratios: { square: 0.2 },
 			difficulty: 0.5,
 		};
 
@@ -182,7 +182,7 @@ describe("Generator - symmetry solvability", { concurrency: true }, () => {
 
 		const options = {
 			symmetry: SymmetryType.Rotational,
-			useStars: true,
+			ratios: { star: 0.2 },
 			difficulty: 0.5,
 		};
 

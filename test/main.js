@@ -124,6 +124,26 @@ class WitnessGame {
 		document.getElementById("custom-share-btn").addEventListener("click", () => this.shareCustomPuzzle());
 		document.getElementById("custom-load-btn").addEventListener("click", () => this.loadCustomFromShareCode());
 
+		const markToggles = [
+			{ cb: "use-hexagons", sl: "ratio-hexagon-edge" },
+			{ cb: "use-hexagons-main", sl: "ratio-hexagon-main-edge" },
+			{ cb: "use-hexagons-sym", sl: "ratio-hexagon-sym-edge" },
+			{ cb: "use-hexagons-node", sl: "ratio-hexagon-node" },
+			{ cb: "use-hexagons-main-node", sl: "ratio-hexagon-main-node" },
+			{ cb: "use-hexagons-sym-node", sl: "ratio-hexagon-sym-node" },
+			{ cb: "use-squares", sl: "ratio-square" },
+			{ cb: "use-stars", sl: "ratio-star" },
+			{ cb: "use-tetris", sl: "ratio-tetris" },
+			{ cb: "use-tetris-negative", sl: "ratio-tetris-negative" },
+			{ cb: "use-eraser", sl: "ratio-eraser" },
+			{ cb: "use-triangles", sl: "ratio-triangle" },
+		];
+		markToggles.forEach(({ cb, sl }) => {
+			document.getElementById(cb).addEventListener("change", (e) => {
+				document.getElementById(sl).classList.toggle("hidden", !e.target.checked);
+			});
+		});
+
 		this.sharePuzzleCheckbox.addEventListener("change", () => {
 			if (this.sharePuzzleCheckbox.checked) this.sharePathCheckbox.checked = true;
 		});
@@ -269,13 +289,20 @@ class WitnessGame {
 		const options = {
 			rows: size,
 			cols: size,
-			useHexagons: document.getElementById("use-hexagons").checked,
-			useSquares: document.getElementById("use-squares").checked,
-			useStars: document.getElementById("use-stars").checked,
-			useTetris: document.getElementById("use-tetris").checked,
-			useTetrisNegative: document.getElementById("use-tetris-negative").checked,
-			useTriangles: document.getElementById("use-triangles").checked,
-			useEraser: document.getElementById("use-eraser").checked,
+			ratios: {
+				hexagonEdge: document.getElementById("use-hexagons").checked ? parseFloat(document.getElementById("ratio-hexagon-edge").value) : 0,
+				hexagonMainEdge: document.getElementById("use-hexagons-main").checked ? parseFloat(document.getElementById("ratio-hexagon-main-edge").value) : 0,
+				hexagonSymmetryEdge: document.getElementById("use-hexagons-sym").checked ? parseFloat(document.getElementById("ratio-hexagon-sym-edge").value) : 0,
+				hexagonNode: document.getElementById("use-hexagons-node").checked ? parseFloat(document.getElementById("ratio-hexagon-node").value) : 0,
+				hexagonMainNode: document.getElementById("use-hexagons-main-node").checked ? parseFloat(document.getElementById("ratio-hexagon-main-node").value) : 0,
+				hexagonSymmetryNode: document.getElementById("use-hexagons-sym-node").checked ? parseFloat(document.getElementById("ratio-hexagon-sym-node").value) : 0,
+				square: document.getElementById("use-squares").checked ? parseFloat(document.getElementById("ratio-square").value) : 0,
+				star: document.getElementById("use-stars").checked ? parseFloat(document.getElementById("ratio-star").value) : 0,
+				tetris: document.getElementById("use-tetris").checked ? parseFloat(document.getElementById("ratio-tetris").value) : 0,
+				tetrisNegative: document.getElementById("use-tetris-negative").checked ? parseFloat(document.getElementById("ratio-tetris-negative").value) : 0,
+				triangle: document.getElementById("use-triangles").checked ? parseFloat(document.getElementById("ratio-triangle").value) : 0,
+				eraser: document.getElementById("use-eraser").checked ? parseFloat(document.getElementById("ratio-eraser").value) : 0,
+			},
 			useBrokenEdges: document.getElementById("use-broken-edges").checked,
 			symmetry: parseInt(document.getElementById("symmetry-select").value),
 			complexity: parseFloat(document.getElementById("complexity-slider").value),
@@ -313,13 +340,30 @@ class WitnessGame {
 		if (options.rngType != null && options.rngType !== RngType.MathRandom) {
 			document.getElementById("rng-select").value = options.rngType;
 		}
-		document.getElementById("use-hexagons").checked = !!options.useHexagons;
-		document.getElementById("use-squares").checked = !!options.useSquares;
-		document.getElementById("use-stars").checked = !!options.useStars;
-		document.getElementById("use-tetris").checked = !!options.useTetris;
-		document.getElementById("use-tetris-negative").checked = !!options.useTetrisNegative;
-		document.getElementById("use-triangles").checked = !!options.useTriangles;
-		document.getElementById("use-eraser").checked = !!options.useEraser;
+		if (options.ratios) {
+			const setRatio = (cbId, slId, val, def = 0.2) => {
+				const checked = (val || 0) > 0;
+				const cb = document.getElementById(cbId);
+				if (cb) cb.checked = checked;
+				const sl = document.getElementById(slId);
+				if (sl) {
+					sl.value = val || def;
+					sl.classList.toggle("hidden", !checked);
+				}
+			};
+			setRatio("use-hexagons", "ratio-hexagon-edge", options.ratios.hexagonEdge);
+			setRatio("use-hexagons-main", "ratio-hexagon-main-edge", options.ratios.hexagonMainEdge, 0.1);
+			setRatio("use-hexagons-sym", "ratio-hexagon-sym-edge", options.ratios.hexagonSymmetryEdge, 0.1);
+			setRatio("use-hexagons-node", "ratio-hexagon-node", options.ratios.hexagonNode, 0.1);
+			setRatio("use-hexagons-main-node", "ratio-hexagon-main-node", options.ratios.hexagonMainNode, 0.05);
+			setRatio("use-hexagons-sym-node", "ratio-hexagon-sym-node", options.ratios.hexagonSymmetryNode, 0.05);
+			setRatio("use-squares", "ratio-square", options.ratios.square);
+			setRatio("use-stars", "ratio-star", options.ratios.star);
+			setRatio("use-tetris", "ratio-tetris", options.ratios.tetris);
+			setRatio("use-tetris-negative", "ratio-tetris-negative", options.ratios.tetrisNegative);
+			setRatio("use-triangles", "ratio-triangle", options.ratios.triangle);
+			setRatio("use-eraser", "ratio-eraser", options.ratios.eraser);
+		}
 		document.getElementById("use-broken-edges").checked = !!options.useBrokenEdges;
 		if (options.inputMode) {
 			document.getElementById("input-mode-select").value = options.inputMode;

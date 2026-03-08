@@ -290,13 +290,6 @@ class WitnessGamePage {
 	defaultStageOptions(overrides = {}) {
 		return {
 			seed: this.createRandomSeed(),
-			useHexagons: false,
-			useSquares: false,
-			useStars: false,
-			useTetris: false,
-			useTetrisNegative: false,
-			useEraser: false,
-			useTriangles: false,
 			useBrokenEdges: false,
 			symmetry: 0,
 			complexity: 0.4,
@@ -740,11 +733,21 @@ class WitnessGamePage {
 	buildBossGenerationOptions(pack, stage) {
 		const boss = stage.boss ?? {};
 		const symmetry = this.pickRandom(boss.symmetryModes ?? [0], 0);
+		const complexity = this.jitter(boss.baseComplexity ?? 0.65, 0.12);
 		return this.defaultStageOptions({
 			seed: this.createRandomSeed(),
-			...pack.bossFeatures,
+			ratios: {
+				hexagonEdge: pack.bossFeatures.useHexagons ? 0.1 + complexity * 0.2 : 0,
+				square: pack.bossFeatures.useSquares ? 0.1 + complexity * 0.2 : 0,
+				star: pack.bossFeatures.useStars ? 0.1 + complexity * 0.2 : 0,
+				tetris: pack.bossFeatures.useTetris ? 0.1 + complexity * 0.2 : 0,
+				tetrisNegative: pack.bossFeatures.useTetrisNegative ? 0.1 + complexity * 0.2 : 0,
+				triangle: pack.bossFeatures.useTriangles ? 0.1 + complexity * 0.2 : 0,
+				eraser: pack.bossFeatures.useEraser ? 0.05 + complexity * 0.1 : 0,
+			},
+			useBrokenEdges: pack.bossFeatures.useBrokenEdges,
 			symmetry,
-			complexity: this.jitter(boss.baseComplexity ?? 0.65, 0.12),
+			complexity: complexity,
 			difficulty: this.jitter(boss.baseDifficulty ?? 0.65, 0.12),
 			pathLength: this.jitter(boss.basePathLength ?? 0.55, 0.1),
 		});
@@ -759,11 +762,21 @@ class WitnessGamePage {
 			return this.core.createPuzzle(boss.rows, boss.cols, this.buildBossGenerationOptions(pack, stage));
 		} catch (error) {
 			console.warn("Boss generation failed, using fallback:", `${pack.id}:${stage.id}`, error);
+			const complexity = 0.45;
 			const fallback = this.defaultStageOptions({
 				seed: this.createRandomSeed(),
-				...pack.bossFeatures,
+				ratios: {
+					hexagonEdge: pack.bossFeatures.useHexagons ? 0.1 + complexity * 0.2 : 0,
+					square: pack.bossFeatures.useSquares ? 0.1 + complexity * 0.2 : 0,
+					star: pack.bossFeatures.useStars ? 0.1 + complexity * 0.2 : 0,
+					tetris: pack.bossFeatures.useTetris ? 0.1 + complexity * 0.2 : 0,
+					tetrisNegative: pack.bossFeatures.useTetrisNegative ? 0.1 + complexity * 0.2 : 0,
+					triangle: pack.bossFeatures.useTriangles ? 0.1 + complexity * 0.2 : 0,
+					eraser: pack.bossFeatures.useEraser ? 0.05 + complexity * 0.1 : 0,
+				},
+				useBrokenEdges: pack.bossFeatures.useBrokenEdges,
 				symmetry: 0,
-				complexity: 0.45,
+				complexity: complexity,
 				difficulty: 0.45,
 				pathLength: 0.45,
 			});

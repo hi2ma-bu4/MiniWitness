@@ -8,8 +8,8 @@ describe("Path Length", { concurrency: true }, async () => {
 		const size = 5;
 
 		// High complexity to encourage more hexagons
-		const optionsShort = { pathLength: 0.0, useHexagons: true, complexity: 1.0 };
-		const optionsLong = { pathLength: 1.0, useHexagons: true, complexity: 1.0 };
+		const optionsShort = { pathLength: 0.0, ratios: { hexagonEdge: 0.3 }, complexity: 1.0 };
+		const optionsLong = { pathLength: 1.0, ratios: { hexagonEdge: 0.3 }, complexity: 1.0 };
 
 		function countHex(grid: any): number {
 			let hex = 0;

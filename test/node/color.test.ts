@@ -8,8 +8,7 @@ describe("Color Options", { concurrency: true }, () => {
 	test("should use availableColors if provided", () => {
 		const availableColors = [10, 11, 12];
 		const grid = core.createPuzzle(3, 3, {
-			useSquares: true,
-			useStars: false,
+			ratios: { square: 0.5 },
 			availableColors: availableColors,
 			complexity: 1.0,
 		});
@@ -29,8 +28,7 @@ describe("Color Options", { concurrency: true }, () => {
 	test("should use defaultColors if provided", () => {
 		const defaultTetrisColor = 5;
 		const grid = core.createPuzzle(4, 4, {
-			useTetris: true,
-			useStars: false, // Avoid random color assignment for stars
+			ratios: { tetris: 0.5 },
 			defaultColors: {
 				Tetris: defaultTetrisColor,
 			},
@@ -56,10 +54,7 @@ describe("Color Options", { concurrency: true }, () => {
 		// Run multiple times to increase chance of hitting the Eraser-Tetris/Triangle error generation path
 		for (let i = 0; i < 20; i++) {
 			const grid = core.createPuzzle(4, 4, {
-				useTetris: true,
-				useTriangles: true,
-				useEraser: true,
-				useStars: false,
+				ratios: { tetris: 0.2, triangle: 0.2, eraser: 0.1 },
 				defaultColors: {
 					Tetris: defaultTetrisColor,
 					Triangle: defaultTriangleColor,

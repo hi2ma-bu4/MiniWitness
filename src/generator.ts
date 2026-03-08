@@ -1,6 +1,6 @@
 import { Grid } from "./grid";
 import { IRng, createRng } from "./rng";
-import { CellType, Color, type EdgeConstraint, EdgeType, type GenerationOptions, NodeType, type Point, RngType, SymmetryType } from "./types";
+import { CellType, Color, type EdgeConstraint, EdgeType, type GenerationOptions, type MarkRatios, NodeType, type Point, RngType, SymmetryType } from "./types";
 import { PuzzleValidator } from "./validator";
 
 interface TiledPiece {
@@ -757,15 +757,50 @@ export class PuzzleGenerator {
 	 * @param precalculatedRegions 事前計算された区画
 	 * @param precalculatedBoundaryEdges 事前計算された境界エッジ
 	 */
+	private getNormalizedRatios(ratios: MarkRatios): {
+		cell: Record<string, number> & { _sum: number };
+		edge: Record<string, number> & { _sum: number };
+		node: Record<string, number> & { _sum: number };
+	} {
+		const cellMarks = ["square", "star", "tetris", "tetrisNegative", "eraser", "triangle"];
+		const edgeMarks = ["hexagonEdge", "hexagonMainEdge", "hexagonSymmetryEdge"];
+		const nodeMarks = ["hexagonNode", "hexagonMainNode", "hexagonSymmetryNode"];
+
+		const normalize = (marks: string[]) => {
+			let sum = 0;
+			for (const k of marks) sum += (ratios as any)[k] ?? 0;
+			const factor = sum > 1 ? 1 / sum : 1;
+			const res: any = {};
+			for (const k of marks) {
+				res[k] = ((ratios as any)[k] ?? 0) * factor;
+			}
+			res._sum = sum * factor;
+			return res;
+		};
+
+		return {
+			cell: normalize(cellMarks),
+			edge: normalize(edgeMarks),
+			node: normalize(nodeMarks),
+		};
+	}
+
 	private applyConstraintsBasedOnPath(grid: Grid, path: Point[], options: GenerationOptions, symPath: Point[] = [], precalculatedRegions?: Point[][], precalculatedBoundaryEdges?: { type: "h" | "v"; r: number; c: number }[][]) {
 		const complexity = options.complexity ?? 0.5;
-		const useHexagons = options.useHexagons ?? true;
-		const useSquares = options.useSquares ?? true;
-		const useStars = options.useStars ?? true;
-		const useTetris = options.useTetris ?? false;
-		const useTetrisNegative = options.useTetrisNegative ?? false;
-		const useEraser = options.useEraser ?? false;
-		const useTriangles = options.useTriangles ?? false;
+		const ratios = options.ratios || {
+			hexagonEdge: 0.1 + complexity * 0.2,
+			square: 0.1 + complexity * 0.2,
+			star: 0.1 + complexity * 0.2,
+		};
+		const norm = this.getNormalizedRatios(ratios);
+
+		const useHexagons = norm.edge._sum > 0 || norm.node._sum > 0;
+		const useSquares = norm.cell.square > 0;
+		const useStars = norm.cell.star > 0;
+		const useTetris = norm.cell.tetris > 0;
+		const useTetrisNegative = norm.cell.tetrisNegative > 0;
+		const useEraser = norm.cell.eraser > 0;
+		const useTriangles = norm.cell.triangle > 0;
 
 		let hexagonsPlaced = 0;
 		let squaresPlaced = 0;
@@ -777,74 +812,80 @@ export class PuzzleGenerator {
 
 		// 六角形の配置
 		if (useHexagons) {
-			const targetDifficulty = options.difficulty ?? 0.5;
 			const symmetry = options.symmetry || SymmetryType.None;
 
 			// エッジ六角形 (線上・中心)
-			for (let i = 0; i < path.length - 1; i++) {
-				const neighbors = this.getValidNeighbors(grid, path[i]);
-				const isBranching = neighbors.length > 2;
-				// 難易度が低いときはエッジ六角形を多くしてガイドにする
-				let prob = complexity * (targetDifficulty < 0.4 ? 0.6 : 0.3);
-				if (isBranching) prob = targetDifficulty < 0.4 ? prob * 1.0 : prob * 0.5;
-				if (this.rng!.next() < prob) {
-					let type = EdgeType.Hexagon;
-					let p1 = path[i];
-					let p2 = path[i + 1];
+			const edgeProb = norm.edge._sum;
+			if (edgeProb > 0) {
+				for (let i = 0; i < path.length - 1; i++) {
+					if (this.rng!.next() < edgeProb) {
+						let r = this.rng!.next() * edgeProb;
+						let type = EdgeType.Hexagon;
+						let p1 = path[i];
+						let p2 = path[i + 1];
 
-					if (symmetry !== SymmetryType.None) {
-						const r = this.rng!.next();
-						if (r < 0.3) type = EdgeType.HexagonMain;
-						else if (r < 0.6) {
+						if (r < norm.edge.hexagonEdge) {
+							type = EdgeType.Hexagon;
+						} else if (r < norm.edge.hexagonEdge + norm.edge.hexagonMainEdge) {
+							type = EdgeType.HexagonMain;
+						} else {
 							type = EdgeType.HexagonSymmetry;
-							p1 = this.getSymmetricalPoint(grid, path[i], symmetry);
-							p2 = this.getSymmetricalPoint(grid, path[i + 1], symmetry);
+							if (symmetry !== SymmetryType.None) {
+								p1 = this.getSymmetricalPoint(grid, path[i], symmetry);
+								p2 = this.getSymmetricalPoint(grid, path[i + 1], symmetry);
+							}
 						}
-					}
 
-					this.setEdgeHexagon(grid, p1, p2, type);
-					hexagonsPlaced++;
+						this.setEdgeHexagon(grid, p1, p2, type);
+						hexagonsPlaced++;
+					}
 				}
 			}
+
 			// ノード六角形 (線上・交点)
-			for (let i = 0; i < path.length; i++) {
-				const node = path[i];
-				if (grid.nodes[node.y][node.x].type !== NodeType.Normal) continue;
-				// EdgeのHexagonと隣接している場合はスキップ
-				if (this.hasIncidentHexagonEdge(grid, node)) continue;
+			const nodeProb = norm.node._sum;
+			if (nodeProb > 0) {
+				for (let i = 0; i < path.length; i++) {
+					const node = path[i];
+					if (grid.nodes[node.y][node.x].type !== NodeType.Normal) continue;
+					if (this.hasIncidentHexagonEdge(grid, node)) continue;
 
-				// 難易度が高いときにノード六角形を配置
-				let prob = complexity * (targetDifficulty > 0.6 ? 0.15 : 0.05);
-				if (this.rng!.next() < prob) {
-					let type = NodeType.Hexagon;
-					let targetNode = node;
+					if (this.rng!.next() < nodeProb) {
+						let r = this.rng!.next() * nodeProb;
+						let type = NodeType.Hexagon;
+						let targetNode = node;
 
-					if (symmetry !== SymmetryType.None) {
-						const r = this.rng!.next();
-						if (r < 0.3) type = NodeType.HexagonMain;
-						else if (r < 0.6) {
+						if (r < norm.node.hexagonNode) {
+							type = NodeType.Hexagon;
+						} else if (r < norm.node.hexagonNode + norm.node.hexagonMainNode) {
+							type = NodeType.HexagonMain;
+						} else {
 							type = NodeType.HexagonSymmetry;
-							targetNode = this.getSymmetricalPoint(grid, node, symmetry);
+							if (symmetry !== SymmetryType.None) {
+								targetNode = this.getSymmetricalPoint(grid, node, symmetry);
+							}
 						}
-					}
 
-					grid.nodes[targetNode.y][targetNode.x].type = type;
-					hexagonsPlaced++;
+						grid.nodes[targetNode.y][targetNode.x].type = type;
+						hexagonsPlaced++;
+					}
 				}
 			}
 
-			if (hexagonsPlaced === 0 && path.length >= 2) {
+			if (hexagonsPlaced === 0 && path.length >= 2 && norm.edge._sum > 0) {
 				const idx = Math.floor(this.rng!.next() * (path.length - 1));
-				const symmetry = options.symmetry || SymmetryType.None;
+				let r = this.rng!.next() * norm.edge._sum;
 				let type = EdgeType.Hexagon;
 				let p1 = path[idx];
 				let p2 = path[idx + 1];
 
-				if (symmetry !== SymmetryType.None) {
-					const r = this.rng!.next();
-					if (r < 0.3) type = EdgeType.HexagonMain;
-					else if (r < 0.6) {
-						type = EdgeType.HexagonSymmetry;
+				if (r < norm.edge.hexagonEdge) {
+					type = EdgeType.Hexagon;
+				} else if (r < norm.edge.hexagonEdge + norm.edge.hexagonMainEdge) {
+					type = EdgeType.HexagonMain;
+				} else {
+					type = EdgeType.HexagonSymmetry;
+					if (symmetry !== SymmetryType.None) {
 						p1 = this.getSymmetricalPoint(grid, path[idx], symmetry);
 						p2 = this.getSymmetricalPoint(grid, path[idx + 1], symmetry);
 					}
@@ -890,6 +931,9 @@ export class PuzzleGenerator {
 			for (let i = 0; i < path.length - 1; i++) pathEdges.add(this.getEdgeKey(path[i], path[i + 1]));
 			for (let i = 0; i < symPath.length - 1; i++) pathEdges.add(this.getEdgeKey(symPath[i], symPath[i + 1]));
 
+			const totalCellsCount = grid.rows * grid.cols;
+			const cellRatios = norm.cell;
+
 			for (let rIdx = 0; rIdx < regionIndices.length; rIdx++) {
 				const idx = regionIndices[rIdx];
 				const region = regions[idx];
@@ -899,7 +943,7 @@ export class PuzzleGenerator {
 				const forceOne = (needs.square && squaresPlaced === 0) || (needs.star && starsPlaced === 0) || (needs.tetris && tetrisPlaced === 0) || (needs.tetrisNegative && tetrisNegativePlaced === 0) || (needs.eraser && erasersPlaced === 0) || (needs.triangle && trianglesPlaced === 0);
 
 				// 必須なものがまだ配置されていない場合、残り区画数が少なくなってきたら確率を上げる
-				let placementProb = 0.2 + complexity * 0.6;
+				let placementProb = cellRatios._sum > 0 ? cellRatios._sum : 0.2 + complexity * 0.6;
 				if (forceOne && remainingRegions <= 3) placementProb = 1.0;
 				else if (forceOne && remainingRegions <= 6) placementProb = 0.7;
 
@@ -925,14 +969,16 @@ export class PuzzleGenerator {
 					}
 				}
 
-				let shouldPlaceSquare = useSquares && this.rng!.next() < 0.5 + complexity * 0.3;
+				const probSquare = cellRatios.square / cellRatios._sum || 0;
+				let shouldPlaceSquare = useSquares && this.rng!.next() < probSquare;
 				if (useSquares && squaresPlaced === 0 && remainingRegions <= 2) shouldPlaceSquare = true;
 				if (useSquares && !useStars && remainingRegions <= 2 && squareColorsUsed.size < 2 && squaresPlaced > 0) shouldPlaceSquare = true;
 
 				if (shouldPlaceSquare && potentialCells.length > 0) {
 					// 区域の大きさに応じて配置する数を増やす
-					const maxSquares = Math.min(potentialCells.length, Math.max(4, Math.floor(region.length / 4)));
-					const numSquares = Math.floor(this.rng!.next() * (maxSquares / 2)) + Math.ceil(maxSquares / 2);
+					const maxSquaresInRegion = Math.min(potentialCells.length, Math.max(4, Math.floor(region.length / 4)));
+					const targetTotalSquares = Math.ceil(totalCellsCount * cellRatios.square);
+					const numSquares = ratios.square === 1.0 ? potentialCells.length : Math.min(potentialCells.length, Math.max(1, Math.min(maxSquaresInRegion, targetTotalSquares - squaresPlaced)));
 					for (let i = 0; i < numSquares; i++) {
 						if (potentialCells.length === 0) break;
 						const cell = potentialCells.pop()!;
@@ -946,12 +992,13 @@ export class PuzzleGenerator {
 
 				// テトリスの配置
 				if (useTetris || useTetrisNegative) {
-					let shouldPlaceTetris = this.rng!.next() < 0.1 + complexity * 0.4;
+					const probTetris = (cellRatios.tetris + cellRatios.tetrisNegative) / cellRatios._sum || 0;
+					let shouldPlaceTetris = this.rng!.next() < probTetris;
 					// 未配置の場合は確率を上げる
 					if (tetrisPlaced === 0 && remainingRegions <= 3) shouldPlaceTetris = true;
 					if (useTetrisNegative && tetrisNegativePlaced === 0 && remainingRegions <= 2) shouldPlaceTetris = true;
 
-					const maxTetrisPerRegion = tetrisPlaced === 0 && remainingRegions <= 2 ? 6 : 4;
+					const maxTetrisPerRegion = ratios.tetris === 1.0 || ratios.tetrisNegative === 1.0 ? potentialCells.length : tetrisPlaced === 0 && remainingRegions <= 2 ? 6 : 4;
 
 					// 面積制限の緩和: 必須かつ未配置の場合は制限を無視する。ただし探索爆発を防ぐため最大30セル程度に制限
 					const isAreaOk = totalTetrisArea + region.length <= maxTotalTetrisArea || (forceOne && useTetris && tetrisPlaced === 0 && region.length <= 30) || (forceOne && useTetrisNegative && tetrisNegativePlaced === 0 && region.length <= 30);
@@ -1098,12 +1145,14 @@ export class PuzzleGenerator {
 
 				// 三角形の配置
 				if (useTriangles) {
-					let shouldPlaceTriangle = this.rng!.next() < 0.2 + complexity * 0.5;
+					const probTriangle = cellRatios.triangle / cellRatios._sum || 0;
+					let shouldPlaceTriangle = this.rng!.next() < probTriangle;
 					if (trianglesPlaced === 0 && remainingRegions <= 2) shouldPlaceTriangle = true;
 
 					if (shouldPlaceTriangle && potentialCells.length > 0) {
 						this.shuffleArray(potentialCells);
-						const numToTry = Math.min(potentialCells.length, Math.max(1, Math.floor(region.length / 3)));
+						const targetTotalTriangles = Math.ceil(totalCellsCount * cellRatios.triangle);
+						const numToTry = ratios.triangle === 1.0 ? potentialCells.length : Math.min(potentialCells.length, Math.max(1, Math.min(Math.floor(region.length / 3), targetTotalTriangles - trianglesPlaced)));
 						let placedInRegion = 0;
 
 						for (let i = 0; i < potentialCells.length && placedInRegion < numToTry; i++) {
@@ -1140,9 +1189,9 @@ export class PuzzleGenerator {
 				}
 
 				// テトラポッド（エラー削除）の配置
-				if (useEraser && erasersPlaced < 1) {
-					const prob = 0.05 + complexity * 0.2;
-					let shouldPlaceEraser = this.rng!.next() < prob;
+				if (useEraser && (ratios.eraser === 1.0 || erasersPlaced < 1)) {
+					const probEraser = cellRatios.eraser / cellRatios._sum || 0;
+					let shouldPlaceEraser = this.rng!.next() < probEraser;
 					if (remainingRegions <= 2) shouldPlaceEraser = true;
 
 					if (shouldPlaceEraser && potentialCells.length >= 1) {
@@ -1278,6 +1327,7 @@ export class PuzzleGenerator {
 
 				// 星の配置
 				if (useStars) {
+					const probStar = cellRatios.star / cellRatios._sum || 0;
 					const nonNoneColors = availableColors.filter((c) => c !== 0);
 					const safeColors = nonNoneColors.length > 0 ? nonNoneColors : [Color.Black];
 
@@ -1296,12 +1346,15 @@ export class PuzzleGenerator {
 					}
 
 					// 2. 追加でトゲのペアを配置する（ランダム）
-					const maxPairs = Math.max(1, Math.floor(region.length / 8));
-					for (let p = 0; p < maxPairs; p++) {
+					const targetTotalStars = Math.ceil(totalCellsCount * cellRatios.star);
+					const maxPairsInRegion = ratios.star === 1.0 ? Math.floor(potentialCells.length / 2) : Math.max(1, Math.floor(region.length / 8));
+					const numPairsToPlace = Math.min(maxPairsInRegion, Math.floor((targetTotalStars - starsPlaced) / 2));
+
+					for (let p = 0; p < numPairsToPlace; p++) {
 						if (potentialCells.length < 2) break;
 						for (const color of safeColors) {
 							if (potentialCells.length < 2) break;
-							if (this.rng!.next() > 0.3 + complexity * 0.4) continue;
+							if (ratios.star !== 1.0 && this.rng!.next() > 0.3 + complexity * 0.4) continue;
 
 							const colorCount = region.filter((p) => grid.cells[p.y][p.x].color === color).length;
 							if (colorCount === 0) {
@@ -1311,6 +1364,7 @@ export class PuzzleGenerator {
 									grid.cells[cell.y][cell.x].color = color;
 									starsPlaced++;
 								}
+								break; // Place one pair per color check
 							}
 						}
 					}
@@ -1527,13 +1581,14 @@ export class PuzzleGenerator {
 	 * @returns 全ての要求された制約が含まれているか
 	 */
 	private checkAllRequestedConstraintsPresent(grid: Grid, options: GenerationOptions): boolean {
-		const useHexagons = options.useHexagons ?? true;
-		const useSquares = options.useSquares ?? true;
-		const useStars = options.useStars ?? true;
-		const useTetris = options.useTetris ?? false;
-		const useTetrisNegative = options.useTetrisNegative ?? false;
-		const useEraser = options.useEraser ?? false;
-		const useTriangles = options.useTriangles ?? false;
+		const norm = this.getNormalizedRatios(options.ratios || {});
+		const useHexagons = norm.edge._sum > 0 || norm.node._sum > 0;
+		const useSquares = norm.cell.square > 0;
+		const useStars = norm.cell.star > 0;
+		const useTetris = norm.cell.tetris > 0;
+		const useTetrisNegative = norm.cell.tetrisNegative > 0;
+		const useEraser = norm.cell.eraser > 0;
+		const useTriangles = norm.cell.triangle > 0;
 		const useBrokenEdges = options.useBrokenEdges ?? false;
 
 		if (useBrokenEdges) {

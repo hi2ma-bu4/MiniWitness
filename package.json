@@ -1,6 +1,6 @@
 {
   "name": "miniwitness",
-  "version": "1.4.12",
+  "version": "1.4.13",
   "description": "",
   "license": "Apache-2.0",
   "author": "hi2ma-bu4",
@@ -8,7 +8,8 @@
   "main": "src/index.ts",
   "scripts": {
     "build": "node ./dev/build.mjs",
-    "test:unit": "tsx --test --test-concurrency=8 \"test/node/**/*.test.ts\"",
+    "test:unit": "tsx --test --test-concurrency=8 test/node/broken_generation.test.ts test/node/color.test.ts test/node/eraser.test.ts test/node/error_reporting.test.ts test/node/generation_performance.test.ts test/node/hexagon.test.ts test/node/large_grid.test.ts test/node/path_length.test.ts test/node/seed.test.ts test/node/serializer.test.ts test/node/symmetry.test.ts test/node/tetris.test.ts test/node/tetris_negative.test.ts test/node/triangle.test.ts test/node/ui.test.ts test/node/validator.test.ts test/node/worker_internal.test.ts",
+    "test:full": "tsx --test --test-concurrency=8 \"test/node/**/*.test.ts\"",
     "test": "npm run build && npm run test:unit"
   },
   "volta": {
