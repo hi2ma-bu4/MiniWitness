@@ -360,6 +360,10 @@ export declare class PuzzleGenerator {
 	private hasIsolatedMark;
 	private getSymmetricalPoint;
 	private getEdgeKey;
+	/**
+	 * 各マークの出現割合を正規化・スケーリングする
+	 */
+	private getNormalizedRatios;
 	private TETRIS_SHAPES;
 	/**
 	 * 解パスに基づいて各区画にルールを配置する
@@ -370,7 +374,6 @@ export declare class PuzzleGenerator {
 	 * @param precalculatedRegions 事前計算された区画
 	 * @param precalculatedBoundaryEdges 事前計算された境界エッジ
 	 */
-	private getNormalizedRatios;
 	private applyConstraintsBasedOnPath;
 	/**
 	 * 区画分けを行う

@@ -63,7 +63,8 @@ h1 {
 	color: #e0e0e0;
 }
 
-select, button {
+select,
+button {
 	background: #333;
 	border: 1px solid #555;
 	border-radius: 4px;
@@ -238,7 +239,10 @@ textarea {
 }
 
 @media (max-width: 768px) {
-	select, button, input {
+
+	select,
+	button,
+	input {
 		font-size: 15px;
 	}
 
